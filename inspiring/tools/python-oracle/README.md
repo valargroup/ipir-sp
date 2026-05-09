@@ -26,7 +26,7 @@ the per-stage breakdown.
 | 2     | Galois automorphisms `tau_g, tau_h`  | done   |
 | 3     | Lemma 1: trace `Tr(p) = d * c_0`     | done   |
 | 4     | LWE                                  | done   |
-| 5     | RLWE under `s_tilde`                 | todo   |
+| 5     | RLWE under `s_tilde`                 | done   |
 | 6     | Gadget decomposition                 | todo   |
 | 7     | Key switching                        | todo   |
 | 8     | `TRANSFORM` (LWE -> IRCtx)           | todo   |
