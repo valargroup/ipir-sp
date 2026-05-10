@@ -9,14 +9,45 @@
 //! online packing only adds `NTT(b̃)` to the precomputed `b` offset and stacks
 //! that with the precomputed final `c1`.
 
+use rand_chacha::rand_core::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
-use spiral_rs::poly::{from_ntt_alloc, to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw};
+use spiral_rs::discrete_gaussian::DiscreteGaussian;
+use spiral_rs::gadget::build_gadget;
+use spiral_rs::poly::{
+    add_into, from_ntt_alloc, multiply, stack_ntt, to_ntt_alloc, PolyMatrix, PolyMatrixNTT,
+    PolyMatrixRaw,
+};
 
-use crate::automorph::{h, tau_g_pow};
-use crate::collapse::precompute_collapse_affine;
+use crate::automorph::{h, tau_g_pow, tau_ntt};
+use crate::collapse::{
+    collapse_one, collapse_with_digits, precompute_collapse_affine, CollapseState,
+};
 use crate::error::InspiringError;
-use crate::key_switching::{automorphic_image, KeySwitchingMatrix};
+use crate::key_switching::{automorphic_image, ks_digits_ntt_from_c1, KeySwitchingMatrix};
+use crate::lwe::LweBatch;
+use crate::pack::RlweCiphertext;
 use crate::params::RlweParams;
+
+/// Reference InsPIRe seed for the first fixed packing mask.
+pub const REFERENCE_W_SEED: [u8; 32] = [7; 32];
+
+/// Reference InsPIRe seed for the second fixed packing mask used by full packing.
+pub const REFERENCE_V_SEED: [u8; 32] = [
+    8, 8, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+];
+
+/// CRS/public-randomness preprocessing for a single CRS `A`.
+///
+/// This layer is independent of the client's secret and key-switching matrices.
+/// Servers can build it once for a fixed public setup, then bind fresh
+/// per-query `(K_g, K_h)` pairs with [`PackPublicPreprocessed::bind_keys`].
+pub struct PackPublicPreprocessed<'a> {
+    /// Underlying parameter set.
+    pub params: &'a RlweParams,
+    /// Aggregated deterministic `a` slots before the key-dependent collapse.
+    pub a_agg: Vec<PolyMatrixNTT<'a>>,
+}
 
 /// Lean online cache for a single CRS `A` and key-switching pair `(K_g, K_h)`.
 ///
@@ -38,6 +69,65 @@ pub struct PackPreprocessed<'a> {
     pub collapse_b_offset_ntt: PolyMatrixNTT<'a>,
 }
 
+/// Packing-key upload mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackingKeyMode {
+    /// Upload only the `y` body, matching reference `PackingKeys::init`.
+    Half,
+    /// Upload `y` and `z` bodies, matching reference `PackingKeys::init_full`.
+    Full,
+}
+
+/// Secret-dependent packing-key upload.
+///
+/// The fixed top rows/masks are derived by both client and server from
+/// [`REFERENCE_W_SEED`] and [`REFERENCE_V_SEED`]. The client uploads only these
+/// body rows, matching the reference `PackingKeys` split.
+pub struct PackingKeys<'a> {
+    /// Packing mode for this upload.
+    pub mode: PackingKeyMode,
+    /// Body row for the `tau_g` switching key.
+    pub y_body: PolyMatrixNTT<'a>,
+    /// Optional body row for the final `tau_h` switching key.
+    pub z_body: Option<PolyMatrixNTT<'a>>,
+}
+
+/// Per-request expansion of uploaded packing keys.
+///
+/// This depends only on the uploaded key bodies and RLWE parameters, so it can
+/// be reused across every CRS/output block in the same query.
+pub struct ExpandedPackingKeys<'a> {
+    /// Expanded left-half `K_g` images.
+    pub kg_images_left: Vec<KeySwitchingMatrix<'a>>,
+    /// Expanded right-half `K_g` images.
+    pub kg_images_right: Vec<KeySwitchingMatrix<'a>>,
+    /// Restored final `K_h` key-switching matrix.
+    pub kh: KeySwitchingMatrix<'a>,
+}
+
+/// Public fixed top-row images for packing-key expansion.
+pub struct TopKeyImages<'a> {
+    /// Fixed top rows for left-half `K_g` images.
+    pub kg_top_left: Vec<PolyMatrixNTT<'a>>,
+    /// Fixed top rows for right-half `K_g` images.
+    pub kg_top_right: Vec<PolyMatrixNTT<'a>>,
+    /// Fixed top row for the final `K_h` matrix.
+    pub kh_top: PolyMatrixNTT<'a>,
+}
+
+/// Public/static packing precomputation for one CRS block.
+///
+/// This records the fixed-mask collapse digit schedule. Per request, the server
+/// combines it with uploaded [`PackingKeys`] and online `b` values.
+pub struct QueryPackPreprocessed<'a> {
+    /// Underlying parameter set.
+    pub params: &'a RlweParams,
+    /// Aggregated public `a` slots.
+    pub a_agg: Vec<PolyMatrixNTT<'a>>,
+    /// Precomputed gadget digits in collapse execution order.
+    pub digits_ntt: Vec<PolyMatrixNTT<'a>>,
+}
+
 impl<'a> PackPreprocessed<'a> {
     /// Build all CRS-side data from `(A, K_g, K_h)`. Online callers then
     /// call [`crate::pack::pack`] with just the `b_k` scalars.
@@ -52,12 +142,36 @@ impl<'a> PackPreprocessed<'a> {
         kg: &KeySwitchingMatrix<'a>,
         kh: &KeySwitchingMatrix<'a>,
     ) -> Result<Self, InspiringError> {
+        PackPublicPreprocessed::build(params, crs)?.bind_keys(kg, kh)
+    }
+}
+
+impl<'a> PackPublicPreprocessed<'a> {
+    /// Build the CRS/public-randomness preprocessing for one CRS block.
+    pub fn build(params: &'a RlweParams, crs: &PolyMatrixNTT<'a>) -> Result<Self, InspiringError> {
         if crs.rows != params.d || crs.cols != 1 {
             return Err(InspiringError::PreprocessMismatch(format!(
                 "expected CRS shape {}x1, got {}x{}",
                 params.d, crs.rows, crs.cols
             )));
         }
+
+        let crs_raw = from_ntt_alloc(crs);
+        let a_tildes: Vec<_> = (0..params.d)
+            .map(|row| a_tilde_coeffs(params, crs_raw.get_poly(row, 0)))
+            .collect();
+        let a_agg = build_a_agg(params, &a_tildes);
+
+        Ok(Self { params, a_agg })
+    }
+
+    /// Bind a fresh per-query `(K_g, K_h)` pair to this public cache.
+    pub fn bind_keys(
+        &self,
+        kg: &KeySwitchingMatrix<'a>,
+        kh: &KeySwitchingMatrix<'a>,
+    ) -> Result<PackPreprocessed<'a>, InspiringError> {
+        let params = self.params;
         if kg.mat.rows != 2 || kg.mat.cols != params.gadget.ell {
             return Err(InspiringError::PreprocessMismatch(format!(
                 "K_g must have shape 2x{}, got {}x{}",
@@ -71,12 +185,6 @@ impl<'a> PackPreprocessed<'a> {
             )));
         }
 
-        let crs_raw = from_ntt_alloc(crs);
-        let a_tildes: Vec<_> = (0..params.d)
-            .map(|row| a_tilde_coeffs(params, crs_raw.get_poly(row, 0)))
-            .collect();
-        let a_agg = build_a_agg(params, &a_tildes);
-
         let two_d = 2 * params.d as u64;
         let h_d = h(params.d);
         let kg_images_left: Vec<_> = (0..(params.d / 2 - 1))
@@ -85,15 +193,381 @@ impl<'a> PackPreprocessed<'a> {
         let kg_images_right: Vec<_> = (0..(params.d / 2 - 1))
             .map(|i| automorphic_image(&kg, (tau_g_pow(i, params.d) * h_d) % two_d))
             .collect();
-        let collapse_affine =
-            precompute_collapse_affine(params, a_agg, &kg_images_left, &kg_images_right, kh);
+        let collapse_affine = precompute_collapse_affine(
+            params,
+            self.a_agg.clone(),
+            &kg_images_left,
+            &kg_images_right,
+            kh,
+        );
 
-        Ok(Self {
+        Ok(PackPreprocessed {
             params,
             collapse_a_final_ntt: collapse_affine.a_final_ntt,
             collapse_b_offset_ntt: collapse_affine.b_offset_ntt,
         })
     }
+}
+
+impl<'a> PackingKeys<'a> {
+    /// Generate full packing keys from a fresh secret.
+    pub fn generate_full(
+        params: &'a RlweParams,
+        secret_ntt: &PolyMatrixNTT<'a>,
+        rng: &mut ChaCha20Rng,
+    ) -> Self {
+        let y_body = generate_reference_body(
+            params,
+            secret_ntt,
+            tau_g_pow(1, params.d),
+            REFERENCE_W_SEED,
+            rng,
+        );
+        let z_body =
+            generate_reference_body(params, secret_ntt, h(params.d), REFERENCE_V_SEED, rng);
+
+        Self {
+            mode: PackingKeyMode::Full,
+            y_body,
+            z_body: Some(z_body),
+        }
+    }
+
+    /// Convert uploaded bodies into full key-switching matrices by restoring
+    /// the fixed public mask rows.
+    pub fn to_key_pair(
+        &self,
+        params: &'a RlweParams,
+    ) -> Result<(KeySwitchingMatrix<'a>, KeySwitchingMatrix<'a>), InspiringError> {
+        validate_reference_body(params, &self.y_body, "reference y_body")?;
+        let z_body = self.z_body.as_ref().ok_or_else(|| {
+            InspiringError::PreprocessMismatch("full packing keys require z_body".to_string())
+        })?;
+        validate_reference_body(params, z_body, "reference z_body")?;
+
+        let y_top = reference_mask_top(params, REFERENCE_W_SEED);
+        let z_top = reference_mask_top(params, REFERENCE_V_SEED);
+        Ok((
+            KeySwitchingMatrix {
+                mat: stack_ntt(&y_top, &self.y_body),
+                params,
+            },
+            KeySwitchingMatrix {
+                mat: stack_ntt(&z_top, z_body),
+                params,
+            },
+        ))
+    }
+
+    /// Expand uploaded reference key bodies once for a whole request.
+    pub fn expand(
+        &self,
+        params: &'a RlweParams,
+    ) -> Result<ExpandedPackingKeys<'a>, InspiringError> {
+        let top_images = TopKeyImages::build(params);
+        self.expand_with_top_images(params, &top_images)
+    }
+
+    /// Expand uploaded reference key bodies using precomputed fixed top rows.
+    pub fn expand_with_top_images(
+        &self,
+        params: &'a RlweParams,
+        top_images: &TopKeyImages<'a>,
+    ) -> Result<ExpandedPackingKeys<'a>, InspiringError> {
+        let total_started = std::time::Instant::now();
+        validate_reference_body(params, &self.y_body, "reference y_body")?;
+        let z_body = self.z_body.as_ref().ok_or_else(|| {
+            InspiringError::PreprocessMismatch("full packing keys require z_body".to_string())
+        })?;
+        validate_reference_body(params, z_body, "reference z_body")?;
+        top_images.validate(params)?;
+
+        let restore_kh_started = std::time::Instant::now();
+        let kh = KeySwitchingMatrix {
+            mat: stack_ntt(&top_images.kh_top, z_body),
+            params,
+        };
+        let restore_kh_us = restore_kh_started.elapsed().as_micros();
+
+        let two_d = 2 * params.d as u64;
+        let h_d = h(params.d);
+        let left_started = std::time::Instant::now();
+        let kg_images_left: Vec<_> = (0..(params.d / 2 - 1))
+            .map(|i| {
+                let body = tau_ntt(&self.y_body, tau_g_pow(i, params.d));
+                KeySwitchingMatrix {
+                    mat: stack_ntt(&top_images.kg_top_left[i], &body),
+                    params,
+                }
+            })
+            .collect();
+        let kg_left_images_us = left_started.elapsed().as_micros();
+
+        let right_started = std::time::Instant::now();
+        let kg_images_right: Vec<_> = (0..(params.d / 2 - 1))
+            .map(|i| {
+                let body = tau_ntt(&self.y_body, (tau_g_pow(i, params.d) * h_d) % two_d);
+                KeySwitchingMatrix {
+                    mat: stack_ntt(&top_images.kg_top_right[i], &body),
+                    params,
+                }
+            })
+            .collect();
+        let kg_right_images_us = right_started.elapsed().as_micros();
+
+        eprintln!(
+            "packing_key_expand_breakdown_us total={} restore_kh={} kg_left_body_images={} kg_right_body_images={} left_count={} right_count={}",
+            total_started.elapsed().as_micros(),
+            restore_kh_us,
+            kg_left_images_us,
+            kg_right_images_us,
+            kg_images_left.len(),
+            kg_images_right.len(),
+        );
+
+        Ok(ExpandedPackingKeys {
+            kg_images_left,
+            kg_images_right,
+            kh,
+        })
+    }
+}
+
+impl<'a> QueryPackPreprocessed<'a> {
+    /// Build public/static packing preprocessing for one CRS block.
+    pub fn build(params: &'a RlweParams, crs: &PolyMatrixNTT<'a>) -> Result<Self, InspiringError> {
+        let public = PackPublicPreprocessed::build(params, crs)?;
+        let digits_ntt = precompute_reference_digits(params, public.a_agg.clone());
+
+        Ok(Self {
+            params,
+            a_agg: public.a_agg,
+            digits_ntt,
+        })
+    }
+
+    /// Pack one block of online `b` scalars using uploaded reference keys.
+    pub fn pack(
+        &self,
+        b: &LweBatch,
+        keys: &PackingKeys<'a>,
+    ) -> Result<RlweCiphertext<'a>, InspiringError> {
+        let expanded = keys.expand(self.params)?;
+        self.pack_expanded(b, &expanded)
+    }
+
+    /// Pack one block using key images expanded once for the whole request.
+    pub fn pack_expanded(
+        &self,
+        b: &LweBatch,
+        keys: &ExpandedPackingKeys<'a>,
+    ) -> Result<RlweCiphertext<'a>, InspiringError> {
+        b.validate(self.params)?;
+        if keys.kg_images_left.len() != self.params.d / 2 - 1 {
+            return Err(InspiringError::PreprocessMismatch(format!(
+                "expected {} left K_g images, got {}",
+                self.params.d / 2 - 1,
+                keys.kg_images_left.len()
+            )));
+        }
+        if keys.kg_images_right.len() != self.params.d / 2 - 1 {
+            return Err(InspiringError::PreprocessMismatch(format!(
+                "expected {} right K_g images, got {}",
+                self.params.d / 2 - 1,
+                keys.kg_images_right.len()
+            )));
+        }
+
+        let mut b_tilde = PolyMatrixRaw::zero(&self.params.spiral, 1, 1);
+        for (idx, ct) in b.inner.iter().enumerate() {
+            b_tilde.get_poly_mut(0, 0)[idx] = ct.b % self.params.q;
+        }
+
+        Ok(collapse_with_digits(
+            self.params,
+            crate::intermediate::IRCtx {
+                a_hat: self.a_agg.clone(),
+                b_tilde,
+            },
+            &keys.kg_images_left,
+            &keys.kg_images_right,
+            &keys.kh,
+            &self.digits_ntt,
+        ))
+    }
+}
+
+impl<'a> TopKeyImages<'a> {
+    /// Build fixed public top-row key images from reference seeds.
+    pub fn build(params: &'a RlweParams) -> Self {
+        let kg_top = reference_mask_top(params, REFERENCE_W_SEED);
+        let kh_top = reference_mask_top(params, REFERENCE_V_SEED);
+        let two_d = 2 * params.d as u64;
+        let h_d = h(params.d);
+        let kg_top_left = (0..(params.d / 2 - 1))
+            .map(|i| tau_ntt(&kg_top, tau_g_pow(i, params.d)))
+            .collect();
+        let kg_top_right = (0..(params.d / 2 - 1))
+            .map(|i| tau_ntt(&kg_top, (tau_g_pow(i, params.d) * h_d) % two_d))
+            .collect();
+
+        Self {
+            kg_top_left,
+            kg_top_right,
+            kh_top,
+        }
+    }
+
+    fn validate(&self, params: &RlweParams) -> Result<(), InspiringError> {
+        let expected = params.d / 2 - 1;
+        if self.kg_top_left.len() != expected {
+            return Err(InspiringError::PreprocessMismatch(format!(
+                "expected {expected} left fixed K_g top images, got {}",
+                self.kg_top_left.len()
+            )));
+        }
+        if self.kg_top_right.len() != expected {
+            return Err(InspiringError::PreprocessMismatch(format!(
+                "expected {expected} right fixed K_g top images, got {}",
+                self.kg_top_right.len()
+            )));
+        }
+        validate_reference_body(params, &self.kh_top, "reference kh top")?;
+        for (idx, top) in self.kg_top_left.iter().enumerate() {
+            validate_reference_body(params, top, "reference left kg top").map_err(|err| {
+                InspiringError::PreprocessMismatch(format!("left K_g top image {idx}: {err}"))
+            })?;
+        }
+        for (idx, top) in self.kg_top_right.iter().enumerate() {
+            validate_reference_body(params, top, "reference right kg top").map_err(|err| {
+                InspiringError::PreprocessMismatch(format!("right K_g top image {idx}: {err}"))
+            })?;
+        }
+        Ok(())
+    }
+}
+
+fn precompute_reference_digits<'a>(
+    params: &'a RlweParams,
+    a_agg: Vec<PolyMatrixNTT<'a>>,
+) -> Vec<PolyMatrixNTT<'a>> {
+    let kg = fixed_reference_key(params, REFERENCE_W_SEED);
+    let kh = fixed_reference_key(params, REFERENCE_V_SEED);
+    let two_d = 2 * params.d as u64;
+    let h_d = h(params.d);
+    let kg_images_left: Vec<_> = (0..(params.d / 2 - 1))
+        .map(|i| automorphic_image(&kg, tau_g_pow(i, params.d)))
+        .collect();
+    let kg_images_right: Vec<_> = (0..(params.d / 2 - 1))
+        .map(|i| automorphic_image(&kg, (tau_g_pow(i, params.d) * h_d) % two_d))
+        .collect();
+
+    let mut digits_ntt = Vec::with_capacity(params.d - 1);
+    let mut slots = a_agg;
+    let right = slots.split_off(params.d / 2);
+    let left = slots;
+    let b = PolyMatrixNTT::zero(&params.spiral, 1, 1);
+
+    let mut left_state = CollapseState { a: left, b };
+    collect_half_digits(&mut left_state, &kg_images_left, &mut digits_ntt);
+    let left_a = left_state
+        .a
+        .pop()
+        .expect("collapse_half leaves one left component");
+
+    let mut right_state = CollapseState {
+        a: right,
+        b: left_state.b,
+    };
+    collect_half_digits(&mut right_state, &kg_images_right, &mut digits_ntt);
+    let right_a = right_state
+        .a
+        .pop()
+        .expect("collapse_half leaves one right component");
+
+    let mut final_state = CollapseState {
+        a: vec![left_a, right_a],
+        b: right_state.b,
+    };
+    digits_ntt.push(ks_digits_ntt_from_c1(params, &final_state.a[1]));
+    collapse_one(&mut final_state, &kh);
+    debug_assert_eq!(digits_ntt.len(), params.d - 1);
+    digits_ntt
+}
+
+fn collect_half_digits<'a>(
+    state: &mut CollapseState<'a>,
+    kg_images: &[KeySwitchingMatrix<'a>],
+    digits_ntt: &mut Vec<PolyMatrixNTT<'a>>,
+) {
+    while state.a.len() > 1 {
+        let image_idx = state.a.len() - 2;
+        digits_ntt.push(ks_digits_ntt_from_c1(
+            kg_images[image_idx].params,
+            &state.a[image_idx + 1],
+        ));
+        collapse_one(state, &kg_images[image_idx]);
+    }
+}
+
+fn generate_reference_body<'a>(
+    params: &'a RlweParams,
+    secret_ntt: &PolyMatrixNTT<'a>,
+    secret_from_exponent: u64,
+    mask_seed: [u8; 32],
+    rng: &mut ChaCha20Rng,
+) -> PolyMatrixNTT<'a> {
+    let spiral = &params.spiral;
+    let ell = params.gadget.ell;
+    let mask_raw = reference_mask_raw(params, mask_seed);
+    let mask_ntt = to_ntt_alloc(&mask_raw);
+    let secret_from = crate::automorph::tau_ntt(secret_ntt, secret_from_exponent);
+    let gadget = build_gadget(spiral, 1, ell);
+    let scaled = spiral_rs::poly::scalar_multiply_alloc(&secret_from, &to_ntt_alloc(&gadget));
+    let dg = DiscreteGaussian::init(params.sigma_chi * std::f64::consts::TAU.sqrt());
+    let error = PolyMatrixRaw::noise(spiral, 1, ell, &dg, rng);
+
+    let mut body = PolyMatrixNTT::zero(spiral, 1, ell);
+    multiply(&mut body, secret_ntt, &mask_ntt);
+    add_into(&mut body, &to_ntt_alloc(&error));
+    add_into(&mut body, &scaled);
+    body
+}
+
+fn fixed_reference_key<'a>(params: &'a RlweParams, mask_seed: [u8; 32]) -> KeySwitchingMatrix<'a> {
+    let top = reference_mask_top(params, mask_seed);
+    let body = PolyMatrixNTT::zero(&params.spiral, 1, params.gadget.ell);
+    KeySwitchingMatrix {
+        mat: stack_ntt(&top, &body),
+        params,
+    }
+}
+
+fn reference_mask_top<'a>(params: &'a RlweParams, mask_seed: [u8; 32]) -> PolyMatrixNTT<'a> {
+    (-&reference_mask_raw(params, mask_seed)).ntt()
+}
+
+fn reference_mask_raw<'a>(params: &'a RlweParams, mask_seed: [u8; 32]) -> PolyMatrixRaw<'a> {
+    PolyMatrixRaw::random_rng(
+        &params.spiral,
+        1,
+        params.gadget.ell,
+        &mut ChaCha20Rng::from_seed(mask_seed),
+    )
+}
+
+fn validate_reference_body(
+    params: &RlweParams,
+    body: &PolyMatrixNTT<'_>,
+    label: &'static str,
+) -> Result<(), InspiringError> {
+    if body.rows != 1 || body.cols != params.gadget.ell {
+        return Err(InspiringError::PreprocessMismatch(format!(
+            "{label} must have shape 1x{}, got {}x{}",
+            params.gadget.ell, body.rows, body.cols
+        )));
+    }
+    Ok(())
 }
 
 fn build_a_agg<'a>(params: &'a RlweParams, a_tildes: &[Vec<u64>]) -> Vec<PolyMatrixNTT<'a>> {

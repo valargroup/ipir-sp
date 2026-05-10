@@ -2,7 +2,9 @@
 
 use anyhow::{Context, Result};
 use ipir_sp::client::IPIRClient;
+use ipir_sp::modulus_switch::modulus_bits;
 use ipir_sp::params_for_simplepir;
+use ipir_sp::serialize::deserialize_packing_keys;
 use ipir_sp::server::{build_pack_preprocessed_blocks, IPIRServer};
 use ipir_sp::YpirSchemeParams;
 use serde::{Deserialize, Serialize};
@@ -12,7 +14,9 @@ use crate::snapshot::NullifierSnapshot;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ServerBreakdown {
-    pub deserialize_us: u128,
+    pub setup_deserialize_us: u128,
+    pub pack_preprocess_us: u128,
+    pub online_deserialize_us: u128,
     pub matrix_vector_us: u128,
     pub packing_us: u128,
     pub serialization_us: u128,
@@ -59,7 +63,8 @@ pub struct LocalIpirBackend {
     pir_item_count: usize,
     setup_seed: u64,
     server: IPIRServer<u16>,
-    preprocessed: Vec<inspiring::PackPreprocessed<'static>>,
+    pack_preprocessed: Vec<inspiring::QueryPackPreprocessed<'static>>,
+    top_key_images: inspiring::TopKeyImages<'static>,
 }
 
 impl LocalIpirBackend {
@@ -76,22 +81,17 @@ impl LocalIpirBackend {
         ypir: YpirSchemeParams,
     ) -> Result<Self> {
         let rlwe = Box::leak(Box::new(rlwe));
-        let client = Box::leak(Box::new(IPIRClient::new(rlwe, &ypir)));
-        let setup = client.generate_setup_simplepir_from_seed(seed_from_u64(setup_seed));
         let db = snapshot
             .coeff_iter(ypir.db_rows)
             .context("open snapshot coefficient iterator")?;
         let server = IPIRServer::<u16>::new(ypir.clone(), db, false, true);
-        let offline = server.perform_offline_precomputation_simplepir(
-            client.rlwe_params(),
-            &setup.offline_query_polys,
-        );
-        let preprocessed = build_pack_preprocessed_blocks(
-            client.rlwe_params(),
-            &offline.crs_blocks,
-            &setup.key_pair,
-        )
-        .context("build local ipir-sp preprocessing")?;
+        let client = IPIRClient::new(rlwe, &ypir);
+        let offline_query_polys =
+            client.generate_public_query_setup_simplepir_from_seed(seed_from_u64(setup_seed));
+        let offline = server.perform_offline_precomputation_simplepir(rlwe, &offline_query_polys);
+        let pack_preprocessed = build_pack_preprocessed_blocks(rlwe, &offline.crs_blocks)
+            .context("build local ipir-sp pack preprocessing")?;
+        let top_key_images = inspiring::TopKeyImages::build(rlwe);
 
         Ok(Self {
             rlwe,
@@ -100,8 +100,30 @@ impl LocalIpirBackend {
             pir_item_count: snapshot.pir_row_count(),
             setup_seed,
             server,
-            preprocessed,
+            pack_preprocessed,
+            top_key_images,
         })
+    }
+
+    fn parse_fresh_query(
+        &self,
+        query: &[u8],
+    ) -> Result<(inspiring::PackingKeys<'static>, Vec<u8>)> {
+        let packing_keys_len = ipir_sp::serialize::serialized_packing_keys_len(self.rlwe);
+        let online_query_bytes_len = (self.ypir.db_rows * modulus_bits(self.rlwe.q)).div_ceil(8);
+        let expected_len = packing_keys_len + online_query_bytes_len;
+        if query.len() != expected_len {
+            anyhow::bail!(
+                "local-ipir reference query must be {expected_len} bytes, got {}",
+                query.len()
+            );
+        }
+
+        let packing_keys = deserialize_packing_keys(self.rlwe, &query[..packing_keys_len])
+            .context("deserialize local-ipir packing keys")?;
+        let online_query = query[packing_keys_len..].to_vec();
+
+        Ok((packing_keys, online_query))
     }
 }
 
@@ -119,18 +141,29 @@ impl PirBackend for LocalIpirBackend {
     }
 
     fn answer_query(&self, query: &[u8]) -> Result<QueryAnswer> {
+        let setup_deserialize_started = std::time::Instant::now();
+        let (packing_keys, online_query) = self.parse_fresh_query(query)?;
+        let setup_deserialize_us = setup_deserialize_started.elapsed().as_micros();
+
+        let preprocess_started = std::time::Instant::now();
+        let pack_preprocess_us = preprocess_started.elapsed().as_micros();
+
         let (body, timing) = self
             .server
             .perform_full_online_computation_simplepir_measured(
                 self.rlwe,
-                query,
-                &self.preprocessed,
+                &online_query,
+                &packing_keys,
+                &self.top_key_images,
+                &self.pack_preprocessed,
             )
             .context("local ipir-sp query failed")?;
         Ok(QueryAnswer {
             body,
             breakdown: ServerBreakdown {
-                deserialize_us: timing.deserialize.as_micros(),
+                setup_deserialize_us,
+                pack_preprocess_us,
+                online_deserialize_us: timing.deserialize.as_micros(),
                 matrix_vector_us: timing.matrix_vector.as_micros(),
                 packing_us: timing.packing.as_micros(),
                 serialization_us: timing.serialization.as_micros(),
@@ -289,7 +322,9 @@ mod ypir_artifact {
             Ok(QueryAnswer {
                 body,
                 breakdown: ServerBreakdown {
-                    deserialize_us,
+                    setup_deserialize_us: 0,
+                    pack_preprocess_us: 0,
+                    online_deserialize_us: deserialize_us,
                     matrix_vector_us,
                     packing_us,
                     serialization_us,
@@ -353,5 +388,36 @@ mod tests {
         assert_eq!(meta.pir_item_count, 1);
         assert_eq!(meta.db_rows, 8);
         assert_eq!(meta.db_cols, 8);
+    }
+
+    #[test]
+    fn local_backend_rejects_noncanonical_query_body() {
+        let mut file = NamedTempFile::new().expect("temp file");
+        file.write_all(&[9u8; 32]).expect("write snapshot");
+        let snapshot = NullifierSnapshot::open(file.path()).expect("open snapshot");
+        let rlwe = RlweParams::new(
+            8,
+            12289,
+            4,
+            3.2,
+            GadgetParams {
+                bits_per: 3,
+                ell: 5,
+            },
+        )
+        .expect("valid params");
+
+        let backend = LocalIpirBackend::prepare_with_params(&snapshot, 7, rlwe, tiny_ypir(8, 8))
+            .expect("prepare backend");
+        let old_key_pair_len = 4 * backend.rlwe.gadget.ell * backend.rlwe.d * 8;
+        let online_query_len = (backend.ypir.db_rows * modulus_bits(backend.rlwe.q)).div_ceil(8);
+        let old_body = vec![0u8; old_key_pair_len + online_query_len];
+
+        let err = match backend.parse_fresh_query(&old_body) {
+            Ok(_) => panic!("old compact key-pair body must be rejected"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("reference query"));
     }
 }

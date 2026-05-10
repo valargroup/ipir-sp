@@ -254,6 +254,133 @@ Fixture query results:
   - Client decode: 26.046 ms
   - Process wall: 1.17 s
 
+### Nullifier PIR After Reference-Compatible IPIR-SP Wire Format
+
+Command shape:
+
+```bash
+target/release/nullifier-pir serve \
+  --snapshot-path data/nullifiers.bin \
+  --backend local-ipir \
+  --host 127.0.0.1 \
+  --port 8090 \
+  --setup-seed 7
+```
+
+Client commands and exact output: `raw/nullifier-ipir-reference-compatible-3queries.log`
+
+Notes:
+
+- Backend: `local-ipir`, rebuilt after switching the request body from compact `(K_g, K_h)` to reference-style packing-key bodies.
+- Request body: `reference_packing_keys || packed_first_dim_query`.
+- The old server-side key-bind/preprocess phase is no longer used for this path; uploaded key bodies are consumed by the reference-compatible online packing routine.
+
+Average over the three fixture queries:
+
+- Full query: 2603.886 ms
+- Client query generation: 71.658 ms
+- HTTP POST round trip: 2504.729 ms
+- Server: 2501.919 ms
+- Client decode: 27.330 ms
+- Upload: 3,768,320 bytes
+- Download: 12,288 bytes
+- Upload breakdown:
+  - Reference packing keys: 98,304 bytes
+  - Packed first-dimension query: 3,670,016 bytes
+- Server breakdown:
+  - Setup/key deserialize: 1.218 ms
+  - Pack preprocess: 0.000 ms
+  - Online query deserialize: 9.944 ms
+  - Matrix-vector multiply: 524.026 ms
+  - Reference-compatible packing: 1963.204 ms
+  - Serialization: 0.278 ms
+
+Fixture query results:
+
+- Existing nullifier `b3cdb97715d5e3dd624fc87906b9d13b4e4ec6a63989d989936f2504f0a1f706`: found at global index 0, row 0, offset 0, verified through PIR.
+  - Full query: 2670.203 ms
+  - Server: 2567.314 ms
+  - Upload/download: 3,768,320 / 12,288 bytes
+- Existing nullifier `4b4f13ad02a04d16e6efa83730751f53eead7dbf019e1632d937b8c8631d393e`: found at global index 1,638,400, row 14,628, offset 64, verified through PIR.
+  - Full query: 2609.520 ms
+  - Server: 2507.408 ms
+  - Upload/download: 3,768,320 / 12,288 bytes
+- Absent nullifier `0000000000000000000000000000000000000000000000000000000000000000`: confirmed absent locally and not present in decoded probe row 0.
+  - Full query: 2531.935 ms
+  - Server: 2431.036 ms
+  - Upload/download: 3,768,320 / 12,288 bytes
+
+### Nullifier PIR After Once-Per-Request Key Expansion
+
+Client commands and exact output: `raw/nullifier-ipir-reference-expanded-once-3queries.log`
+
+This run keeps the same reference-compatible wire format but expands the uploaded
+packing-key bodies once per request, then reuses the expanded key images across
+all five RLWE output blocks.
+
+Average over the three fixture queries:
+
+- Full query: 2483.725 ms
+- Client query generation: 71.717 ms
+- HTTP POST round trip: 2384.848 ms
+- Server: 2380.909 ms
+- Client decode: 26.947 ms
+- Upload: 3,768,320 bytes
+- Download: 12,288 bytes
+- Upload breakdown:
+  - Reference packing keys: 98,304 bytes
+  - Packed first-dimension query: 3,670,016 bytes
+- Server breakdown:
+  - Setup/key deserialize: 2.132 ms
+  - Pack preprocess: 0.000 ms
+  - Online query deserialize: 11.475 ms
+  - Matrix-vector multiply: 518.773 ms
+  - Reference-compatible packing: 1838.673 ms
+  - Serialization: 0.263 ms
+
+Compared with the first reference-compatible run, once-per-request expansion
+reduced average packing time from 1963.204 ms to 1838.673 ms. The remaining
+packing cost is dominated by the `d - 1` key-switch-style products per RLWE
+output block, not repeated key image expansion.
+
+### Nullifier PIR After Fixed Top-Row Image Cache
+
+Client commands and exact output: `raw/nullifier-ipir-reference-shared-top-cache-3queries.log`
+
+This run keeps the same reference-compatible wire format and additionally
+precomputes the fixed public top-row `K_g` images once at server startup. Per
+query, the server now automorphs only the uploaded secret-dependent body row and
+stacks it with cached top rows.
+
+Average over the three fixture queries:
+
+- Full query: 1676.448 ms
+- Client query generation: 71.612 ms
+- HTTP POST round trip: 1578.293 ms
+- Server: 1575.765 ms
+- Client decode: 26.317 ms
+- Upload: 3,768,320 bytes
+- Download: 12,288 bytes
+- Server breakdown:
+  - Setup/key deserialize: 0.936 ms
+  - Pack preprocess: 0.000 ms
+  - Online query deserialize: 9.118 ms
+  - Matrix-vector multiply: 525.198 ms
+  - Reference-compatible packing: 1037.349 ms
+  - Serialization: 0.269 ms
+
+Representative server-side packing logs:
+
+```text
+reference_key_expand_breakdown_us total=792735 restore_kh=23 kg_left_body_images=393900 kg_right_body_images=398802 left_count=1023 right_count=1023
+reference_packing_breakdown_us total=1010326 expand_keys=792780 batch_build=14611 block_pack_total=202675 block_pack_by_block=[202675]
+```
+
+Compared with once-per-request expansion without the fixed top-row cache,
+average packing time dropped from 1838.673 ms to 1037.349 ms. The dominant
+remaining cost is now automorphing the uploaded `K_g` body row (`~0.79 s` per
+query), while the collapse/key-switch products are about `~0.20 s`.
+
 ## Normalized Interpretation
 
 - YPIR+SP headline full-system timing is 294 ms average online server time, including 199 ms ring packing.
@@ -262,6 +389,7 @@ Fixture query results:
 - IPIR+SP pack+serialize after the affine collapse cache is 18.664 ms. This is comparable to YPIR's post-first-pass online work (294 ms online server time minus 91 ms first pass = 203 ms), not to YPIR's full online time including the database dot product.
 - IPIR+SP headline online pack/serialize improved from 4.4272 s before online caching, to 997.07 ms with cached collapse digits, to 18.664 ms with the affine collapse cache.
 - IPIR+SP headline offline CRS extraction/preprocessing is 102.43 s for five RLWE outputs. The affine cache keeps deterministic collapse work offline, so offline setup remains heavy.
+- The reference-compatible fresh-query path intentionally shifts away from the compact affine-cache request shape. It removes the explicit server key-bind/preprocess phase, but the server's online packing phase now consumes uploaded packing-key bodies and took 1.037 s on average for the full nullifier snapshot after caching fixed top-row images and expanding uploaded keys once per request.
 
 ## Follow-up Needed
 

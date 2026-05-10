@@ -5,12 +5,13 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use ipir_sp::client::IPIRClient;
-use ipir_sp::serialize::{serialize_ks_pair, serialize_u64s_le};
+use ipir_sp::serialize::serialize_packing_keys;
 use nullifier_pir::backend::{Backend, BackendKind, PirBackend};
 use nullifier_pir::encoding::{decode_item_coefficients, extract_nullifier, nullifier_offset};
 use nullifier_pir::http::{
-    SERVER_DESERIALIZE_TIME_HEADER, SERVER_MATRIX_VECTOR_TIME_HEADER, SERVER_PACKING_TIME_HEADER,
-    SERVER_SERIALIZATION_TIME_HEADER, SERVER_TIME_HEADER,
+    SERVER_MATRIX_VECTOR_TIME_HEADER, SERVER_ONLINE_DESERIALIZE_TIME_HEADER,
+    SERVER_PACKING_TIME_HEADER, SERVER_PACK_PREPROCESS_TIME_HEADER,
+    SERVER_SERIALIZATION_TIME_HEADER, SERVER_SETUP_DESERIALIZE_TIME_HEADER, SERVER_TIME_HEADER,
 };
 use nullifier_pir::snapshot::{
     download_snapshot, sha256_file, write_metadata, NullifierSnapshot, SnapshotMetadata,
@@ -46,7 +47,9 @@ impl UploadBreakdown {
 #[derive(Debug, Clone, Default)]
 struct ServerTimingBreakdown {
     total_us: Option<u128>,
-    deserialize_us: Option<u128>,
+    setup_deserialize_us: Option<u128>,
+    pack_preprocess_us: Option<u128>,
+    online_deserialize_us: Option<u128>,
     matrix_vector_us: Option<u128>,
     packing_us: Option<u128>,
     serialization_us: Option<u128>,
@@ -298,30 +301,25 @@ fn query_row(
         }
     } else {
         let pir_client = IPIRClient::from_db_sz(pir_item_count, ITEM_SIZE_BITS);
-        let setup = pir_client
-            .generate_setup_simplepir_from_seed(nullifier_pir::backend::seed_from_u64(setup_seed));
-        let key_pair_bytes = serialize_ks_pair(
-            pir_client.rlwe_params(),
-            &setup.key_pair.0,
-            &setup.key_pair.1,
-        )
-        .context("serialize local ipir key-switching pair for upload accounting")?
-        .len();
-        let offline_query_polys_bytes = setup
-            .offline_query_polys
-            .iter()
-            .map(|poly| serialize_u64s_le(poly).len())
-            .sum();
-        let (query, client_seed) = pir_client.generate_query_simplepir(&setup, row);
+        let offline_query_polys = pir_client.generate_public_query_setup_simplepir_from_seed(
+            nullifier_pir::backend::seed_from_u64(setup_seed),
+        );
+        let (query, packing_keys, client_seed) =
+            pir_client.generate_fresh_query_simplepir(&offline_query_polys, row);
+        let packing_keys_body = serialize_packing_keys(pir_client.rlwe_params(), &packing_keys)
+            .context("serialize local ipir packing keys")?;
         let online_query_packed = query.to_packed_bytes(pir_client.rlwe_params().q);
+        let packing_keys_bytes = packing_keys_body.len();
         let online_query_packed_bytes = online_query_packed.len();
+        let mut query_body = Vec::with_capacity(packing_keys_bytes + online_query_packed_bytes);
+        query_body.extend_from_slice(&packing_keys_body);
+        query_body.extend_from_slice(&online_query_packed);
         (
-            online_query_packed,
+            query_body,
             UploadBreakdown {
                 backend: "local-ipir",
                 components: vec![
-                    ("key_pair", key_pair_bytes),
-                    ("offline_query_polys", offline_query_polys_bytes),
+                    ("packing_keys", packing_keys_bytes),
                     ("online_query", online_query_packed_bytes),
                 ],
             },
@@ -366,8 +364,10 @@ fn query_row(
         decode_time.as_micros()
     );
     println!(
-        "server_breakdown_us deserialize={} matrix_vector={} packing={} serialization={}",
-        format_optional_us(server_timing.deserialize_us),
+        "server_breakdown_us setup_deserialize={} pack_preprocess={} online_deserialize={} matrix_vector={} packing={} serialization={}",
+        format_optional_us(server_timing.setup_deserialize_us),
+        format_optional_us(server_timing.pack_preprocess_us),
+        format_optional_us(server_timing.online_deserialize_us),
         format_optional_us(server_timing.matrix_vector_us),
         format_optional_us(server_timing.packing_us),
         format_optional_us(server_timing.serialization_us),
@@ -411,7 +411,9 @@ fn post_query(
     let headers = response.headers();
     let server_timing = ServerTimingBreakdown {
         total_us: parse_header_us(headers, SERVER_TIME_HEADER),
-        deserialize_us: parse_header_us(headers, SERVER_DESERIALIZE_TIME_HEADER),
+        setup_deserialize_us: parse_header_us(headers, SERVER_SETUP_DESERIALIZE_TIME_HEADER),
+        pack_preprocess_us: parse_header_us(headers, SERVER_PACK_PREPROCESS_TIME_HEADER),
+        online_deserialize_us: parse_header_us(headers, SERVER_ONLINE_DESERIALIZE_TIME_HEADER),
         matrix_vector_us: parse_header_us(headers, SERVER_MATRIX_VECTOR_TIME_HEADER),
         packing_us: parse_header_us(headers, SERVER_PACKING_TIME_HEADER),
         serialization_us: parse_header_us(headers, SERVER_SERIALIZATION_TIME_HEADER),

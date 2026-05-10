@@ -12,7 +12,11 @@ use crate::backend::PirBackend;
 use crate::snapshot::SnapshotMetadata;
 
 pub const SERVER_TIME_HEADER: &str = "x-nullifier-pir-server-time-us";
-pub const SERVER_DESERIALIZE_TIME_HEADER: &str = "x-nullifier-pir-server-deserialize-us";
+pub const SERVER_SETUP_DESERIALIZE_TIME_HEADER: &str =
+    "x-nullifier-pir-server-setup-deserialize-us";
+pub const SERVER_PACK_PREPROCESS_TIME_HEADER: &str = "x-nullifier-pir-server-pack-preprocess-us";
+pub const SERVER_ONLINE_DESERIALIZE_TIME_HEADER: &str =
+    "x-nullifier-pir-server-online-deserialize-us";
 pub const SERVER_MATRIX_VECTOR_TIME_HEADER: &str = "x-nullifier-pir-server-matrix-vector-us";
 pub const SERVER_PACKING_TIME_HEADER: &str = "x-nullifier-pir-server-packing-us";
 pub const SERVER_SERIALIZATION_TIME_HEADER: &str = "x-nullifier-pir-server-serialization-us";
@@ -59,8 +63,16 @@ async fn query(body: web::Bytes, data: web::Data<AppState>) -> actix_web::Result
         .content_type("application/octet-stream")
         .insert_header((SERVER_TIME_HEADER, server_time_us))
         .insert_header((
-            SERVER_DESERIALIZE_TIME_HEADER,
-            answer.breakdown.deserialize_us.to_string(),
+            SERVER_SETUP_DESERIALIZE_TIME_HEADER,
+            answer.breakdown.setup_deserialize_us.to_string(),
+        ))
+        .insert_header((
+            SERVER_PACK_PREPROCESS_TIME_HEADER,
+            answer.breakdown.pack_preprocess_us.to_string(),
+        ))
+        .insert_header((
+            SERVER_ONLINE_DESERIALIZE_TIME_HEADER,
+            answer.breakdown.online_deserialize_us.to_string(),
         ))
         .insert_header((
             SERVER_MATRIX_VECTOR_TIME_HEADER,

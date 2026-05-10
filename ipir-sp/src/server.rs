@@ -5,9 +5,9 @@
 //! query/database multiplication, and the `hint_0` block layout consumed by
 //! InspiRING preprocessing.
 
-use inspiring::key_switching::KeySwitchingMatrix;
 use inspiring::{
-    pack, InspiringError, LweBatch, LweCiphertext, PackPreprocessed, RlweCiphertext, RlweParams,
+    InspiringError, LweBatch, LweCiphertext, PackingKeys, QueryPackPreprocessed, RlweCiphertext,
+    RlweParams, TopKeyImages,
 };
 use rayon::prelude::*;
 pub use simplepir_kernel::ToU64;
@@ -304,46 +304,14 @@ where
         offline_precompute_from_hint(rlwe, &self.params, hint_0)
     }
 
-    /// Perform the SimplePIR online server path and serialize the response.
-    ///
-    /// This composes the three IPIR-SP online pieces:
-    ///
-    /// 1. first-dimension query/database multiplication,
-    /// 2. InspiRING packing of the resulting `b` blocks,
-    /// 3. row-wise single-CRT response modulus switching.
-    pub fn perform_online_computation_simplepir<'a>(
-        &self,
-        rlwe: &RlweParams,
-        first_dim_query: &[u64],
-        preprocessed: &'a [PackPreprocessed<'a>],
-    ) -> Result<Vec<u8>, InspiringError> {
-        let intermediate = self.multiply_query(rlwe, first_dim_query);
-        let packed = pack_intermediate_blocks(&intermediate, preprocessed)?;
-        Ok(serialize_rlwe_response(
-            &packed,
-            self.params.q_prime_1,
-            self.params.q_prime_2,
-        ))
-    }
-
-    /// Parse a raw `/query` body and perform the SimplePIR online server path.
-    pub fn perform_full_online_computation_simplepir<'a>(
-        &self,
-        rlwe: &RlweParams,
-        query: &[u8],
-        preprocessed: &'a [PackPreprocessed<'a>],
-    ) -> Result<Vec<u8>, InspiringError> {
-        let (response, _) =
-            self.perform_full_online_computation_simplepir_measured(rlwe, query, preprocessed)?;
-        Ok(response)
-    }
-
-    /// Parse a raw `/query` body, perform the online path, and return subphase timings.
+    /// Parse a raw `/query` body and use uploaded packing-key bodies.
     pub fn perform_full_online_computation_simplepir_measured<'a>(
         &self,
         rlwe: &RlweParams,
         query: &[u8],
-        preprocessed: &'a [PackPreprocessed<'a>],
+        packing_keys: &PackingKeys<'a>,
+        top_key_images: &TopKeyImages<'a>,
+        preprocessed: &'a [QueryPackPreprocessed<'a>],
     ) -> Result<(Vec<u8>, OnlineServerTiming), InspiringError> {
         let deserialize_started = std::time::Instant::now();
         let first_dim_query = self.deserialize_first_dim_query(rlwe, query)?;
@@ -354,7 +322,8 @@ where
         let matrix_vector = matrix_started.elapsed();
 
         let packing_started = std::time::Instant::now();
-        let packed = pack_intermediate_blocks(&intermediate, preprocessed)?;
+        let packed =
+            pack_intermediate_blocks(&intermediate, packing_keys, top_key_images, preprocessed)?;
         let packing = packing_started.elapsed();
 
         let serialization_started = std::time::Instant::now();
@@ -464,8 +433,8 @@ pub struct CrsBlock {
 }
 
 impl CrsBlock {
-    /// Convert this block into the `[d, 1]` NTT CRS shape expected by
-    /// [`PackPreprocessed::build`].
+    /// Convert this block into the `[d, 1]` NTT CRS shape expected by packing
+    /// preprocessing.
     pub fn to_ntt<'a>(&self, params: &'a RlweParams) -> PolyMatrixNTT<'a> {
         assert_eq!(self.rows.len(), params.d, "CRS block must have d rows");
 
@@ -486,7 +455,7 @@ impl CrsBlock {
 ///
 /// The old YPIR implementation continues from this point into CDKS
 /// `prep_pack_many_lwes` and `precompute_pack`; `ipir-sp` stops at CRS block
-/// extraction so the next layer can call `inspiring::PackPreprocessed::build`.
+/// extraction so the next layer can build the public packing precomputation.
 #[must_use]
 pub fn offline_precompute_from_hint(
     rlwe: &RlweParams,
@@ -512,53 +481,28 @@ pub fn offline_precompute_from_hint(
     OfflinePrecomputedValues { hint_0, crs_blocks }
 }
 
-/// Build InspiRING preprocessing values for already extracted CRS blocks.
-///
-/// The same per-query `(K_g, K_h)` pair is shared across all response blocks.
-/// `PackPreprocessed::build` derives the required automorphic images locally
-/// and does not retain the key material on the online path.
+/// Build CRS/public preprocessing for uploaded packing-key queries.
 pub fn build_pack_preprocessed_blocks<'a>(
     params: &'a RlweParams,
     crs_blocks: &[CrsBlock],
-    key_pair: &(KeySwitchingMatrix<'a>, KeySwitchingMatrix<'a>),
-) -> Result<Vec<PackPreprocessed<'a>>, InspiringError> {
-    let mut out = Vec::with_capacity(crs_blocks.len());
-
-    for block in crs_blocks {
-        let crs = block.to_ntt(params);
-        out.push(PackPreprocessed::build(
-            params,
-            &crs,
-            &key_pair.0,
-            &key_pair.1,
-        )?);
-    }
-
-    Ok(out)
+) -> Result<Vec<QueryPackPreprocessed<'a>>, InspiringError> {
+    crs_blocks
+        .iter()
+        .map(|block| {
+            let crs = block.to_ntt(params);
+            QueryPackPreprocessed::build(params, &crs)
+        })
+        .collect()
 }
 
-/// Convenience wrapper that extracts CRS blocks from `hint_0` and immediately
-/// builds the corresponding InspiRING offline caches.
-pub fn build_pack_preprocessed_from_hint<'a>(
-    params: &'a RlweParams,
-    ypir: &YpirSchemeParams,
-    hint_0: Vec<u64>,
-    key_pair: &(KeySwitchingMatrix<'a>, KeySwitchingMatrix<'a>),
-) -> Result<(OfflinePrecomputedValues, Vec<PackPreprocessed<'a>>), InspiringError> {
-    let offline = offline_precompute_from_hint(params, ypir, hint_0);
-    let pre = build_pack_preprocessed_blocks(params, &offline.crs_blocks, key_pair)?;
-    Ok((offline, pre))
-}
-
-/// Pack online SimplePIR intermediate values into RLWE ciphertexts.
-///
-/// The CRS-side `a` vectors were already absorbed into [`PackPreprocessed`].
-/// `inspiring::pack` only reads online `b` scalars, so each constructed
-/// [`LweCiphertext`] carries a zero dummy `a` vector of the right shape.
+/// Pack online SimplePIR intermediate values using uploaded packing-key bodies.
 pub fn pack_intermediate_blocks<'a>(
     intermediate: &[u64],
-    preprocessed: &'a [PackPreprocessed<'a>],
+    packing_keys: &PackingKeys<'a>,
+    top_key_images: &TopKeyImages<'a>,
+    preprocessed: &'a [QueryPackPreprocessed<'a>],
 ) -> Result<Vec<RlweCiphertext<'a>>, InspiringError> {
+    let total_started = std::time::Instant::now();
     let Some(first) = preprocessed.first() else {
         return if intermediate.is_empty() {
             Ok(Vec::new())
@@ -568,7 +512,6 @@ pub fn pack_intermediate_blocks<'a>(
             ))
         };
     };
-
     let params = first.params;
     if intermediate.len() != preprocessed.len() * params.d {
         return Err(InspiringError::LweShape(format!(
@@ -580,7 +523,13 @@ pub fn pack_intermediate_blocks<'a>(
         )));
     }
 
+    let expand_started = std::time::Instant::now();
+    let expanded_keys = packing_keys.expand_with_top_images(params, top_key_images)?;
+    let expand_us = expand_started.elapsed().as_micros();
+
     let mut out = Vec::with_capacity(preprocessed.len());
+    let mut batch_build_us = 0_u128;
+    let mut block_pack_us = Vec::with_capacity(preprocessed.len());
     for (block_idx, (b_block, pre)) in intermediate
         .chunks_exact(params.d)
         .zip(preprocessed.iter())
@@ -592,6 +541,7 @@ pub fn pack_intermediate_blocks<'a>(
             )));
         }
 
+        let batch_started = std::time::Instant::now();
         let batch = LweBatch {
             inner: b_block
                 .iter()
@@ -601,8 +551,22 @@ pub fn pack_intermediate_blocks<'a>(
                 })
                 .collect(),
         };
-        out.push(pack(&batch, pre)?);
+        batch_build_us += batch_started.elapsed().as_micros();
+
+        let pack_started = std::time::Instant::now();
+        out.push(pre.pack_expanded(&batch, &expanded_keys)?);
+        block_pack_us.push(pack_started.elapsed().as_micros());
     }
+
+    let block_pack_total_us: u128 = block_pack_us.iter().sum();
+    eprintln!(
+        "packing_breakdown_us total={} expand_keys={} batch_build={} block_pack_total={} block_pack_by_block={:?}",
+        total_started.elapsed().as_micros(),
+        expand_us,
+        batch_build_us,
+        block_pack_total_us,
+        block_pack_us,
+    );
 
     Ok(out)
 }
@@ -647,11 +611,13 @@ impl YpirSchemeParams {
 
 #[cfg(test)]
 mod tests {
-    use inspiring::key_switching::KeySwitchingMatrix;
-    use inspiring::{GadgetParams, RlweParams};
+    use inspiring::{GadgetParams, PackingKeys, RlweParams, TopKeyImages};
+    use rand_chacha::rand_core::SeedableRng;
+    use rand_chacha::ChaCha20Rng;
     use simplepir_kernel::ScalarKernel;
-    use spiral_rs::poly::{from_ntt_alloc, PolyMatrix, PolyMatrixNTT};
+    use spiral_rs::poly::{from_ntt_alloc, to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw};
 
+    use crate::client::IPIRSimpleQuery;
     use crate::modulus_switch::{recover_rlwe_rows, switched_rlwe_response_len};
 
     use super::*;
@@ -689,11 +655,11 @@ mod tests {
         }
     }
 
-    fn zero_ks<'a>(params: &'a RlweParams) -> KeySwitchingMatrix<'a> {
-        KeySwitchingMatrix {
-            mat: PolyMatrixNTT::zero(&params.spiral, 2, params.gadget.ell),
-            params,
-        }
+    fn secret_ntt<'a>(params: &'a RlweParams) -> PolyMatrixNTT<'a> {
+        let mut raw = PolyMatrixRaw::zero(&params.spiral, 1, 1);
+        raw.get_poly_mut(0, 0)
+            .copy_from_slice(&[1, 0, params.q - 1, 1, 0, 1, 0, 0]);
+        to_ntt_alloc(&raw)
     }
 
     fn scalar_hint_reference(
@@ -926,33 +892,19 @@ mod tests {
     }
 
     #[test]
-    fn build_pack_preprocessed_blocks_shares_one_query_key_pair() {
-        let rlwe = tiny_rlwe();
-        let ypir = tiny_ypir(4, 16);
-        let hint_0 = vec![1u64; rlwe.d * ypir.db_cols];
-        let offline = offline_precompute_from_hint(&rlwe, &ypir, hint_0);
-        let key_pair = (zero_ks(&rlwe), zero_ks(&rlwe));
-
-        let pre =
-            build_pack_preprocessed_blocks(&rlwe, &offline.crs_blocks, &key_pair).expect("build");
-
-        assert_eq!(pre.len(), 2);
-        assert_eq!(pre[0].collapse_a_final_ntt.rows, 1);
-        assert_eq!(pre[0].collapse_b_offset_ntt.rows, 1);
-    }
-
-    #[test]
-    fn pack_intermediate_blocks_routes_b_values_to_matching_rlwe_outputs() {
+    fn pack_intermediate_blocks_routes_b_values_with_uploaded_packing_keys() {
         let rlwe = tiny_rlwe();
         let ypir = tiny_ypir(4, 16);
         let hint_0 = vec![0u64; rlwe.d * ypir.db_cols];
         let offline = offline_precompute_from_hint(&rlwe, &ypir, hint_0);
-        let key_pair = (zero_ks(&rlwe), zero_ks(&rlwe));
-        let pre =
-            build_pack_preprocessed_blocks(&rlwe, &offline.crs_blocks, &key_pair).expect("build");
+        let pre = build_pack_preprocessed_blocks(&rlwe, &offline.crs_blocks).expect("build");
+        let mut rng = ChaCha20Rng::seed_from_u64(0x5155);
+        let secret = secret_ntt(&rlwe);
+        let keys = PackingKeys::generate_full(&rlwe, &secret, &mut rng);
+        let top_keys = TopKeyImages::build(&rlwe);
         let intermediate: Vec<_> = (0..ypir.db_cols).map(|idx| idx as u64 + 10).collect();
 
-        let packed = pack_intermediate_blocks(&intermediate, &pre).expect("pack");
+        let packed = pack_intermediate_blocks(&intermediate, &keys, &top_keys, &pre).expect("pack");
 
         assert_eq!(packed.len(), 2);
         for (block_idx, ct) in packed.iter().enumerate() {
@@ -968,10 +920,13 @@ mod tests {
         let block = CrsBlock {
             rows: vec![vec![0; rlwe.d]; rlwe.d],
         };
-        let key_pair = (zero_ks(&rlwe), zero_ks(&rlwe));
-        let pre = build_pack_preprocessed_blocks(&rlwe, &[block], &key_pair).expect("build");
+        let pre = build_pack_preprocessed_blocks(&rlwe, &[block]).expect("build");
+        let mut rng = ChaCha20Rng::seed_from_u64(0x5157);
+        let secret = secret_ntt(&rlwe);
+        let keys = PackingKeys::generate_full(&rlwe, &secret, &mut rng);
+        let top_keys = TopKeyImages::build(&rlwe);
 
-        let err = match pack_intermediate_blocks(&[1, 2, 3], &pre) {
+        let err = match pack_intermediate_blocks(&[1, 2, 3], &keys, &top_keys, &pre) {
             Ok(_) => panic!("wrong intermediate length must fail"),
             Err(err) => err,
         };
@@ -980,22 +935,23 @@ mod tests {
     }
 
     #[test]
-    fn perform_online_computation_simplepir_serializes_packed_response() {
+    fn perform_online_computation_simplepir_with_uploaded_packing_keys_serializes_response() {
         let rlwe = tiny_rlwe();
         let ypir = tiny_ypir(4, 8);
         let server = YServer::new(ypir.clone(), 0u16..32, false, true);
         let hint_0 = vec![0u64; rlwe.d * ypir.db_cols];
         let offline = offline_precompute_from_hint(&rlwe, &ypir, hint_0);
-        let pre = build_pack_preprocessed_blocks(
-            &rlwe,
-            &offline.crs_blocks,
-            &(zero_ks(&rlwe), zero_ks(&rlwe)),
-        )
-        .expect("build");
-        let query = [1, 0, 0, 0];
+        let pre = build_pack_preprocessed_blocks(&rlwe, &offline.crs_blocks).expect("build");
+        let mut rng = ChaCha20Rng::seed_from_u64(0x5156);
+        let secret = secret_ntt(&rlwe);
+        let keys = PackingKeys::generate_full(&rlwe, &secret, &mut rng);
+        let top_keys = TopKeyImages::build(&rlwe);
+        let query = IPIRSimpleQuery::new(vec![1, 0, 0, 0]).to_packed_bytes(rlwe.q);
 
-        let response = server
-            .perform_online_computation_simplepir(&rlwe, &query, &pre)
+        let (response, _timing) = server
+            .perform_full_online_computation_simplepir_measured(
+                &rlwe, &query, &keys, &top_keys, &pre,
+            )
             .expect("online response");
 
         assert_eq!(
@@ -1005,7 +961,7 @@ mod tests {
 
         let (_row_0, row_1) =
             recover_rlwe_rows(&response, rlwe.d, ypir.q_prime_1, ypir.q_prime_2, rlwe.q);
-        let expected_intermediate = server.multiply_query(&rlwe, &query);
+        let expected_intermediate = server.multiply_query(&rlwe, &[1, 0, 0, 0]);
         let expected_row_1: Vec<_> = expected_intermediate
             .iter()
             .map(|value| {

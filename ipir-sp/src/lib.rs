@@ -14,7 +14,7 @@ pub mod params;
 pub mod serialize;
 pub mod server;
 
-pub use client::{IPIRClient, IPIRSeed, IPIRSimpleQuery, IPIRSimpleQuerySetup, IPIRSimpleSetup};
+pub use client::{IPIRClient, IPIRSeed, IPIRSimpleQuery, IPIRSimpleQuerySetup};
 pub use params::{params_for_simplepir, YpirSchemeParams};
 pub use server::IPIRServer;
 /// Plaintext database element trait used by `IPIRServer` first-dimension kernels.

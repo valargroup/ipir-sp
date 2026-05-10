@@ -5,11 +5,15 @@ use actix_web::{get, post, web, App, HttpServer};
 #[cfg(feature = "http_server")]
 use clap::Parser;
 #[cfg(feature = "http_server")]
-use inspiring::{PackPreprocessed, RlweParams};
+use inspiring::{QueryPackPreprocessed, RlweParams, TopKeyImages};
 #[cfg(feature = "http_server")]
 use ipir_sp::client::IPIRClient;
 #[cfg(feature = "http_server")]
+use ipir_sp::modulus_switch::modulus_bits;
+#[cfg(feature = "http_server")]
 use ipir_sp::params_for_simplepir;
+#[cfg(feature = "http_server")]
+use ipir_sp::serialize::{deserialize_packing_keys, serialized_packing_keys_len};
 #[cfg(feature = "http_server")]
 use ipir_sp::server::{build_pack_preprocessed_blocks, IPIRServer};
 
@@ -32,8 +36,10 @@ struct Args {
 #[cfg(feature = "http_server")]
 struct ServerState {
     rlwe: &'static RlweParams,
+    ypir_rows: usize,
     server: IPIRServer<u16>,
-    preprocessed: Vec<PackPreprocessed<'static>>,
+    preprocessed: Vec<QueryPackPreprocessed<'static>>,
+    top_keys: TopKeyImages<'static>,
 }
 
 #[cfg(feature = "http_server")]
@@ -42,8 +48,27 @@ async fn query(
     body: web::Bytes,
     data: web::Data<ServerState>,
 ) -> Result<Vec<u8>, actix_web::error::Error> {
+    let packing_keys_len = serialized_packing_keys_len(data.rlwe);
+    let online_query_len = (data.ypir_rows * modulus_bits(data.rlwe.q)).div_ceil(8);
+    if body.len() != packing_keys_len + online_query_len {
+        return Err(actix_web::error::ErrorBadRequest(format!(
+            "query must be {} bytes, got {}",
+            packing_keys_len + online_query_len,
+            body.len()
+        )));
+    }
+    let packing_keys = deserialize_packing_keys(data.rlwe, &body[..packing_keys_len])
+        .map_err(actix_web::error::ErrorBadRequest)?;
+    let online_query = &body[packing_keys_len..];
     data.server
-        .perform_full_online_computation_simplepir(data.rlwe, &body, &data.preprocessed)
+        .perform_full_online_computation_simplepir_measured(
+            data.rlwe,
+            online_query,
+            &packing_keys,
+            &data.top_keys,
+            &data.preprocessed,
+        )
+        .map(|(response, _)| response)
         .map_err(actix_web::error::ErrorBadRequest)
 }
 
@@ -78,21 +103,23 @@ async fn main() -> std::io::Result<()> {
     let (rlwe, ypir) =
         params_for_simplepir(args.num_items as u64, item_size_bits as u64).expect("valid params");
     let client = Box::leak(Box::new(IPIRClient::new(&rlwe, &ypir)));
-    let setup = client.generate_setup_simplepir_from_seed(seed_from_u64(args.setup_seed));
+    let setup =
+        client.generate_public_query_setup_simplepir_from_seed(seed_from_u64(args.setup_seed));
 
     let pt_modulus = ypir.p;
     let db = (0..ypir.db_rows * ypir.db_cols).map(|idx| (idx as u64 % pt_modulus) as u16);
     let server = IPIRServer::<u16>::new(ypir.clone(), db, false, true);
-    let offline = server
-        .perform_offline_precomputation_simplepir(client.rlwe_params(), &setup.offline_query_polys);
-    let preprocessed =
-        build_pack_preprocessed_blocks(client.rlwe_params(), &offline.crs_blocks, &setup.key_pair)
-            .expect("preprocessing builds");
+    let offline = server.perform_offline_precomputation_simplepir(client.rlwe_params(), &setup);
+    let preprocessed = build_pack_preprocessed_blocks(client.rlwe_params(), &offline.crs_blocks)
+        .expect("preprocessing builds");
+    let top_keys = TopKeyImages::build(client.rlwe_params());
 
     let app_data = web::Data::new(ServerState {
         rlwe: client.rlwe_params(),
+        ypir_rows: ypir.db_rows,
         server,
         preprocessed,
+        top_keys,
     });
 
     println!("Listening on http://127.0.0.1:{}", args.port);

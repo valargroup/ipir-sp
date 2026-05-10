@@ -2,6 +2,8 @@
 use clap::Parser;
 #[cfg(feature = "http_client")]
 use ipir_sp::client::IPIRClient;
+#[cfg(feature = "http_client")]
+use ipir_sp::serialize::serialize_packing_keys;
 
 #[cfg(feature = "http_client")]
 #[derive(Parser, Debug)]
@@ -38,11 +40,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "target row out of bounds"
     );
 
-    let setup = client.generate_setup_simplepir_from_seed(seed_from_u64(args.setup_seed));
-    let (query, client_seed) = client.generate_query_simplepir(&setup, args.target_row);
+    let setup =
+        client.generate_public_query_setup_simplepir_from_seed(seed_from_u64(args.setup_seed));
+    let (query, packing_keys, client_seed) =
+        client.generate_fresh_query_simplepir(&setup, args.target_row);
+    let packing_keys_body = serialize_packing_keys(client.rlwe_params(), &packing_keys)?;
+    let online_query = query.to_packed_bytes(client.rlwe_params().q);
+    let mut body = Vec::with_capacity(packing_keys_body.len() + online_query.len());
+    body.extend_from_slice(&packing_keys_body);
+    body.extend_from_slice(&online_query);
     let response = reqwest::blocking::Client::new()
         .post(format!("http://127.0.0.1:{}/query", args.port))
-        .body(query.to_packed_bytes(client.rlwe_params().q))
+        .body(body)
         .send()?
         .error_for_status()?
         .bytes()?;

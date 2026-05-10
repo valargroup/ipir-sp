@@ -1,53 +1,62 @@
 //! Wire serialization helpers for IPIR-SP key material.
 //!
-//! YPIR's CDKS upload serializes `log d` expansion matrices after condensing
-//! two CRT limbs into one `u64`. IPIR-SP uses single-CRT InspiRING matrices,
-//! so the stable wire format is simply the little-endian `u64` coefficient
-//! stream for `K_g` followed by `K_h`.
+//! The stable local-IPIR upload format is the little-endian `u64` coefficient
+//! stream for the secret-dependent `K_g` and `K_h` packing-key bodies. Public
+//! top rows are derived from fixed CRS seeds by the client and server.
 
-use inspiring::key_switching::KeySwitchingMatrix;
-use inspiring::{InspiringError, RlweParams};
+use inspiring::{InspiringError, PackingKeyMode, PackingKeys, RlweParams};
 use spiral_rs::poly::{PolyMatrix, PolyMatrixNTT};
 
-/// Number of bytes used by one serialized `(K_g, K_h)` pair.
+/// Number of bytes used by uploaded full packing-key bodies.
 #[must_use]
-pub fn serialized_ks_pair_len(params: &RlweParams) -> usize {
-    2 * key_matrix_u64_len(params) * std::mem::size_of::<u64>()
+pub fn serialized_packing_keys_len(params: &RlweParams) -> usize {
+    2 * packing_key_body_u64_len(params) * std::mem::size_of::<u64>()
 }
 
-/// Serialize the two InspiRING key-switching matrices uploaded by the client.
-pub fn serialize_ks_pair(
+/// Serialize uploaded packing-key bodies.
+pub fn serialize_packing_keys(
     params: &RlweParams,
-    kg: &KeySwitchingMatrix<'_>,
-    kh: &KeySwitchingMatrix<'_>,
+    keys: &PackingKeys<'_>,
 ) -> Result<Vec<u8>, InspiringError> {
-    validate_ks_matrix(params, kg, "K_g")?;
-    validate_ks_matrix(params, kh, "K_h")?;
+    if keys.mode != PackingKeyMode::Full {
+        return Err(InspiringError::PreprocessMismatch(
+            "local-ipir wire format requires full packing keys".to_string(),
+        ));
+    }
+    validate_packing_key_body(params, &keys.y_body, "packing key y_body")?;
+    let z_body = keys.z_body.as_ref().ok_or_else(|| {
+        InspiringError::PreprocessMismatch("full packing keys require z_body".to_string())
+    })?;
+    validate_packing_key_body(params, z_body, "packing key z_body")?;
 
-    let mut out = Vec::with_capacity(serialized_ks_pair_len(params));
-    write_u64s_le(&mut out, kg.mat.as_slice());
-    write_u64s_le(&mut out, kh.mat.as_slice());
+    let mut out = Vec::with_capacity(serialized_packing_keys_len(params));
+    write_u64s_le(&mut out, keys.y_body.as_slice());
+    write_u64s_le(&mut out, z_body.as_slice());
     Ok(out)
 }
 
-/// Deserialize one uploaded `(K_g, K_h)` key-switching pair.
-pub fn deserialize_ks_pair<'a>(
+/// Deserialize uploaded full packing-key bodies.
+pub fn deserialize_packing_keys<'a>(
     params: &'a RlweParams,
     data: &[u8],
-) -> Result<(KeySwitchingMatrix<'a>, KeySwitchingMatrix<'a>), InspiringError> {
-    if data.len() != serialized_ks_pair_len(params) {
+) -> Result<PackingKeys<'a>, InspiringError> {
+    if data.len() != serialized_packing_keys_len(params) {
         return Err(InspiringError::PreprocessMismatch(format!(
-            "serialized key pair must be {} bytes, got {}",
-            serialized_ks_pair_len(params),
+            "serialized packing keys must be {} bytes, got {}",
+            serialized_packing_keys_len(params),
             data.len()
         )));
     }
 
     let coeffs = deserialize_u64s_le(data)?;
-    let key_len = key_matrix_u64_len(params);
-    let kg = key_from_coeffs(params, &coeffs[..key_len], "K_g")?;
-    let kh = key_from_coeffs(params, &coeffs[key_len..], "K_h")?;
-    Ok((kg, kh))
+    let body_len = packing_key_body_u64_len(params);
+    let y_body = packing_key_body_from_coeffs(params, &coeffs[..body_len], "packing key y_body")?;
+    let z_body = packing_key_body_from_coeffs(params, &coeffs[body_len..], "packing key z_body")?;
+    Ok(PackingKeys {
+        mode: PackingKeyMode::Full,
+        y_body,
+        z_body: Some(z_body),
+    })
 }
 
 /// Serialize a sequence of `u64` values as little-endian bytes.
@@ -77,61 +86,50 @@ pub fn deserialize_u64s_le(data: &[u8]) -> Result<Vec<u64>, InspiringError> {
         .collect())
 }
 
-fn key_matrix_u64_len(params: &RlweParams) -> usize {
-    2 * params.gadget.ell * params.d
+fn packing_key_body_u64_len(params: &RlweParams) -> usize {
+    params.gadget.ell * params.d
 }
 
-fn validate_ks_matrix(
-    params: &RlweParams,
-    key: &KeySwitchingMatrix<'_>,
-    label: &'static str,
-) -> Result<(), InspiringError> {
-    if key.params.d != params.d
-        || key.params.q != params.q
-        || key.params.gadget.bits_per != params.gadget.bits_per
-        || key.params.gadget.ell != params.gadget.ell
-    {
-        return Err(InspiringError::PreprocessMismatch(format!(
-            "{label} parameters do not match serialization params"
-        )));
-    }
-
-    if key.mat.rows != 2 || key.mat.cols != params.gadget.ell {
-        return Err(InspiringError::PreprocessMismatch(format!(
-            "{label} must have shape 2x{}, got {}x{}",
-            params.gadget.ell, key.mat.rows, key.mat.cols
-        )));
-    }
-
-    let expected_len = key_matrix_u64_len(params);
-    if key.mat.as_slice().len() != expected_len {
-        return Err(InspiringError::PreprocessMismatch(format!(
-            "{label} coefficient length must be {expected_len}, got {}",
-            key.mat.as_slice().len()
-        )));
-    }
-
-    Ok(())
-}
-
-fn key_from_coeffs<'a>(
+fn packing_key_body_from_coeffs<'a>(
     params: &'a RlweParams,
     coeffs: &[u64],
     label: &'static str,
-) -> Result<KeySwitchingMatrix<'a>, InspiringError> {
-    if coeffs.len() != key_matrix_u64_len(params) {
+) -> Result<PolyMatrixNTT<'a>, InspiringError> {
+    if coeffs.len() != packing_key_body_u64_len(params) {
         return Err(InspiringError::PreprocessMismatch(format!(
             "{label} coefficient length must be {}, got {}",
-            key_matrix_u64_len(params),
+            packing_key_body_u64_len(params),
             coeffs.len()
         )));
     }
 
-    let mut mat = PolyMatrixNTT::zero(&params.spiral, 2, params.gadget.ell);
-    mat.as_mut_slice().copy_from_slice(coeffs);
-    let key = KeySwitchingMatrix { mat, params };
-    validate_ks_matrix(params, &key, label)?;
-    Ok(key)
+    let mut body = PolyMatrixNTT::zero(&params.spiral, 1, params.gadget.ell);
+    body.as_mut_slice().copy_from_slice(coeffs);
+    validate_packing_key_body(params, &body, label)?;
+    Ok(body)
+}
+
+fn validate_packing_key_body(
+    params: &RlweParams,
+    body: &PolyMatrixNTT<'_>,
+    label: &'static str,
+) -> Result<(), InspiringError> {
+    if body.rows != 1 || body.cols != params.gadget.ell {
+        return Err(InspiringError::PreprocessMismatch(format!(
+            "{label} must have shape 1x{}, got {}x{}",
+            params.gadget.ell, body.rows, body.cols
+        )));
+    }
+
+    if body.as_slice().len() != packing_key_body_u64_len(params) {
+        return Err(InspiringError::PreprocessMismatch(format!(
+            "{label} coefficient length must be {}, got {}",
+            packing_key_body_u64_len(params),
+            body.as_slice().len()
+        )));
+    }
+
+    Ok(())
 }
 
 fn write_u64s_le(out: &mut Vec<u8>, data: &[u64]) {
@@ -143,13 +141,11 @@ fn write_u64s_le(out: &mut Vec<u8>, data: &[u64]) {
 
 #[cfg(test)]
 mod tests {
-    use inspiring::key_switching::KeySwitchingMatrix;
-    use inspiring::{GadgetParams, RlweParams};
+    use inspiring::{GadgetParams, PackingKeys, RlweParams};
     use rand_chacha::rand_core::SeedableRng;
     use rand_chacha::ChaCha20Rng;
-    use spiral_rs::poly::PolyMatrixNTT;
 
-    use crate::client::{generate_ks_pair, ClientSecret};
+    use crate::client::ClientSecret;
 
     use super::*;
 
@@ -172,86 +168,48 @@ mod tests {
     }
 
     #[test]
-    fn serialized_ks_pair_len_matches_two_single_crt_matrices() {
+    fn serialized_packing_keys_len_matches_two_body_rows() {
         let params = params();
 
         assert_eq!(
-            serialized_ks_pair_len(&params),
-            2 * 2 * params.gadget.ell * params.d * 8
+            serialized_packing_keys_len(&params),
+            2 * params.gadget.ell * params.d * 8
         );
     }
 
     #[test]
-    fn serialize_ks_pair_is_stable_under_fixed_seed() {
+    fn packing_keys_roundtrip_y_then_z_bodies() {
         let params = params();
         let secret = secret(&params);
-        let mut left_rng = ChaCha20Rng::seed_from_u64(0x5150);
-        let mut right_rng = ChaCha20Rng::seed_from_u64(0x5150);
-        let left = generate_ks_pair(&params, &secret, &mut left_rng);
-        let right = generate_ks_pair(&params, &secret, &mut right_rng);
+        let secret_ntt = secret.to_ntt(&params);
+        let mut rng = ChaCha20Rng::seed_from_u64(0x5154);
+        let keys = PackingKeys::generate_full(&params, &secret_ntt, &mut rng);
+        let bytes = serialize_packing_keys(&params, &keys).expect("serialize");
+        let body_len = packing_key_body_u64_len(&params) * 8;
 
-        let left_bytes = serialize_ks_pair(&params, &left.0, &left.1).expect("serialize");
-        let right_bytes = serialize_ks_pair(&params, &right.0, &right.1).expect("serialize");
+        assert_eq!(bytes.len(), serialized_packing_keys_len(&params));
+        assert_eq!(
+            &bytes[..8],
+            &keys.y_body.as_slice()[0].to_le_bytes(),
+            "y body is serialized first"
+        );
+        assert_eq!(
+            &bytes[body_len..body_len + 8],
+            &keys.z_body.as_ref().unwrap().as_slice()[0].to_le_bytes(),
+            "z body follows y body"
+        );
 
-        assert_eq!(left_bytes, right_bytes);
-        assert_eq!(left_bytes.len(), serialized_ks_pair_len(&params));
-    }
-
-    #[test]
-    fn serialize_ks_pair_writes_kg_then_kh_little_endian() {
-        let params = params();
-        let kg = KeySwitchingMatrix {
-            mat: PolyMatrixNTT::zero(&params.spiral, 2, params.gadget.ell),
-            params: &params,
-        };
-        let mut kh_mat = PolyMatrixNTT::zero(&params.spiral, 2, params.gadget.ell);
-        kh_mat.as_mut_slice()[0] = 42;
-        let kh = KeySwitchingMatrix {
-            mat: kh_mat,
-            params: &params,
-        };
-
-        let bytes = serialize_ks_pair(&params, &kg, &kh).expect("serialize");
-        let kg_len = key_matrix_u64_len(&params) * 8;
-
-        assert!(bytes[..kg_len].iter().all(|byte| *byte == 0));
-        assert_eq!(&bytes[kg_len..kg_len + 8], &42u64.to_le_bytes());
-    }
-
-    #[test]
-    fn deserialize_ks_pair_roundtrips_serialized_pair() {
-        let params = params();
-        let secret = secret(&params);
-        let mut rng = ChaCha20Rng::seed_from_u64(0x5153);
-        let (kg, kh) = generate_ks_pair(&params, &secret, &mut rng);
-        let bytes = serialize_ks_pair(&params, &kg, &kh).expect("serialize");
-
-        let (kg2, kh2) = deserialize_ks_pair(&params, &bytes).expect("deserialize");
-
-        assert_eq!(kg.mat.as_slice(), kg2.mat.as_slice());
-        assert_eq!(kh.mat.as_slice(), kh2.mat.as_slice());
+        let decoded = deserialize_packing_keys(&params, &bytes).expect("deserialize");
+        assert_eq!(decoded.y_body.as_slice(), keys.y_body.as_slice());
+        assert_eq!(
+            decoded.z_body.as_ref().unwrap().as_slice(),
+            keys.z_body.as_ref().unwrap().as_slice()
+        );
     }
 
     #[test]
     fn deserialize_u64s_le_rejects_truncated_value() {
         let err = deserialize_u64s_le(&[1, 2, 3]).expect_err("truncated u64 must fail");
-
-        assert!(matches!(err, InspiringError::PreprocessMismatch(_)));
-    }
-
-    #[test]
-    fn serialize_ks_pair_rejects_wrong_shape() {
-        let params = params();
-        let good = KeySwitchingMatrix {
-            mat: PolyMatrixNTT::zero(&params.spiral, 2, params.gadget.ell),
-            params: &params,
-        };
-        let bad = KeySwitchingMatrix {
-            mat: PolyMatrixNTT::zero(&params.spiral, 1, params.gadget.ell),
-            params: &params,
-        };
-
-        let err = serialize_ks_pair(&params, &bad, &good).expect_err("wrong shape must fail");
 
         assert!(matches!(err, InspiringError::PreprocessMismatch(_)));
     }

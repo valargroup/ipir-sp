@@ -1,12 +1,10 @@
 //! Client-side key material for the IPIR-SP packing layer.
 //!
 //! YPIR's CDKS path uploads `log d` expansion matrices. The InspiRING path
-//! instead uploads two key-switching matrices total:
-//! `K_g = KS.Setup(τ_g(s) -> s)` and `K_h = KS.Setup(τ_h(s) -> s)`.
+//! uploads the secret-dependent packing-key bodies for `K_g` and `K_h`; public
+//! top rows are derived from fixed CRS seeds on both sides.
 
-use inspiring::automorph::{h, tau_g_pow, tau_ntt};
-use inspiring::key_switching::{ks_setup, KeySwitchingMatrix};
-use inspiring::RlweParams;
+use inspiring::{PackingKeys, RlweParams};
 use rand::{Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use spiral_rs::poly::{
@@ -73,41 +71,11 @@ impl ClientSecret {
     }
 }
 
-/// Generate one `(K_g, K_h)` pair from a base secret.
-pub fn generate_ks_pair<'a>(
-    params: &'a RlweParams,
-    secret: &ClientSecret,
-    rng: &mut ChaCha20Rng,
-) -> (KeySwitchingMatrix<'a>, KeySwitchingMatrix<'a>) {
-    let s = secret.to_ntt(params);
-    let tau_g_s = tau_ntt(&s, tau_g_pow(1, params.d));
-    let tau_h_s = tau_ntt(&s, h(params.d));
-
-    let kg = ks_setup(params, &tau_g_s, &s, rng);
-    let kh = ks_setup(params, &tau_h_s, &s, rng);
-
-    (kg, kh)
-}
-
 /// High-level IPIR client facade with a YPIR-shaped API.
 #[derive(Debug, Clone)]
 pub struct IPIRClient {
     rlwe: RlweParams,
     ypir: YpirSchemeParams,
-}
-
-/// Client-generated setup material consumed by the server's offline phase.
-pub struct IPIRSimpleSetup<'a> {
-    /// Seed used to regenerate the client secret for online query generation and decoding.
-    pub client_seed: IPIRSeed,
-    /// Offline query polynomials, one per `d`-row database block.
-    pub offline_query_polys: Vec<Vec<u64>>,
-    /// The two key-switching matrices for one fresh query/setup.
-    ///
-    /// InspiRING derives the needed automorphic images of `K_g` and `K_h`
-    /// locally for each CRS block. The client uploads this pair once for that
-    /// query/setup, not once per output block.
-    pub key_pair: (KeySwitchingMatrix<'a>, KeySwitchingMatrix<'a>),
 }
 
 /// Client-only setup material needed to generate online SimplePIR queries.
@@ -218,49 +186,10 @@ impl IPIRClient {
         &self.ypir
     }
 
-    /// Generate setup material with a fresh random seed.
-    pub fn generate_setup_simplepir(&self) -> IPIRSimpleSetup<'_> {
-        let mut seed = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut seed);
-        self.generate_setup_simplepir_from_seed(seed)
-    }
-
-    /// Generate setup material deterministically from `client_seed`.
-    pub fn generate_setup_simplepir_from_seed(&self, client_seed: IPIRSeed) -> IPIRSimpleSetup<'_> {
-        assert_eq!(
-            self.ypir.db_rows % self.rlwe.d,
-            0,
-            "db rows must split into d-row blocks"
-        );
-        assert_eq!(
-            self.ypir.db_cols % self.rlwe.d,
-            0,
-            "db cols must split into RLWE output blocks"
-        );
-
-        let mut rng = ChaCha20Rng::from_seed(client_seed);
-        let secret = ClientSecret::sample_ternary(&self.rlwe, &mut rng);
-        let offline_query_polys = (0..self.ypir.db_rows / self.rlwe.d)
-            .map(|_| {
-                (0..self.rlwe.d)
-                    .map(|_| rng.gen_range(0..self.rlwe.q))
-                    .collect()
-            })
-            .collect();
-        let key_pair = generate_ks_pair(&self.rlwe, &secret, &mut rng);
-
-        IPIRSimpleSetup {
-            client_seed,
-            offline_query_polys,
-            key_pair,
-        }
-    }
-
     /// Generate only the client-side setup material needed for online queries.
     ///
-    /// This follows the same RNG stream as [`Self::generate_setup_simplepir_from_seed`]
-    /// through the offline query polynomials, but skips the server-only
-    /// key-switching matrices.
+    /// This exists for tests that need a deterministic query secret. Production
+    /// callers with public CRS setup use [`Self::generate_fresh_query_simplepir`].
     pub fn generate_query_setup_simplepir_from_seed(
         &self,
         client_seed: IPIRSeed,
@@ -287,29 +216,52 @@ impl IPIRClient {
         }
     }
 
-    /// Generate an online SimplePIR query for `target_row`.
-    pub fn generate_query_simplepir(
+    /// Generate public offline query polynomials from shared setup randomness.
+    ///
+    /// These polynomials are secret-independent, so a server may precompute the
+    /// corresponding CRS/hint once and clients can reuse the same public setup
+    /// while still sampling a fresh secret and key-switching pair per query.
+    pub fn generate_public_query_setup_simplepir_from_seed(
         &self,
-        setup: &IPIRSimpleSetup<'_>,
-        target_row: usize,
-    ) -> (IPIRSimpleQuery, IPIRSeed) {
-        assert!(target_row < self.ypir.db_rows, "target row out of bounds");
+        setup_seed: IPIRSeed,
+    ) -> Vec<Vec<u64>> {
         assert_eq!(
-            setup.offline_query_polys.len(),
-            self.ypir.db_rows / self.rlwe.d,
-            "setup offline query count does not match params"
+            self.ypir.db_rows % self.rlwe.d,
+            0,
+            "db rows must split into d-row blocks"
         );
 
-        let secret = self.secret_from_seed(setup.client_seed);
+        let mut rng = ChaCha20Rng::from_seed(setup_seed);
+        (0..self.ypir.db_rows / self.rlwe.d)
+            .map(|_| {
+                (0..self.rlwe.d)
+                    .map(|_| rng.gen_range(0..self.rlwe.q))
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Generate a fresh-secret online query with uploaded packing-key bodies.
+    pub fn generate_fresh_query_simplepir(
+        &self,
+        offline_query_polys: &[Vec<u64>],
+        target_row: usize,
+    ) -> (IPIRSimpleQuery, PackingKeys<'_>, IPIRSeed) {
+        let mut client_seed = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut client_seed);
+        let mut rng = ChaCha20Rng::from_seed(client_seed);
+        let secret = ClientSecret::sample_ternary(&self.rlwe, &mut rng);
+        let secret_ntt = secret.to_ntt(&self.rlwe);
+        let packing_keys = PackingKeys::generate_full(&self.rlwe, &secret_ntt, &mut rng);
         let first_dim = encrypted_selection_query(
             &self.rlwe,
-            &setup.offline_query_polys,
+            offline_query_polys,
             &secret.coeffs,
             target_row,
             self.ypir.db_rows,
         );
 
-        (IPIRSimpleQuery::new(first_dim), setup.client_seed)
+        (IPIRSimpleQuery::new(first_dim), packing_keys, client_seed)
     }
 
     /// Generate an online SimplePIR query from client-only setup material.
@@ -661,49 +613,7 @@ mod tests {
     }
 
     #[test]
-    fn generate_ks_pair_returns_two_expected_matrix_shapes() {
-        let params = params();
-        let secret = ClientSecret::from_coeffs(&params, vec![1, 0, params.q - 1, 1, 0, 1, 0, 0]);
-        let mut rng = ChaCha20Rng::seed_from_u64(0xBEEF);
-
-        let (kg, kh) = generate_ks_pair(&params, &secret, &mut rng);
-
-        assert_eq!(kg.mat.rows, 2);
-        assert_eq!(kg.mat.cols, params.gadget.ell);
-        assert_eq!(kh.mat.rows, 2);
-        assert_eq!(kh.mat.cols, params.gadget.ell);
-        assert_eq!(kg.params.q, params.q);
-        assert_eq!(kh.params.q, params.q);
-    }
-
-    #[test]
-    fn generate_ks_pair_is_deterministic_under_fixed_seed() {
-        let params = params();
-        let secret = ClientSecret::from_coeffs(&params, vec![1, 0, params.q - 1, 1, 0, 1, 0, 0]);
-        let mut left_rng = ChaCha20Rng::seed_from_u64(0xC0DE);
-        let mut right_rng = ChaCha20Rng::seed_from_u64(0xC0DE);
-
-        let left = generate_ks_pair(&params, &secret, &mut left_rng);
-        let right = generate_ks_pair(&params, &secret, &mut right_rng);
-
-        assert_eq!(left.0.mat.as_slice(), right.0.mat.as_slice());
-        assert_eq!(left.1.mat.as_slice(), right.1.mat.as_slice());
-    }
-
-    #[test]
-    fn generate_ks_pair_returns_single_query_pair() {
-        let params = params();
-        let secret = ClientSecret::from_coeffs(&params, vec![1, 0, params.q - 1, 1, 0, 1, 0, 0]);
-        let mut rng = ChaCha20Rng::seed_from_u64(0xFACE);
-
-        let pair = generate_ks_pair(&params, &secret, &mut rng);
-
-        assert_eq!(pair.0.mat.rows, 2);
-        assert_eq!(pair.1.mat.cols, params.gadget.ell);
-    }
-
-    #[test]
-    fn query_setup_skips_server_keys_but_keeps_offline_polys() {
+    fn generate_fresh_query_returns_full_packing_key_bodies() {
         let params = params();
         let ypir = crate::params::YpirSchemeParams {
             num_items: 8,
@@ -722,13 +632,18 @@ mod tests {
             t_exp_right: 2,
         };
         let client = IPIRClient::new(&params, &ypir);
-        let seed = [9u8; 32];
+        let offline_query_polys = client.generate_public_query_setup_simplepir_from_seed([9u8; 32]);
 
-        let full = client.generate_setup_simplepir_from_seed(seed);
-        let query_only = client.generate_query_setup_simplepir_from_seed(seed);
+        let (query, packing_keys, client_seed) =
+            client.generate_fresh_query_simplepir(&offline_query_polys, 3);
 
-        assert_eq!(query_only.client_seed, full.client_seed);
-        assert_eq!(query_only.offline_query_polys, full.offline_query_polys);
+        assert_eq!(query.as_slice().len(), ypir.db_rows);
+        assert_ne!(client_seed, [0u8; 32]);
+        assert_eq!(packing_keys.y_body.rows, 1);
+        assert_eq!(packing_keys.y_body.cols, params.gadget.ell);
+        let z_body = packing_keys.z_body.as_ref().expect("full keys include z");
+        assert_eq!(z_body.rows, 1);
+        assert_eq!(z_body.cols, params.gadget.ell);
     }
 
     #[test]

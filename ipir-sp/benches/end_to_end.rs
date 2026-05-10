@@ -17,12 +17,12 @@
 use std::time::{Duration, Instant};
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
-use ipir_sp::client::{generate_ks_pair, ClientSecret, IPIRClient, IPIRSimpleQuery};
+use ipir_sp::client::{ClientSecret, IPIRClient, IPIRSimpleQuery};
 use ipir_sp::modulus_switch::{serialize_rlwe_response, switched_rlwe_response_len};
 use ipir_sp::params::{
     params_for_simplepir, PLAINTEXT_MODULUS, Q_PRIME_1, Q_PRIME_2, SINGLE_CRT_Q,
 };
-use ipir_sp::serialize::{serialize_ks_pair, serialize_u64s_le, serialized_ks_pair_len};
+use ipir_sp::serialize::{serialize_packing_keys, serialize_u64s_le, serialized_packing_keys_len};
 use ipir_sp::server::{
     build_pack_preprocessed_blocks, offline_precompute_from_hint, pack_intermediate_blocks,
 };
@@ -32,7 +32,7 @@ use rand_chacha::ChaCha20Rng;
 use simplepir_kernel::{ChunkedSplitKernel, FirstDimKernel, ScalarKernel};
 use spiral_rs::poly::{from_ntt_alloc, PolyMatrix};
 
-use inspiring::{GadgetParams, PackPreprocessed, RlweParams};
+use inspiring::{GadgetParams, PackingKeys, QueryPackPreprocessed, RlweParams, TopKeyImages};
 
 const NUM_ITEMS: u64 = 32_768;
 const ITEM_SIZE_BITS: u64 = 131_072;
@@ -60,15 +60,17 @@ struct BenchFixture<'a> {
     rlwe: &'a RlweParams,
     ypir: YpirSchemeParams,
     secret: ClientSecret,
+    packing_keys: PackingKeys<'a>,
+    top_keys: TopKeyImages<'a>,
     intermediate: Vec<u64>,
     first_dim_db: Vec<u16>,
     first_dim_query: Vec<u64>,
-    preprocessed: Vec<PackPreprocessed<'a>>,
+    preprocessed: Vec<QueryPackPreprocessed<'a>>,
     noise_bits: u32,
 }
 
 struct UploadMeasurements {
-    key_pair_bytes: usize,
+    packing_keys_bytes: usize,
     offline_query_polys_bytes: usize,
     online_query_packed_bytes: usize,
     online_query_legacy_bytes: usize,
@@ -76,7 +78,7 @@ struct UploadMeasurements {
 
 impl UploadMeasurements {
     fn fresh_query_total_bytes(&self) -> usize {
-        self.key_pair_bytes + self.offline_query_polys_bytes + self.online_query_packed_bytes
+        self.packing_keys_bytes + self.offline_query_polys_bytes + self.online_query_packed_bytes
     }
 }
 
@@ -238,25 +240,19 @@ fn simplepir_multiply_fixture(rlwe: &RlweParams, ypir: &YpirSchemeParams) -> (Ve
 fn build_preprocessed<'a>(
     rlwe: &'a RlweParams,
     ypir: &YpirSchemeParams,
-    secret: &ClientSecret,
     hint_0: Vec<u64>,
-) -> Vec<PackPreprocessed<'a>> {
+) -> Vec<QueryPackPreprocessed<'a>> {
     eprintln!("setup: extracting CRS blocks from hint");
     let offline = offline_precompute_from_hint(rlwe, ypir, hint_0);
-    eprintln!(
-        "setup: extracted {} CRS block(s); generating per-query key-switch pair",
-        offline.crs_blocks.len()
-    );
-    let mut rng = ChaCha20Rng::seed_from_u64(SEED);
-    let key_pair = generate_ks_pair(rlwe, secret, &mut rng);
+    eprintln!("setup: extracted {} CRS block(s)", offline.crs_blocks.len());
     eprintln!("setup: building pack preprocessing cache");
-    let preprocessed = build_pack_preprocessed_blocks(rlwe, &offline.crs_blocks, &key_pair)
+    let preprocessed = build_pack_preprocessed_blocks(rlwe, &offline.crs_blocks)
         .expect("benchmark preprocessing builds");
     eprintln!("setup: pack preprocessing cache built");
 
-    // `crs_blocks` and `hint_0` are no longer needed after
-    // `PackPreprocessed::build` has absorbed them. Drop promptly so the online
-    // fixture keeps only the long-lived cache and `b` values.
+    // `crs_blocks` and `hint_0` are no longer needed after public packing
+    // preprocessing has absorbed them. Drop promptly so the online fixture keeps
+    // only the long-lived cache and `b` values.
     drop(offline);
     preprocessed
 }
@@ -281,9 +277,20 @@ fn build_fixture() -> BenchFixture<'static> {
     eprintln!("setup: generating SimplePIR multiply fixture");
     let (first_dim_db, first_dim_query) = simplepir_multiply_fixture(rlwe, &ypir);
     eprintln!("setup: SimplePIR multiply fixture ready");
-    let preprocessed = build_preprocessed(rlwe, &ypir, &secret, hint_0);
+    let preprocessed = build_preprocessed(rlwe, &ypir, hint_0);
+    let mut rng = ChaCha20Rng::seed_from_u64(SEED);
+    let packing_keys = PackingKeys::generate_full(rlwe, &secret.to_ntt(rlwe), &mut rng);
+    let top_keys = TopKeyImages::build(rlwe);
     eprintln!("setup: checking deterministic noise");
-    let noise = noise_inf_norm(rlwe, &secret, &intermediate, &messages, &preprocessed);
+    let noise = noise_inf_norm(
+        rlwe,
+        &secret,
+        &intermediate,
+        &messages,
+        &packing_keys,
+        &top_keys,
+        &preprocessed,
+    );
     eprintln!("setup: deterministic noise checked");
     drop(messages);
 
@@ -292,6 +299,8 @@ fn build_fixture() -> BenchFixture<'static> {
         rlwe,
         ypir,
         secret,
+        packing_keys,
+        top_keys,
         intermediate,
         first_dim_db,
         first_dim_query,
@@ -334,10 +343,12 @@ fn noise_inf_norm(
     secret: &ClientSecret,
     intermediate: &[u64],
     messages: &[u64],
-    preprocessed: &[PackPreprocessed<'_>],
+    packing_keys: &PackingKeys<'_>,
+    top_keys: &TopKeyImages<'_>,
+    preprocessed: &[QueryPackPreprocessed<'_>],
 ) -> u128 {
-    let packed =
-        pack_intermediate_blocks(intermediate, preprocessed).expect("online pack succeeds");
+    let packed = pack_intermediate_blocks(intermediate, packing_keys, top_keys, preprocessed)
+        .expect("online pack succeeds");
     let mut max = 0_u128;
 
     for (block_idx, ct) in packed.iter().enumerate() {
@@ -373,12 +384,12 @@ fn log2_ceil(value: u128) -> u32 {
 
 fn measure_uploads(fixture: &BenchFixture<'_>) -> UploadMeasurements {
     let client = IPIRClient::new(fixture.rlwe, &fixture.ypir);
-    let setup = client.generate_setup_simplepir_from_seed(seed_from_u64(SEED));
-    let key_pair_bytes = serialize_ks_pair(fixture.rlwe, &setup.key_pair.0, &setup.key_pair.1)
-        .expect("setup key pair serializes")
+    let offline_query_polys =
+        client.generate_public_query_setup_simplepir_from_seed(seed_from_u64(SEED));
+    let packing_keys_bytes = serialize_packing_keys(fixture.rlwe, &fixture.packing_keys)
+        .expect("packing keys serialize")
         .len();
-    let offline_query_polys_bytes = setup
-        .offline_query_polys
+    let offline_query_polys_bytes = offline_query_polys
         .iter()
         .map(|poly| serialize_u64s_le(poly).len())
         .sum();
@@ -387,7 +398,7 @@ fn measure_uploads(fixture: &BenchFixture<'_>) -> UploadMeasurements {
     let online_query_legacy_bytes = online_query.to_bytes().len();
 
     UploadMeasurements {
-        key_pair_bytes,
+        packing_keys_bytes,
         offline_query_polys_bytes,
         online_query_packed_bytes,
         online_query_legacy_bytes,
@@ -421,8 +432,13 @@ fn measure_server_breakdown_once(
     let multiply_time = multiply_started.elapsed();
 
     let packing_started = Instant::now();
-    let packed = pack_intermediate_blocks(&intermediate, &fixture.preprocessed)
-        .expect("online pack succeeds");
+    let packed = pack_intermediate_blocks(
+        &intermediate,
+        &fixture.packing_keys,
+        &fixture.top_keys,
+        &fixture.preprocessed,
+    )
+    .expect("online pack succeeds");
     black_box(&packed);
     let packing_time = packing_started.elapsed();
 
@@ -451,8 +467,13 @@ fn bench_end_to_end(c: &mut Criterion) {
             fixture.ypir.q_prime_1,
             fixture.ypir.q_prime_2,
         );
-    let packed_fixture = pack_intermediate_blocks(&fixture.intermediate, &fixture.preprocessed)
-        .expect("fixture online pack succeeds");
+    let packed_fixture = pack_intermediate_blocks(
+        &fixture.intermediate,
+        &fixture.packing_keys,
+        &fixture.top_keys,
+        &fixture.preprocessed,
+    )
+    .expect("fixture online pack succeeds");
     let upload_measurements = measure_uploads(&fixture);
     let packed_query_body =
         IPIRSimpleQuery::new(fixture.first_dim_query.clone()).to_packed_bytes(fixture.rlwe.q);
@@ -460,15 +481,15 @@ fn bench_end_to_end(c: &mut Criterion) {
         measure_server_breakdown_once(&fixture, &packed_query_body, &packed_fixture);
 
     eprintln!(
-        "ipir-sp target: profile={}, rows={}, item_bits={}, d={}, outputs={}, db_cols={}, serialized_ks_pair={} KiB, measured_key_pair={} KiB, measured_offline_query_polys={} KiB, measured_online_query_packed={} KiB, measured_online_query_legacy={} KiB, measured_fresh_query_upload={} KiB, cdks_upload={} KiB, response={} KiB, ||e_pack||_inf_bits={}, paper_noise_target_bits<={:.1}, cdks_online_target={} ms",
+        "ipir-sp target: profile={}, rows={}, item_bits={}, d={}, outputs={}, db_cols={}, serialized_packing_keys={} KiB, measured_packing_keys={} KiB, measured_offline_query_polys={} KiB, measured_online_query_packed={} KiB, measured_online_query_legacy={} KiB, measured_fresh_query_upload={} KiB, cdks_upload={} KiB, response={} KiB, ||e_pack||_inf_bits={}, paper_noise_target_bits<={:.1}, cdks_online_target={} ms",
         fixture.name,
         fixture.ypir.db_rows,
         fixture.ypir.item_size_bits,
         fixture.rlwe.d,
         output_count,
         fixture.ypir.db_cols,
-        serialized_ks_pair_len(fixture.rlwe) / 1024,
-        upload_measurements.key_pair_bytes / 1024,
+        serialized_packing_keys_len(fixture.rlwe) / 1024,
+        upload_measurements.packing_keys_bytes / 1024,
         upload_measurements.offline_query_polys_bytes / 1024,
         upload_measurements.online_query_packed_bytes / 1024,
         upload_measurements.online_query_legacy_bytes / 1024,
@@ -480,8 +501,8 @@ fn bench_end_to_end(c: &mut Criterion) {
         YPIR_CDKS_ONLINE_MS,
     );
     eprintln!(
-        "ipir-sp measured_upload_bytes: key_pair={} offline_query_polys={} online_query_packed={} online_query_legacy={} fresh_query_total={} current_http_query={}",
-        upload_measurements.key_pair_bytes,
+        "ipir-sp measured_upload_bytes: packing_keys={} offline_query_polys={} online_query_packed={} online_query_legacy={} fresh_query_total={} current_http_query={}",
+        upload_measurements.packing_keys_bytes,
         upload_measurements.offline_query_polys_bytes,
         upload_measurements.online_query_packed_bytes,
         upload_measurements.online_query_legacy_bytes,
@@ -566,21 +587,15 @@ fn bench_end_to_end(c: &mut Criterion) {
                             &fixture.secret,
                         );
                         drop(messages);
-                        let mut rng = ChaCha20Rng::seed_from_u64(SEED);
-                        let key_pair = generate_ks_pair(fixture.rlwe, &fixture.secret, &mut rng);
-                        (hint_0, key_pair)
+                        hint_0
                     },
-                    |(hint_0, key_pair)| {
+                    |hint_0| {
                         let offline =
                             offline_precompute_from_hint(fixture.rlwe, &fixture.ypir, hint_0);
                         let preprocessed_len = black_box(
-                            build_pack_preprocessed_blocks(
-                                fixture.rlwe,
-                                &offline.crs_blocks,
-                                &key_pair,
-                            )
-                            .expect("benchmark preprocessing builds")
-                            .len(),
+                            build_pack_preprocessed_blocks(fixture.rlwe, &offline.crs_blocks)
+                                .expect("benchmark preprocessing builds")
+                                .len(),
                         );
                         drop(offline);
                         preprocessed_len
@@ -595,6 +610,8 @@ fn bench_end_to_end(c: &mut Criterion) {
         b.iter(|| {
             let packed = pack_intermediate_blocks(
                 black_box(&fixture.intermediate),
+                black_box(&fixture.packing_keys),
+                black_box(&fixture.top_keys),
                 black_box(&fixture.preprocessed),
             )
             .expect("online pack succeeds");
@@ -622,6 +639,8 @@ fn bench_end_to_end(c: &mut Criterion) {
             b.iter(|| {
                 let packed = pack_intermediate_blocks(
                     black_box(&fixture.intermediate),
+                    black_box(&fixture.packing_keys),
+                    black_box(&fixture.top_keys),
                     black_box(&fixture.preprocessed),
                 )
                 .expect("online pack succeeds");
