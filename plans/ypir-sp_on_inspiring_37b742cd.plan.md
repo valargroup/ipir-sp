@@ -16,13 +16,13 @@ todos:
     status: pending
   - id: server-online
     content: Phase 4 — Port `perform_online_computation_simplepir` matmul layer; replace `pack_many_lwes` with `inspiring::pack` per RLWE-output block
-    status: pending
+    status: completed
   - id: modswitch
     content: Phase 5 — Implement single-CRT mod-switch + decode helpers, dropping the `params.poly_len` b-multiplier (InspiRING absorbs d⁻¹ inside transform)
-    status: pending
+    status: completed
   - id: client
     content: Phase 6 — Replace `raw_generate_expansion_params` (`log d` matrices) with two `ks_setup` calls for K_g, K_h; add wire-format serialisation
-    status: pending
+    status: completed
   - id: tests
     content: "Phase 7 — Tests: pack_replaces_cdks (full e2e), linear_cascade_count (d-1 switches), noise_within_theorem2, mod_switch_roundtrip, crs_block_extraction"
     status: pending
