@@ -16,10 +16,10 @@ todos:
     status: completed
   - id: stage1
     content: Implement Stage 1 (intermediate::transform) per Algorithm 1's TRANSFORM
-    status: pending
+    status: completed
   - id: stage2
     content: "Implement Stage 2 (intermediate::aggregate): Sum IRCtx . X^k aggregation"
-    status: pending
+    status: completed
   - id: stage3
     content: Implement Stage 3 (collapse::{one,half,collapse}) using K_g automorphic images and final K_h step
     status: pending

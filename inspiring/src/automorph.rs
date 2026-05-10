@@ -12,8 +12,7 @@
 //! will replace it with an in-place NTT-slot permutation).
 
 use spiral_rs::poly::{
-    add_raw, automorph_alloc, from_ntt_alloc, to_ntt_alloc, PolyMatrix, PolyMatrixNTT,
-    PolyMatrixRaw,
+    automorph_alloc, from_ntt_alloc, to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw,
 };
 
 /// The fixed generator of the `Z_{d/2}` factor of `Gal(R)`, per SPEC.md §2.
@@ -77,11 +76,27 @@ pub fn trace<'a>(p: &PolyMatrixRaw<'a>) -> PolyMatrixRaw<'a> {
         let gj = tau_g_pow(j, d);
         let left = tau_raw(p, gj);
         let right = tau_raw(p, (gj * h_d) % two_d);
-        let tmp = &out + &left;
-        add_raw(&mut out, &tmp, &right);
+        add_assign_raw_mod(&mut out, &left);
+        add_assign_raw_mod(&mut out, &right);
     }
 
     out
+}
+
+fn add_assign_raw_mod(out: &mut PolyMatrixRaw<'_>, rhs: &PolyMatrixRaw<'_>) {
+    debug_assert_eq!(out.rows, rhs.rows);
+    debug_assert_eq!(out.cols, rhs.cols);
+
+    let q = out.params.modulus;
+    for row in 0..out.rows {
+        for col in 0..out.cols {
+            let out_poly = out.get_poly_mut(row, col);
+            let rhs_poly = rhs.get_poly(row, col);
+            for (out_coeff, rhs_coeff) in out_poly.iter_mut().zip(rhs_poly) {
+                *out_coeff = (*out_coeff + *rhs_coeff) % q;
+            }
+        }
+    }
 }
 
 #[cfg(test)]

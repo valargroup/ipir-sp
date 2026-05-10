@@ -10,10 +10,9 @@
 //! - **Stage 2, [`aggregate`]** — sums `Σ_{k=0}^{d-1} IRCtx(m_k) · X^k`
 //!   homomorphically. SPEC.md §5.
 //!
-//! Stage 1 status: [`transform`] is implemented; [`aggregate`] remains a
-//! Stage 2 stub.
+//! Stage 1 and Stage 2 are implemented.
 
-use spiral_rs::poly::{to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw};
+use spiral_rs::poly::{add_into, multiply, to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw};
 
 use crate::automorph::{h, tau_g_pow, tau_raw};
 use crate::lwe::LweCiphertext;
@@ -92,9 +91,85 @@ fn scaled_tau_ntt<'a>(
 /// of where to absorb the `X^k` factor minimises NTT round-trips; see
 /// SPEC.md §5.
 ///
-/// Phase 4 status: stub.
-pub fn aggregate<'a>(_params: &'a RlweParams, _per_index: &[IRCtx<'a>]) -> IRCtx<'a> {
-    unimplemented!("intermediate::aggregate is implemented in Phase 6")
+pub fn aggregate<'a>(params: &'a RlweParams, per_index: &[IRCtx<'a>]) -> IRCtx<'a> {
+    assert_eq!(
+        per_index.len(),
+        params.d,
+        "intermediate::aggregate expects exactly d IRCtx inputs"
+    );
+
+    let mut a_hat = Vec::with_capacity(params.d);
+    a_hat.resize_with(params.d, || PolyMatrixNTT::zero(&params.spiral, 1, 1));
+    let mut b_tilde = PolyMatrixRaw::zero(&params.spiral, 1, 1);
+
+    for (k, ictx) in per_index.iter().enumerate() {
+        assert_eq!(
+            ictx.a_hat.len(),
+            params.d,
+            "intermediate::aggregate expects each IRCtx to have d a_hat slots"
+        );
+
+        let xk = monomial_ntt(params, k);
+        for (slot_idx, slot) in ictx.a_hat.iter().enumerate() {
+            let mut shifted = PolyMatrixNTT::zero(&params.spiral, 1, 1);
+            multiply(&mut shifted, slot, &xk);
+            add_into(&mut a_hat[slot_idx], &shifted);
+        }
+
+        let shifted_b = mul_raw_by_xk(params, &ictx.b_tilde, k);
+        add_assign_raw_mod(&mut b_tilde, &shifted_b);
+    }
+
+    IRCtx { a_hat, b_tilde }
+}
+
+fn monomial_ntt<'a>(params: &'a RlweParams, k: usize) -> PolyMatrixNTT<'a> {
+    let mut raw = PolyMatrixRaw::zero(&params.spiral, 1, 1);
+    raw.get_poly_mut(0, 0)[k % params.d] = 1;
+    to_ntt_alloc(&raw)
+}
+
+fn mul_raw_by_xk<'a>(
+    params: &'a RlweParams,
+    poly: &PolyMatrixRaw<'a>,
+    k: usize,
+) -> PolyMatrixRaw<'a> {
+    let mut out = PolyMatrixRaw::zero(&params.spiral, poly.rows, poly.cols);
+    let shift = k % params.d;
+
+    for row in 0..poly.rows {
+        for col in 0..poly.cols {
+            let input = poly.get_poly(row, col);
+            let output = out.get_poly_mut(row, col);
+            for (idx, coeff) in input.iter().enumerate() {
+                let reduced = coeff % params.q;
+                let target = idx + shift;
+                if target < params.d {
+                    output[target] = reduced;
+                } else {
+                    output[target - params.d] = if reduced == 0 { 0 } else { params.q - reduced };
+                }
+            }
+        }
+    }
+
+    out
+}
+
+fn add_assign_raw_mod(out: &mut PolyMatrixRaw<'_>, rhs: &PolyMatrixRaw<'_>) {
+    debug_assert_eq!(out.rows, rhs.rows);
+    debug_assert_eq!(out.cols, rhs.cols);
+
+    let q = out.params.modulus;
+    for row in 0..out.rows {
+        for col in 0..out.cols {
+            let out_poly = out.get_poly_mut(row, col);
+            let rhs_poly = rhs.get_poly(row, col);
+            for (out_coeff, rhs_coeff) in out_poly.iter_mut().zip(rhs_poly) {
+                *out_coeff = (*out_coeff + *rhs_coeff) % q;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -130,6 +205,25 @@ mod tests {
         poly.iter()
             .map(|coeff| ((u128::from(*coeff) * u128::from(scalar)) % u128::from(q)) as u64)
             .collect()
+    }
+
+    fn add_poly(lhs: &[u64], rhs: &[u64], q: u64) -> Vec<u64> {
+        lhs.iter().zip(rhs).map(|(x, y)| (x + y) % q).collect()
+    }
+
+    fn mul_coeffs_by_xk(poly: &[u64], k: usize, q: u64) -> Vec<u64> {
+        let d = poly.len();
+        let mut out = vec![0; d];
+        for (idx, coeff) in poly.iter().enumerate() {
+            let target = idx + k;
+            if target < d {
+                out[target] = *coeff % q;
+            } else {
+                let reduced = coeff % q;
+                out[target - d] = if reduced == 0 { 0 } else { q - reduced };
+            }
+        }
+        out
     }
 
     #[test]
@@ -216,5 +310,66 @@ mod tests {
                 b: 0,
             },
         );
+    }
+
+    #[test]
+    fn aggregate_b_tilde_is_literal_b_vector_for_transform_outputs() {
+        let params = params();
+        let cts: Vec<_> = (0..params.d)
+            .map(|idx| LweCiphertext {
+                a: vec![idx as u64; params.d],
+                b: params.q + idx as u64,
+            })
+            .collect();
+        let irctxs: Vec<_> = cts.iter().map(|ct| transform(&params, ct)).collect();
+
+        let agg = aggregate(&params, &irctxs);
+
+        assert_eq!(
+            raw_coeffs(&agg.b_tilde),
+            (0..params.d as u64).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn aggregate_a_hat_matches_weighted_sum_formula() {
+        let params = params();
+        let cts: Vec<_> = (0..params.d)
+            .map(|idx| LweCiphertext {
+                a: (0..params.d)
+                    .map(|coeff_idx| (idx * params.d + coeff_idx + 1) as u64)
+                    .collect(),
+                b: idx as u64,
+            })
+            .collect();
+        let irctxs: Vec<_> = cts.iter().map(|ct| transform(&params, ct)).collect();
+        let agg = aggregate(&params, &irctxs);
+
+        for slot in 0..params.d {
+            let mut expected = vec![0; params.d];
+            for (k, ictx) in irctxs.iter().enumerate() {
+                expected = add_poly(
+                    &expected,
+                    &mul_coeffs_by_xk(&ntt_coeffs(&ictx.a_hat[slot]), k, params.q),
+                    params.q,
+                );
+            }
+            assert_eq!(ntt_coeffs(&agg.a_hat[slot]), expected);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "intermediate::aggregate expects exactly d IRCtx inputs")]
+    fn aggregate_panics_on_wrong_number_of_inputs() {
+        let params = params();
+        let irctxs = vec![transform(
+            &params,
+            &LweCiphertext {
+                a: vec![0; params.d],
+                b: 0,
+            },
+        )];
+
+        let _ = aggregate(&params, &irctxs);
     }
 }
