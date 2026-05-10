@@ -125,3 +125,40 @@ fn online_response_uses_linear_switch_count_per_rlwe_output() {
         (offline.crs_blocks.len() * (rlwe.d - 1)) as u64
     );
 }
+
+#[test]
+fn generated_offline_hint_feeds_preprocessing_and_online_response() {
+    let rlwe = tiny_rlwe();
+    let mut ypir = tiny_ypir_two_outputs();
+    ypir.num_items = 8;
+    ypir.db_rows = 8;
+    let server = YServer::new(ypir.clone(), 0u16..128, false, true);
+
+    let offline_query = vec![vec![1, 0, 0, 0, 0, 0, 0, 0]];
+    let offline = server.perform_offline_precomputation_simplepir(&rlwe, &offline_query);
+    assert_eq!(offline.crs_blocks.len(), 2);
+    assert_eq!(
+        offline.crs_blocks[0].rows[0],
+        vec![0, 16, 32, 48, 64, 80, 96, 112]
+    );
+    assert_eq!(
+        offline.crs_blocks[1].rows[0],
+        vec![8, 24, 40, 56, 72, 88, 104, 120]
+    );
+
+    let secret = ClientSecret::from_coeffs(&rlwe, vec![1, 0, rlwe.q - 1, 1, 0, 1, 0, 0]);
+    let mut rng = ChaCha20Rng::seed_from_u64(0x5152);
+    let key_pairs = generate_ks_pairs(&rlwe, &secret, offline.crs_blocks.len(), &mut rng);
+    let pre = build_pack_preprocessed_blocks(&rlwe, &offline.crs_blocks, key_pairs)
+        .expect("preprocessing builds with generated hints");
+
+    let query = [1, 0, 0, 0, 0, 0, 0, 0];
+    let response = server
+        .perform_online_computation_simplepir(&rlwe, &query, &pre)
+        .expect("online response serializes");
+
+    assert_eq!(
+        response.len(),
+        2 * switched_rlwe_response_len(rlwe.d, ypir.q_prime_1, ypir.q_prime_2)
+    );
+}
