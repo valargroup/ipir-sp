@@ -3,6 +3,7 @@
 //! This crate keeps YPIR's u32/SimplePIR-facing surface separate from
 //! `inspiring`, and uses `inspiring::pack` as the only LWE-to-RLWE packing
 //! primitive.
+//! CI covers this crate through the workspace-level Rust workflow.
 
 #![deny(rust_2018_idioms)]
 #![forbid(unsafe_code)]
