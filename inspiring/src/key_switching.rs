@@ -85,7 +85,6 @@ pub fn ks_switch<'a>(
     c1: &PolyMatrixNTT<'a>,
     c2: &PolyMatrixNTT<'a>,
 ) -> (PolyMatrixNTT<'a>, PolyMatrixNTT<'a>) {
-    #[cfg(test)]
     ks_call_count::inc();
 
     assert_eq!(k.mat.rows, 2);
@@ -117,11 +116,11 @@ pub fn automorphic_image<'a>(k: &KeySwitchingMatrix<'a>, t: u64) -> KeySwitching
     }
 }
 
-/// Test-only thread-local counter for `KS.Switch` calls. Used by
+/// Test/diagnostic thread-local counter for `KS.Switch` calls. Used by
 /// `tests/inspiring_vs_cdks_recursion.rs` to assert the linear-cascade
 /// `KS.Switch` count of exactly `d − 1` per pack — the runtime structural
 /// guard against accidental CDKS-style implementation drift (SPEC.md §9.h).
-#[cfg(test)]
+#[doc(hidden)]
 pub mod ks_call_count {
     use std::cell::Cell;
 
