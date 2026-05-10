@@ -200,7 +200,7 @@ pub(crate) fn ks_switch_with_digits_ntt<'a>(
     assert_eq!(c2.cols, 1);
 
     let mut switched = PolyMatrixNTT::zero(&params.spiral, 2, 1);
-    multiply(&mut switched, &k.mat, &digits_ntt);
+    multiply(&mut switched, &k.mat, digits_ntt);
 
     let delta_a = switched.submatrix(0, 0, 1, 1);
     let mut delta_b = switched.submatrix(1, 0, 1, 1);

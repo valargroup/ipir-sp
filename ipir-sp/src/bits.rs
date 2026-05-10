@@ -60,7 +60,7 @@ pub fn read_bits(data: &[u8], bit_offs: usize, num_bits: usize) -> u64 {
 /// Pack integers into a contiguous byte string using exactly `inp_mod_bits` bits per value.
 #[must_use]
 pub fn u64s_to_contiguous_bytes(data: &[u64], inp_mod_bits: usize) -> Vec<u8> {
-    let total_sz = (data.len() * inp_mod_bits + 7) / 8;
+    let total_sz = (data.len() * inp_mod_bits).div_ceil(8);
     let mut out = vec![0u8; total_sz];
     let mut bit_offs = 0;
     for val in data {

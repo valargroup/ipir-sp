@@ -37,7 +37,7 @@ pub fn modulus_bits(modulus: u64) -> usize {
 #[must_use]
 pub fn switch_coeffs_single_crt(coeffs: &[u64], q_in: u64, q_out: u64) -> Vec<u8> {
     let bits = modulus_bits(q_out);
-    let mut out = vec![0u8; (coeffs.len() * bits + 7) / 8];
+    let mut out = vec![0u8; (coeffs.len() * bits).div_ceil(8)];
     let mut bit_offs = 0;
     for coeff in coeffs {
         write_bits(&mut out, rescale(*coeff, q_in, q_out), bit_offs, bits);
@@ -55,7 +55,7 @@ pub fn recover_coeffs_single_crt(
     q_out: u64,
 ) -> Vec<u64> {
     let bits = modulus_bits(q_in);
-    let expected_len = (coeff_count * bits + 7) / 8;
+    let expected_len = (coeff_count * bits).div_ceil(8);
     assert_eq!(
         ciphertext.len(),
         expected_len,

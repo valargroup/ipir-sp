@@ -28,7 +28,7 @@ where
         assert_eq!(out.len(), cols, "output length must match cols");
 
         let modulus = rlwe.q as u128;
-        for col in 0..cols {
+        for (col, out_col) in out.iter_mut().enumerate().take(cols) {
             let mut acc = 0u128;
             let col_offset = col * rows_padded;
             for (row, query_val) in query.iter().enumerate() {
@@ -36,7 +36,7 @@ where
                 acc += (*query_val as u128) * (db_val as u128);
                 acc %= modulus;
             }
-            out[col] = acc as u64;
+            *out_col = acc as u64;
         }
     }
 }

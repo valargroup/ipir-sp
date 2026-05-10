@@ -593,10 +593,10 @@ pub fn extract_crs_block(
 
     let col_start = block * rlwe.d;
     let mut rows = vec![vec![0u64; rlwe.d]; rlwe.d];
-    for crs_row in 0..rlwe.d {
+    for (crs_row, row) in rows.iter_mut().enumerate().take(rlwe.d) {
         let hint_col = col_start + crs_row;
         for coeff in 0..rlwe.d {
-            rows[crs_row][coeff] = hint_0[coeff * ypir.db_cols + hint_col] % rlwe.q;
+            row[coeff] = hint_0[coeff * ypir.db_cols + hint_col] % rlwe.q;
         }
     }
 
@@ -712,7 +712,7 @@ mod tests {
         assert_eq!(
             result,
             vec![
-                2 * 0 + 3 * 3 + 5 * 6 + 7 * 9,
+                102,
                 2 + 3 * 4 + 5 * 7 + 7 * 10,
                 2 * 2 + 3 * 5 + 5 * 8 + 7 * 11
             ]

@@ -79,7 +79,7 @@ where
             .min(rows_padded)
             .max(1);
 
-        for col in 0..cols {
+        for (col, out_col) in out.iter_mut().enumerate().take(cols) {
             let col_offset = col * rows_padded;
             let mut acc = 0u128;
             let mut row_start = 0;
@@ -101,7 +101,7 @@ where
                 row_start = row_end;
             }
 
-            out[col] = acc as u64;
+            *out_col = acc as u64;
         }
     }
 }
@@ -140,14 +140,14 @@ fn scalar_fallback<T>(
     T: Copy + ToU64,
 {
     let modulus = rlwe.q as u128;
-    for col in 0..cols {
+    for (col, out_col) in out.iter_mut().enumerate().take(cols) {
         let col_offset = col * rows_padded;
         let mut acc = 0u128;
         for (row, query_val) in query.iter().enumerate() {
             acc += (*query_val as u128) * (db[col_offset + row].to_u64() as u128);
             acc %= modulus;
         }
-        out[col] = acc as u64;
+        *out_col = acc as u64;
     }
 }
 

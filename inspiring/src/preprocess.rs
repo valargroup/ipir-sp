@@ -206,10 +206,10 @@ impl<'a> PackPublicPreprocessed<'a> {
         let two_d = 2 * params.d as u64;
         let h_d = h(params.d);
         let kg_images_left: Vec<_> = (0..(params.d / 2 - 1))
-            .map(|i| automorphic_image(&kg, tau_g_pow(i, params.d)))
+            .map(|i| automorphic_image(kg, tau_g_pow(i, params.d)))
             .collect();
         let kg_images_right: Vec<_> = (0..(params.d / 2 - 1))
-            .map(|i| automorphic_image(&kg, (tau_g_pow(i, params.d) * h_d) % two_d))
+            .map(|i| automorphic_image(kg, (tau_g_pow(i, params.d) * h_d) % two_d))
             .collect();
         let collapse_affine = precompute_collapse_affine(
             params,

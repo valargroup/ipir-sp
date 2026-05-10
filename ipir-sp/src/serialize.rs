@@ -62,7 +62,7 @@ pub fn deserialize_packing_keys<'a>(
 /// Serialize a sequence of `u64` values as little-endian bytes.
 #[must_use]
 pub fn serialize_u64s_le(data: &[u64]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(data.len() * std::mem::size_of::<u64>());
+    let mut out = Vec::with_capacity(std::mem::size_of_val(data));
     write_u64s_le(&mut out, data);
     out
 }
@@ -133,7 +133,7 @@ fn validate_packing_key_body(
 }
 
 fn write_u64s_le(out: &mut Vec<u8>, data: &[u64]) {
-    out.reserve(data.len() * std::mem::size_of::<u64>());
+    out.reserve(std::mem::size_of_val(data));
     for coeff in data {
         out.extend_from_slice(&coeff.to_le_bytes());
     }
