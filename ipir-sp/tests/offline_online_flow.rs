@@ -172,7 +172,7 @@ fn client_keys_drive_server_online_response_serialization() {
 }
 
 #[test]
-fn online_response_uses_linear_switch_count_per_rlwe_output() {
+fn online_response_uses_precomputed_switches_per_rlwe_output() {
     let rlwe = tiny_rlwe();
     let ypir = tiny_ypir_two_outputs();
     let server = YServer::new(ypir.clone(), 0u16..64, false, true);
@@ -182,8 +182,14 @@ fn online_response_uses_linear_switch_count_per_rlwe_output() {
     let hint_0 = vec![0u64; rlwe.d * ypir.db_cols];
     let offline = offline_precompute_from_hint(&rlwe, &ypir, hint_0);
     let key_pairs = generate_ks_pairs(&rlwe, &secret, offline.crs_blocks.len(), &mut rng);
+
+    ks_call_count::reset();
     let pre = build_pack_preprocessed_blocks(&rlwe, &offline.crs_blocks, key_pairs)
         .expect("preprocessing builds with generated keys");
+    assert_eq!(
+        ks_call_count::get(),
+        (offline.crs_blocks.len() * (rlwe.d - 1)) as u64
+    );
 
     ks_call_count::reset();
     let query = [1, 0, 0, 0];
@@ -191,10 +197,7 @@ fn online_response_uses_linear_switch_count_per_rlwe_output() {
         .perform_online_computation_simplepir(&rlwe, &query, &pre)
         .expect("online response serializes");
 
-    assert_eq!(
-        ks_call_count::get(),
-        (offline.crs_blocks.len() * (rlwe.d - 1)) as u64
-    );
+    assert_eq!(ks_call_count::get(), 0);
 }
 
 #[test]

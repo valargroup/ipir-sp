@@ -14,20 +14,20 @@
 //!
 //! **Linear-cascade invariant** (SPEC.md §6 + §9):
 //!
-//! `# KS.Switch calls per pack = (d/2 - 1) + (d/2 - 1) + 1 = d - 1`.
+//! `# KS.Switch calls per full collapse = (d/2 - 1) + (d/2 - 1) + 1 = d - 1`.
 //!
 //! A CDKS-style implementation would have `(d - 1) · log₂ d` calls.
-//! `tests/inspiring_vs_cdks_recursion.rs` asserts this empirically by
-//! reading `key_switching::ks_call_count::get()` after each pack.
+//! `tests/inspiring_vs_cdks_recursion.rs` asserts this during preprocessing;
+//! online `pack` consumes the precomputed affine collapse instead.
 //!
 //! Stage 3 is implemented.
 
-use spiral_rs::poly::{add_into, stack_ntt, to_ntt_alloc, PolyMatrix, PolyMatrixNTT};
+use spiral_rs::poly::{
+    add_into, stack_ntt, to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw,
+};
 
 use crate::intermediate::IRCtx;
-use crate::key_switching::{
-    ks_digits_ntt_from_c1, ks_switch, ks_switch_with_digits_ntt, KeySwitchingMatrix,
-};
+use crate::key_switching::{ks_switch, ks_switch_with_digits_ntt, KeySwitchingMatrix};
 use crate::pack::RlweCiphertext;
 use crate::params::RlweParams;
 
@@ -104,27 +104,6 @@ fn collapse_half_with_digits<'a>(
         let image_idx = state.a.len() - 2;
         collapse_one_with_digits(state, &kg_images[image_idx], &digits_ntt[*digit_idx]);
         *digit_idx += 1;
-    }
-}
-
-fn collect_half_digits<'a>(
-    params: &'a RlweParams,
-    state: &mut CollapseState<'a>,
-    kg_images: &[KeySwitchingMatrix<'a>],
-    digits_ntt: &mut Vec<PolyMatrixNTT<'a>>,
-) {
-    assert_eq!(
-        kg_images.len(),
-        state.a.len().saturating_sub(1),
-        "collapse::collect_half_digits expects one K_g image per collapse step"
-    );
-
-    while state.a.len() > 1 {
-        let image_idx = state.a.len() - 2;
-        let c1 = &state.a[state.a.len() - 1];
-        let digits = ks_digits_ntt_from_c1(params, c1);
-        collapse_one_with_digits(state, &kg_images[image_idx], &digits);
-        digits_ntt.push(digits);
     }
 }
 
@@ -263,53 +242,38 @@ pub fn collapse_with_digits<'a>(
     }
 }
 
-/// Collect the preprocessable digit blocks for the fixed `a` collapse trace.
-pub(crate) fn collect_collapse_digits<'a>(
+/// The affine form of collapse for a fixed CRS and key-switching pair.
+///
+/// Once the deterministic collapse of the `a` side has been evaluated, online
+/// packing only needs `b_final = NTT(b_tilde) + b_offset`.
+pub struct CollapseAffineCache<'a> {
+    /// Final RLWE `c1` under the base secret.
+    pub a_final_ntt: PolyMatrixNTT<'a>,
+    /// Deterministic `c2` contribution produced by collapsing with `b = 0`.
+    pub b_offset_ntt: PolyMatrixNTT<'a>,
+}
+
+/// Precompute the CRS/key-dependent affine collapse output.
+pub(crate) fn precompute_collapse_affine<'a>(
     params: &'a RlweParams,
     a_hat: Vec<PolyMatrixNTT<'a>>,
     kg_images_left: &[KeySwitchingMatrix<'a>],
     kg_images_right: &[KeySwitchingMatrix<'a>],
     kh: &KeySwitchingMatrix<'a>,
-) -> Vec<PolyMatrixNTT<'a>> {
-    assert_eq!(
-        a_hat.len(),
-        params.d,
-        "collapse::collect_collapse_digits expects d a_hat slots"
+) -> CollapseAffineCache<'a> {
+    let b_tilde = PolyMatrixRaw::zero(&params.spiral, 1, 1);
+    let collapsed = collapse(
+        params,
+        IRCtx { a_hat, b_tilde },
+        kg_images_left,
+        kg_images_right,
+        kh,
     );
 
-    let mut slots = a_hat;
-    let right = slots.split_off(params.d / 2);
-    let left = slots;
-    let b = PolyMatrixNTT::zero(&params.spiral, 1, 1);
-    let mut digits_ntt = Vec::with_capacity(params.d - 1);
-
-    let mut left_state = CollapseState { a: left, b };
-    collect_half_digits(params, &mut left_state, kg_images_left, &mut digits_ntt);
-    let left_a = left_state
-        .a
-        .pop()
-        .expect("collect_half_digits leaves one left component");
-
-    let mut right_state = CollapseState {
-        a: right,
-        b: left_state.b,
-    };
-    collect_half_digits(params, &mut right_state, kg_images_right, &mut digits_ntt);
-    let right_a = right_state
-        .a
-        .pop()
-        .expect("collect_half_digits leaves one right component");
-
-    let mut final_state = CollapseState {
-        a: vec![left_a, right_a],
-        b: right_state.b,
-    };
-    let digits = ks_digits_ntt_from_c1(params, &final_state.a[1]);
-    collapse_one_with_digits(&mut final_state, kh, &digits);
-    digits_ntt.push(digits);
-
-    assert_eq!(digits_ntt.len(), params.d - 1);
-    digits_ntt
+    CollapseAffineCache {
+        a_final_ntt: collapsed.inner.submatrix(0, 0, 1, 1),
+        b_offset_ntt: collapsed.inner.submatrix(1, 0, 1, 1),
+    }
 }
 
 /// Running state of the collapse cascade. At each step it carries

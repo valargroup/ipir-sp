@@ -346,6 +346,8 @@ fn bench_end_to_end(c: &mut Criterion) {
             fixture.ypir.q_prime_1,
             fixture.ypir.q_prime_2,
         );
+    let packed_fixture = pack_intermediate_blocks(&fixture.intermediate, &fixture.preprocessed)
+        .expect("fixture online pack succeeds");
 
     eprintln!(
         "ipir-sp target: profile={}, rows={}, item_bits={}, d={}, outputs={}, db_cols={}, serialized_ks_pair={} KiB, compressed_ks_pair={} KiB, cdks_upload={} KiB, response={} KiB, ||e_pack||_inf_bits={}, paper_noise_target_bits<={:.1}, cdks_online_target={} ms",
@@ -397,6 +399,31 @@ fn bench_end_to_end(c: &mut Criterion) {
                 },
                 BatchSize::LargeInput,
             );
+        },
+    );
+
+    group.bench_function(BenchmarkId::new("online_pack_only", output_count), |b| {
+        b.iter(|| {
+            let packed = pack_intermediate_blocks(
+                black_box(&fixture.intermediate),
+                black_box(&fixture.preprocessed),
+            )
+            .expect("online pack succeeds");
+            black_box(&packed);
+            drop(packed);
+        });
+    });
+
+    group.bench_function(
+        BenchmarkId::new("online_serialize_only", output_count),
+        |b| {
+            b.iter(|| {
+                black_box(serialize_rlwe_response(
+                    black_box(&packed_fixture),
+                    fixture.ypir.q_prime_1,
+                    fixture.ypir.q_prime_2,
+                ));
+            });
         },
     );
 

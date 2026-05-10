@@ -7,16 +7,16 @@
 //!
 //! Phase 8 status: online entry point is implemented.
 //!
-//! `PackPreprocessed` caches the CRS-derived `â_agg`, automorphic
-//! key-switching images, and the NTT-form gadget digits for the deterministic
-//! collapse `a`-trace. Online packing assembles only `b̃_agg` from the query
-//! scalars and reuses those cached digits for the logical KS cascade.
+//! `PackPreprocessed` caches the CRS-derived affine collapse output. Online
+//! packing assembles only `b̃_agg` from the query scalars, applies one NTT, adds
+//! the cached deterministic `b` offset, and stacks that with the cached final
+//! `c1`.
 
-use spiral_rs::poly::{PolyMatrix, PolyMatrixNTT, PolyMatrixRaw};
+use spiral_rs::poly::{
+    add_into, stack_ntt, to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw,
+};
 
-use crate::collapse::collapse_with_digits;
 use crate::error::InspiringError;
-use crate::intermediate::IRCtx;
 use crate::lwe::LweBatch;
 use crate::preprocess::PackPreprocessed;
 
@@ -39,11 +39,10 @@ pub struct RlweCiphertext<'a> {
 /// API invariants (SPEC.md §10):
 ///
 /// 1. Deterministic: no fresh randomness is sampled in this function.
-/// 2. Calls `KS.Switch` exactly `d − 1` times. Asserted by
-///    `tests/inspiring_vs_cdks_recursion.rs`.
-/// 3. Touches `pre.kg` and `pre.kh` only via their precomputed
-///    automorphic images cached in `pre.kg_images_left` and
-///    `pre.kg_images_right`.
+/// 2. Performs zero online `KS.Switch` matrix products; the `d − 1` logical
+///    collapse steps are precomputed into [`PackPreprocessed`].
+/// 3. Does not touch `pre.kg`, `pre.kh`, or the automorphic images on the
+///    online path.
 ///
 pub fn pack<'a>(
     b: &LweBatch,
@@ -56,17 +55,12 @@ pub fn pack<'a>(
         b_tilde.get_poly_mut(0, 0)[idx] = ct.b % pre.params.q;
     }
 
-    Ok(collapse_with_digits(
-        pre.params,
-        IRCtx {
-            a_hat: pre.a_agg.clone(),
-            b_tilde,
-        },
-        &pre.kg_images_left,
-        &pre.kg_images_right,
-        &pre.kh,
-        &pre.collapse_digits_ntt,
-    ))
+    let mut b_final = to_ntt_alloc(&b_tilde);
+    add_into(&mut b_final, &pre.collapse_b_offset_ntt);
+
+    Ok(RlweCiphertext {
+        inner: stack_ntt(&pre.collapse_a_final_ntt, &b_final),
+    })
 }
 
 #[cfg(test)]
@@ -143,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn pack_runs_linear_cascade_switch_count() {
+    fn pack_runs_no_online_key_switch_products() {
         let params = params();
         let crs = crs(&params);
         let pre = PackPreprocessed::build(&params, &crs, zero_ks(&params), zero_ks(&params))
@@ -154,6 +148,6 @@ mod tests {
         ks_call_count::reset();
         let _ = pack(&batch, &pre).expect("pack succeeds");
 
-        assert_eq!(ks_call_count::get(), (params.d - 1) as u64);
+        assert_eq!(ks_call_count::get(), 0);
     }
 }

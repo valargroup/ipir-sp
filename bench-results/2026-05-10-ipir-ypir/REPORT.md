@@ -183,12 +183,39 @@ Artifact: `raw/ipir-32768x131072-after-online-cache.log`
 - `offline_crs_extract_and_preprocess/5`: 103.83 s median
 - `online_pack_and_serialize/5`: 997.07 ms median
 
+### IPIR+SP After Affine Collapse Cache
+
+Command:
+
+```bash
+IPIR_SP_BENCH_FULL=1 cargo bench -p ipir-sp --bench end_to_end
+```
+
+Artifact: `raw/ipir-32768x131072-after-affine-cache.log`
+
+- Profile: `ipir_sp_32768_131072`
+- Rows: 32768
+- Item size: 131072 bits
+- RLWE degree: 2048
+- Outputs: 5
+- DB columns: 10240
+- Serialized KS pair: 192 KiB
+- Compressed KS pair estimate: 168 KiB
+- Response: 60 KiB
+- `||e_pack||_inf_bits`: 34
+- `offline_crs_extract_and_preprocess/5`: 102.43 s median
+- `online_pack_only/5`: 16.970 ms median
+- `online_serialize_only/5`: 1.2599 ms median
+- `online_pack_and_serialize/5`: 18.664 ms median
+
 ## Normalized Interpretation
 
 - YPIR+SP headline full-system timing is 294 ms average online server time, including 199 ms ring packing.
 - IPIR+SP headline now completes on this 31 GiB/no-swap host after removing the dead `a_hat` cache and replacing the preprocessing aggregation path.
-- IPIR+SP headline online pack/serialize is now 997.07 ms for five RLWE outputs after caching collapse gadget digits, down from 4.4272 s before the online cache.
-- IPIR+SP headline offline CRS extraction/preprocessing is 103.83 s for five RLWE outputs. The online cache shifts deterministic digit derivation into preprocessing, so offline setup remains heavy.
+- IPIR+SP pack-only after the affine collapse cache is 16.970 ms for five RLWE outputs. This is the closest local analogue to YPIR's 199 ms ring-packing timer, with the caveat that YPIR's timer includes pack public-parameter unpacking.
+- IPIR+SP pack+serialize after the affine collapse cache is 18.664 ms. This is comparable to YPIR's post-first-pass online work (294 ms online server time minus 91 ms first pass = 203 ms), not to YPIR's full online time including the database dot product.
+- IPIR+SP headline online pack/serialize improved from 4.4272 s before online caching, to 997.07 ms with cached collapse digits, to 18.664 ms with the affine collapse cache.
+- IPIR+SP headline offline CRS extraction/preprocessing is 102.43 s for five RLWE outputs. The affine cache keeps deterministic collapse work offline, so offline setup remains heavy.
 
 ## Follow-up Needed
 
@@ -198,7 +225,7 @@ Artifact: `raw/ipir-32768x131072-after-online-cache.log`
 ## Online Gap Status
 
 Resolved in code and benchmarked above: `PackPreprocessed` now caches the
-NTT-form gadget-decomposed digits derived from the deterministic collapse
-`a`-side trace. Online `inspiring::pack` consumes those cached digits, skipping
-the per-call inverse NTT, gadget inversion, and digit NTT work in the
-key-switching cascade.
+affine collapse output (`a_final`, `b_offset`) derived from the deterministic
+collapse trace. Online `inspiring::pack` now performs one NTT of `b̃`, one
+polynomial add, and one stack per RLWE output, with zero online key-switch
+matrix products.

@@ -45,7 +45,24 @@ fn batch(params: &RlweParams) -> LweBatch {
 }
 
 #[test]
-fn pack_uses_linear_cascade_switch_count_not_cdks_tree_shape() {
+fn preprocessing_evaluates_linear_cascade_not_cdks_tree_shape() {
+    let params = params();
+    let crs = crs(&params);
+
+    ks_call_count::reset();
+    let _pre = PackPreprocessed::build(&params, &crs, zero_ks(&params), zero_ks(&params))
+        .expect("valid preprocessing");
+
+    assert_eq!(ks_call_count::get(), (params.d - 1) as u64);
+    assert_ne!(
+        ks_call_count::get(),
+        params.d.ilog2() as u64,
+        "CDKS-style logarithmic-level switching accidentally appeared"
+    );
+}
+
+#[test]
+fn pack_uses_precomputed_cascade_without_online_key_switch_products() {
     let params = params();
     let crs = crs(&params);
     let pre = PackPreprocessed::build(&params, &crs, zero_ks(&params), zero_ks(&params))
@@ -54,12 +71,7 @@ fn pack_uses_linear_cascade_switch_count_not_cdks_tree_shape() {
     ks_call_count::reset();
     let _ = pack(&batch(&params), &pre).expect("pack succeeds");
 
-    assert_eq!(ks_call_count::get(), (params.d - 1) as u64);
-    assert_ne!(
-        ks_call_count::get(),
-        params.d.ilog2() as u64,
-        "CDKS-style logarithmic-level switching accidentally appeared"
-    );
+    assert_eq!(ks_call_count::get(), 0);
 }
 
 #[test]

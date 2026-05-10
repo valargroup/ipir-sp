@@ -26,14 +26,14 @@ fn zero_ks<'a>(params: &'a RlweParams) -> KeySwitchingMatrix<'a> {
     }
 }
 
-fn batch(params: &RlweParams) -> LweBatch {
+fn batch(params: &RlweParams, b_seed: u64) -> LweBatch {
     LweBatch {
         inner: (0..params.d)
             .map(|row| LweCiphertext {
                 a: (0..params.d)
                     .map(|col| (row * params.d + col + 3) as u64)
                     .collect(),
-                b: (row as u64 * 11 + 7) % params.q,
+                b: (row as u64 * 11 + b_seed) % params.q,
             })
             .collect(),
     }
@@ -70,7 +70,7 @@ fn all_online_pack<'a>(
 #[test]
 fn online_pack_matches_all_online_execution_for_same_crs() {
     let params = params();
-    let batch = batch(&params);
+    let batch = batch(&params, 7);
     let crs = crs_from_batch(&params, &batch);
     let kg = zero_ks(&params);
     let kh = zero_ks(&params);
@@ -80,4 +80,26 @@ fn online_pack_matches_all_online_execution_for_same_crs() {
     let actual = pack(&batch, &pre).expect("pack succeeds").inner;
 
     assert_eq!(actual.as_slice(), expected.as_slice());
+}
+
+#[test]
+fn online_pack_matches_all_online_execution_for_multiple_b_vectors() {
+    let params = params();
+    let crs_batch = batch(&params, 7);
+    let crs = crs_from_batch(&params, &crs_batch);
+    let kg = zero_ks(&params);
+    let kh = zero_ks(&params);
+    let pre = PackPreprocessed::build(&params, &crs, zero_ks(&params), zero_ks(&params))
+        .expect("valid preprocessing");
+
+    for b_seed in [0, 1, 37, params.q - 9] {
+        let mut query_batch = batch(&params, b_seed);
+        for (row, ct) in query_batch.inner.iter_mut().enumerate() {
+            ct.a.copy_from_slice(crs_batch.inner[row].a.as_slice());
+        }
+
+        let expected = all_online_pack(&params, &query_batch, &kg, &kh);
+        let actual = pack(&query_batch, &pre).expect("pack succeeds").inner;
+        assert_eq!(actual.as_slice(), expected.as_slice(), "b_seed={b_seed}");
+    }
 }

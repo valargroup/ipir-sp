@@ -5,15 +5,15 @@
 //! is materialised here, in NTT form, so the online [`crate::pack::pack`]
 //! call is a pure function of `(b_0, …, b_{d-1}, &PackPreprocessed)`.
 //!
-//! The collapse `a`-side gadget digits are also cached here. They are large
-//! (`(d - 1) * ℓ` ring elements per preprocessed block), but remove the online
-//! inverse NTT, gadget inversion, and digit NTT work for each logical KS step.
+//! The deterministic collapse result is cached here as an affine form:
+//! online packing only adds `NTT(b̃)` to the precomputed `b` offset and stacks
+//! that with the precomputed final `c1`.
 
 use rayon::prelude::*;
 use spiral_rs::poly::{from_ntt_alloc, to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw};
 
 use crate::automorph::{h, tau_g_pow};
-use crate::collapse::collect_collapse_digits;
+use crate::collapse::precompute_collapse_affine;
 use crate::error::InspiringError;
 use crate::key_switching::{automorphic_image, KeySwitchingMatrix};
 use crate::params::RlweParams;
@@ -48,11 +48,13 @@ pub struct PackPreprocessed<'a> {
     /// right-half collapse.
     pub kg_images_right: Vec<KeySwitchingMatrix<'a>>,
 
-    /// NTT-form gadget digits for each deterministic `a`-side collapse step.
+    /// Final RLWE `c1` from collapsing the deterministic `a` trace.
+    pub collapse_a_final_ntt: PolyMatrixNTT<'a>,
+
+    /// Deterministic `c2` offset from collapsing with zero online `b`.
     ///
-    /// Entries are ordered exactly as the online cascade executes: left-half
-    /// switches, right-half switches, then the final `K_h` switch.
-    pub collapse_digits_ntt: Vec<PolyMatrixNTT<'a>>,
+    /// Online packing computes `c2 = NTT(b̃) + collapse_b_offset_ntt`.
+    pub collapse_b_offset_ntt: PolyMatrixNTT<'a>,
 }
 
 impl<'a> PackPreprocessed<'a> {
@@ -102,7 +104,7 @@ impl<'a> PackPreprocessed<'a> {
         let kg_images_right: Vec<_> = (0..(params.d / 2 - 1))
             .map(|i| automorphic_image(&kg, (tau_g_pow(i, params.d) * h_d) % two_d))
             .collect();
-        let collapse_digits_ntt = collect_collapse_digits(
+        let collapse_affine = precompute_collapse_affine(
             params,
             a_agg.clone(),
             &kg_images_left,
@@ -117,7 +119,8 @@ impl<'a> PackPreprocessed<'a> {
             kh,
             kg_images_left,
             kg_images_right,
-            collapse_digits_ntt,
+            collapse_a_final_ntt: collapse_affine.a_final_ntt,
+            collapse_b_offset_ntt: collapse_affine.b_offset_ntt,
         })
     }
 }
@@ -248,7 +251,10 @@ mod tests {
         assert_eq!(pre.a_agg.len(), params.d);
         assert_eq!(pre.kg_images_left.len(), params.d / 2 - 1);
         assert_eq!(pre.kg_images_right.len(), params.d / 2 - 1);
-        assert_eq!(pre.collapse_digits_ntt.len(), params.d - 1);
+        assert_eq!(pre.collapse_a_final_ntt.rows, 1);
+        assert_eq!(pre.collapse_a_final_ntt.cols, 1);
+        assert_eq!(pre.collapse_b_offset_ntt.rows, 1);
+        assert_eq!(pre.collapse_b_offset_ntt.cols, 1);
     }
 
     #[test]

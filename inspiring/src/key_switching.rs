@@ -133,8 +133,8 @@ pub fn ks_setup<'a>(
 ///
 /// **Test-only instrumentation**: in `cfg(test)` builds a thread-local
 /// counter is incremented on every call. `tests/inspiring_vs_cdks_recursion.rs`
-/// asserts the counter equals exactly `d − 1` per call to
-/// [`crate::pack::pack`]. Tampering with this is a production-blocker.
+/// asserts preprocessing evaluates exactly `d − 1` logical switches and that
+/// online [`crate::pack::pack`] evaluates zero key-switch products.
 ///
 pub fn ks_switch<'a>(
     k: &KeySwitchingMatrix<'a>,
@@ -166,8 +166,9 @@ pub fn ks_switch<'a>(
 /// Precompute the NTT-form gadget digits used by [`ks_switch`] for `c1`.
 ///
 /// This is the preprocessable part of a switch when the `c1` cascade is
-/// fixed by the CRS. Online packing can reuse these digits and only update
-/// the `c2`/`b` side of the switch.
+/// fixed by the CRS. It remains useful for direct `collapse_with_digits`
+/// callers, while the main online pack path now consumes the fully
+/// precomputed affine collapse form.
 pub(crate) fn ks_digits_ntt_from_c1<'a>(
     params: &'a RlweParams,
     c1: &PolyMatrixNTT<'a>,
@@ -248,8 +249,8 @@ pub fn automorphic_image<'a>(k: &KeySwitchingMatrix<'a>, t: u64) -> KeySwitching
 
 /// Test/diagnostic thread-local counter for `KS.Switch` calls. Used by
 /// `tests/inspiring_vs_cdks_recursion.rs` to assert the linear-cascade
-/// `KS.Switch` count of exactly `d − 1` per pack — the runtime structural
-/// guard against accidental CDKS-style implementation drift (SPEC.md §9.h).
+/// `KS.Switch` count of exactly `d − 1` during preprocessing and zero online
+/// key-switch products during `pack`.
 #[doc(hidden)]
 pub mod ks_call_count {
     use std::cell::Cell;
@@ -626,8 +627,8 @@ mod tests {
 
     /// Sanity check on the test-only call counter that
     /// `tests/inspiring_vs_cdks_recursion.rs` relies on. If this counter
-    /// stops working, the linear-cascade structural invariant
-    /// (`#KS.Switch == d − 1` per pack) becomes unobservable.
+    /// stops working, the linear-cascade preprocessing invariant becomes
+    /// unobservable.
     #[test]
     fn ks_call_count_increments_once_per_ks_switch() {
         let params = params();

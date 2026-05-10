@@ -170,7 +170,7 @@ This document is verified by:
    the Rust and Python implementations at `d = 8`. Catches semantic drift in
    any of the wrappers — a wrapper that returns the right *shape* but the
    wrong values cannot survive this test.
-4. Phase 9 test 10 (`inspiring_vs_cdks_recursion.rs`): asserts the
-   `KS.Switch` call count is exactly `d − 1`, using the test-only counter
-   added in `key_switching.rs`. A reviewer adding a spurious extra `ks_switch`
-   call (e.g. as part of a CDKS-style merge) breaks this test.
+4. Phase 9 test 10 (`inspiring_vs_cdks_recursion.rs`): asserts preprocessing
+   evaluates exactly `d − 1` logical `KS.Switch` calls, while online `pack`
+   evaluates zero key-switch products. A reviewer adding a spurious online
+   `ks_switch` call (e.g. as part of a CDKS-style merge) breaks this test.

@@ -439,12 +439,12 @@ COLLAPSE((â_agg, b̃_agg), K_g, K_h) -> (a_fin, b_fin):
 - Final `K_h` step: `1`
 - **Total:** `d − 1`.
 
-**This count is a structural invariant.** A correct InspiRING implementation runs exactly `d − 1` `KS.Switch` calls per `pack`. The CDKS-style alternative (paper §3.1) runs `lg d` calls per ciphertext-pair across `d − 1` merges, totalling `(d − 1) · lg d` — and uses `lg d` distinct key-switching matrices. The difference is the central design distinction of InspiRING and is asserted at runtime by `tests/inspiring_vs_cdks_recursion.rs` (Phase 9, test 10).
+**This count is a structural invariant.** A correct InspiRING collapse contains exactly `d − 1` logical `KS.Switch` steps. In the CRS split, `PackPreprocessed::build` evaluates those deterministic steps offline. The online `pack` path consumes the precomputed affine collapse form and runs zero key-switch matrix products. The CDKS-style alternative (paper §3.1) has `(d − 1) · lg d` merge switches and uses `lg d` distinct key-switching matrices.
 
 ### Properties
 
 1. **Correctness:** `b_fin = −a_fin·s̃ + m̂_agg + e_total mod q`. *(Tested by `collapse_correctness.rs`.)*
-2. **Random-component invariant** (paper §3.2): throughout the iteration, the running `a^{(k)}` depends only on `(â_agg, K_g, K_h)` — never on `b̃_agg`. So in `PackPreprocessed::build` we precompute the entire `a`-trace of the `d − 1` collapse steps. The online phase reuses these cached `a`-vectors and only updates `b`.
+2. **Random-component invariant** (paper §3.2): throughout the iteration, the running `a^{(k)}` depends only on `(â_agg, K_g, K_h)` — never on `b̃_agg`. So in `PackPreprocessed::build` we precompute the affine collapse form: final `a_fin` and the deterministic `b` offset obtained by collapsing with `b̃_agg = 0`. The online phase computes only `NTT(b̃_agg) + b_offset`.
 3. **Noise:** see [§7](#7-noise-growth-theorem-2).
 
 ---
@@ -518,7 +518,7 @@ A quantity is **online-only** if it depends on the per-query LWE pseudorandom va
 |---|---|---|
 | Stage 1 (`TRANSFORM`) | All `â_k` for `k = 0…d−1`. | The trivial reinterpretation `b̃_k = b_k · X^0` (no work). |
 | Stage 2 (aggregation) | `â_agg = Σ â_k · X^k`. | `b̃_agg = Σ b_k · X^k` (`O(d)` integer copies — coefficient assembly only). |
-| Stage 3 (collapse) | The full `a`-trace `a^{(d/2-1)}, …, a^{(0)}` for both halves, plus the final `[a_1, a_2]` and `a_fin`. (Paper §3.2's "random-component invariant".) The implementation materialises the NTT-form gadget digits derived from that trace, one block per `CollapseOne` step. Also: all automorphic images `τ_g^{k-1}(K_g)`, `τ_h(τ_g^{k-1}(K_g))`. | The `b`-trace updates, which are `g_z^{-1}(a^{(k)}[k-1]) · y` (where `y` is the appropriate column of the precomputed KS matrix image). |
+| Stage 3 (collapse) | The full affine collapse form: final `a_fin` and deterministic `b_offset = Collapse((â_agg, 0), K_g, K_h).b`. Also: all automorphic images `τ_g^{k-1}(K_g)`, `τ_h(τ_g^{k-1}(K_g))`. | `b̃_agg = Σ b_k · X^k`, followed by one NTT and one add: `b_fin = NTT(b̃_agg) + b_offset`. |
 
 ### Resulting API shape (`src/preprocess.rs`, `src/pack.rs`)
 
@@ -532,9 +532,9 @@ pub struct PackPreprocessed {
     /// Cached automorphic images of K_g for both collapse halves.
     kg_images_left: Vec<KeySwitchingMatrix>,
     kg_images_right: Vec<KeySwitchingMatrix>,
-    /// Cached NTT-form gadget digits derived from the deterministic a-trace.
-    /// Ordered left-half switches, right-half switches, final K_h switch.
-    collapse_digits_ntt: Vec<PolyMatrixNTT>,
+    /// Cached affine collapse output.
+    collapse_a_final_ntt: PolyMatrixNTT,
+    collapse_b_offset_ntt: PolyMatrixNTT,
     /// Bookkeeping (params, gadget, etc.).
     params: RlweParams,
 }
@@ -674,7 +674,7 @@ Defenses, in layered order:
 2. **The Python reference oracle** (Phase 2, `tools/python-oracle/`) is implemented strictly to Algorithm 1 and is the byte-equal correctness oracle for the Rust crate at `d ∈ {8, 16}`.
 3. **Runtime structural guards** in `tests/inspiring_vs_cdks_recursion.rs` (Phase 9, test 10):
    - `PackPreprocessed::build` accepts exactly two key-switching matrices (compile-time API constraint plus runtime assertion).
-   - The number of `KS.Switch` calls per `pack` is exactly `d − 1` (instrumented behind `#[cfg(test)]`); a CDKS-style implementation would show `(d − 1) · lg d` calls.
+   - `PackPreprocessed::build` evaluates exactly `d − 1` logical collapse switches; online `pack` evaluates zero key-switch matrix products. A CDKS-style implementation would show `(d − 1) · lg d` logical merge switches.
    - Empirical noise at `d = 2048` is below 36 bits, well under CDKS's 38.5 and well above our expected 33.4.
 
 ---
@@ -716,7 +716,7 @@ This is the contract: every paper symbol used in the code must appear here.
 **Public API invariants** (asserted in `lib.rs` and in tests):
 
 1. `PackPreprocessed::build(crs, kg, kh)` accepts **exactly two** key-switching matrices, named `kg` and `kh`.
-2. A single call to `pack(lwe_b, pre)` invokes `KS.Switch` **exactly `d − 1` times**.
+2. `PackPreprocessed::build` evaluates the **`d − 1`** logical InspiRING collapse switches; a single online `pack(lwe_b, pre)` invokes **zero** key-switch matrix products.
 3. `pack(lwe_b, pre)` is a deterministic function of `(lwe_b, pre)` — no fresh randomness sampled in the online path.
 
 ---
