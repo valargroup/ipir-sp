@@ -85,13 +85,8 @@ impl<'a> PackPreprocessed<'a> {
         let kg_images_right: Vec<_> = (0..(params.d / 2 - 1))
             .map(|i| automorphic_image(&kg, (tau_g_pow(i, params.d) * h_d) % two_d))
             .collect();
-        let collapse_affine = precompute_collapse_affine(
-            params,
-            a_agg,
-            &kg_images_left,
-            &kg_images_right,
-            &kh,
-        );
+        let collapse_affine =
+            precompute_collapse_affine(params, a_agg, &kg_images_left, &kg_images_right, &kh);
 
         Ok(Self {
             params,

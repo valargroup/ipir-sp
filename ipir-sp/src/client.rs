@@ -119,6 +119,15 @@ pub struct IPIRSimpleSetup<'a> {
     pub key_pairs: Vec<(KeySwitchingMatrix<'a>, KeySwitchingMatrix<'a>)>,
 }
 
+/// Client-only setup material needed to generate online SimplePIR queries.
+#[derive(Debug, Clone)]
+pub struct IPIRSimpleQuerySetup {
+    /// Seed used to regenerate the client secret for online query generation and decoding.
+    pub client_seed: IPIRSeed,
+    /// Offline query polynomials, one per `d`-row database block.
+    pub offline_query_polys: Vec<Vec<u64>>,
+}
+
 /// Online SimplePIR first-dimension query.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IPIRSimpleQuery {
@@ -223,10 +232,66 @@ impl IPIRClient {
         }
     }
 
+    /// Generate only the client-side setup material needed for online queries.
+    ///
+    /// This follows the same RNG stream as [`Self::generate_setup_simplepir_from_seed`]
+    /// through the offline query polynomials, but skips the server-only
+    /// key-switching matrices.
+    pub fn generate_query_setup_simplepir_from_seed(
+        &self,
+        client_seed: IPIRSeed,
+    ) -> IPIRSimpleQuerySetup {
+        assert_eq!(
+            self.ypir.db_rows % self.rlwe.d,
+            0,
+            "db rows must split into d-row blocks"
+        );
+
+        let mut rng = ChaCha20Rng::from_seed(client_seed);
+        let _secret = ClientSecret::sample_ternary(&self.rlwe, &mut rng);
+        let offline_query_polys = (0..self.ypir.db_rows / self.rlwe.d)
+            .map(|_| {
+                (0..self.rlwe.d)
+                    .map(|_| rng.gen_range(0..self.rlwe.q))
+                    .collect()
+            })
+            .collect();
+
+        IPIRSimpleQuerySetup {
+            client_seed,
+            offline_query_polys,
+        }
+    }
+
     /// Generate an online SimplePIR query for `target_row`.
     pub fn generate_query_simplepir(
         &self,
         setup: &IPIRSimpleSetup<'_>,
+        target_row: usize,
+    ) -> (IPIRSimpleQuery, IPIRSeed) {
+        assert!(target_row < self.ypir.db_rows, "target row out of bounds");
+        assert_eq!(
+            setup.offline_query_polys.len(),
+            self.ypir.db_rows / self.rlwe.d,
+            "setup offline query count does not match params"
+        );
+
+        let secret = self.secret_from_seed(setup.client_seed);
+        let first_dim = encrypted_selection_query(
+            &self.rlwe,
+            &setup.offline_query_polys,
+            &secret.coeffs,
+            target_row,
+            self.ypir.db_rows,
+        );
+
+        (IPIRSimpleQuery::new(first_dim), setup.client_seed)
+    }
+
+    /// Generate an online SimplePIR query from client-only setup material.
+    pub fn generate_query_simplepir_from_query_setup(
+        &self,
+        setup: &IPIRSimpleQuerySetup,
         target_row: usize,
     ) -> (IPIRSimpleQuery, IPIRSeed) {
         assert!(target_row < self.ypir.db_rows, "target row out of bounds");
@@ -305,12 +370,8 @@ fn encrypted_selection_query(
     let mut query = vec![0u64; db_rows];
     for (block_idx, query_poly) in offline_query.iter().enumerate() {
         for coeff_idx in 0..params.d {
-            let mut basis = vec![0u64; params.d];
-            basis[coeff_idx] = 1;
-            let a_row = negacyclic_mul_mod(query_poly, &basis, params.q);
-            let inner = a_row.iter().zip(secret).fold(0u64, |acc, (a, s)| {
-                ((u128::from(acc) + u128::from(*a) * u128::from(*s)) % u128::from(params.q)) as u64
-            });
+            let inner =
+                negacyclic_monomial_inner_product_mod(query_poly, coeff_idx, secret, params.q);
             let row = block_idx * params.d + coeff_idx;
             let encoded_selection = if row == target_row { params.delta } else { 0 };
             query[row] = (params.q + encoded_selection - inner) % params.q;
@@ -318,6 +379,55 @@ fn encrypted_selection_query(
     }
 
     query
+}
+
+/// Compute `<poly * X^shift, rhs>` in `Z_modulus[X] / (X^d + 1)`.
+///
+/// Multiplication by `X^shift` is a signed rotation: coefficients move forward
+/// by `shift`, and coefficients that wrap past degree `d` flip sign because
+/// `X^d = -1` in the negacyclic ring.
+///
+/// For each `poly[idx]`, the product contributes to coefficient
+/// `(idx + shift) mod d`. If `idx + shift >= d`, the contribution is negated.
+/// Since query generation only needs the final inner product, this routine
+/// applies that signed index mapping directly and avoids materializing the
+/// shifted polynomial.
+fn negacyclic_monomial_inner_product_mod(
+    poly: &[u64],
+    shift: usize,
+    rhs: &[u64],
+    modulus: u64,
+) -> u64 {
+    assert_eq!(poly.len(), rhs.len());
+    let degree = poly.len();
+    assert!(shift < degree, "monomial shift out of bounds");
+
+    let mut acc = 0u128;
+    let modulus_u128 = u128::from(modulus);
+    for (idx, coeff) in poly.iter().enumerate() {
+        if *coeff == 0 {
+            continue;
+        }
+
+        // `poly[idx] * X^shift` lands at `target`; wrapping across degree `d`
+        // contributes `-poly[idx]` because the modulus polynomial is `X^d + 1`.
+        let target = idx + shift;
+        let (rhs_idx, negated) = if target < degree {
+            (target, false)
+        } else {
+            (target - degree, true)
+        };
+        let coeff = u128::from(*coeff);
+        let rhs_coeff = u128::from(rhs[rhs_idx]);
+        let product = (coeff * rhs_coeff) % modulus_u128;
+        if negated {
+            acc = (acc + modulus_u128 - product) % modulus_u128;
+        } else {
+            acc = (acc + product) % modulus_u128;
+        }
+    }
+
+    acc as u64
 }
 
 fn decode_rows(params: &RlweParams, row_0: &[u64], row_1: &[u64], secret: &[u64]) -> Vec<u64> {
@@ -451,5 +561,55 @@ mod tests {
         assert_eq!(pairs.len(), 3);
         assert_eq!(pairs[2].0.mat.rows, 2);
         assert_eq!(pairs[2].1.mat.cols, params.gadget.ell);
+    }
+
+    #[test]
+    fn query_setup_skips_server_keys_but_keeps_offline_polys() {
+        let params = params();
+        let ypir = crate::params::YpirSchemeParams {
+            num_items: 8,
+            item_size_bits: 16,
+            poly_len: 8,
+            db_dim_1: 0,
+            db_dim_2: 1,
+            instances: 1,
+            db_rows: 8,
+            db_cols: 8,
+            p: 4,
+            q_prime_1: 16,
+            q_prime_2: 257,
+            q2_bits: 8,
+            t_exp_left: 3,
+            t_exp_right: 2,
+        };
+        let client = IPIRClient::new(&params, &ypir);
+        let seed = [9u8; 32];
+
+        let full = client.generate_setup_simplepir_from_seed(seed);
+        let query_only = client.generate_query_setup_simplepir_from_seed(seed);
+
+        assert_eq!(query_only.client_seed, full.client_seed);
+        assert_eq!(query_only.offline_query_polys, full.offline_query_polys);
+    }
+
+    #[test]
+    fn monomial_inner_product_matches_full_negacyclic_multiply() {
+        let params = params();
+        let poly = vec![5, 9, 0, 12280, 17, 42, 100, 2];
+        let rhs = vec![3, 1, 7, 11, 13, 19, 23, 29];
+
+        for shift in 0..params.d {
+            let mut basis = vec![0u64; params.d];
+            basis[shift] = 1;
+            let shifted = negacyclic_mul_mod(&poly, &basis, params.q);
+            let expected = shifted.iter().zip(&rhs).fold(0u64, |acc, (a, b)| {
+                ((u128::from(acc) + u128::from(*a) * u128::from(*b)) % u128::from(params.q)) as u64
+            });
+
+            assert_eq!(
+                negacyclic_monomial_inner_product_mod(&poly, shift, &rhs, params.q),
+                expected
+            );
+        }
     }
 }

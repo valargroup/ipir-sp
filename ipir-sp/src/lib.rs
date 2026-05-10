@@ -14,6 +14,6 @@ pub mod params;
 pub mod serialize;
 pub mod server;
 
-pub use client::{IPIRClient, IPIRSeed, IPIRSimpleQuery, IPIRSimpleSetup};
+pub use client::{IPIRClient, IPIRSeed, IPIRSimpleQuery, IPIRSimpleQuerySetup, IPIRSimpleSetup};
 pub use params::{params_for_simplepir, YpirSchemeParams};
 pub use server::IPIRServer;

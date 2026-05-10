@@ -223,9 +223,11 @@ fn query_row(
     }
 
     let pir_client = IPIRClient::from_db_sz(pir_item_count, ITEM_SIZE_BITS);
-    let setup = pir_client
-        .generate_setup_simplepir_from_seed(nullifier_pir::backend::seed_from_u64(setup_seed));
-    let (query, client_seed) = pir_client.generate_query_simplepir(&setup, row);
+    let query_setup = pir_client.generate_query_setup_simplepir_from_seed(
+        nullifier_pir::backend::seed_from_u64(setup_seed),
+    );
+    let (query, client_seed) =
+        pir_client.generate_query_simplepir_from_query_setup(&query_setup, row);
     let query_url = format!("{}{}", server_url.trim_end_matches('/'), QUERY_ENDPOINT);
     let response = client
         .post(&query_url)
