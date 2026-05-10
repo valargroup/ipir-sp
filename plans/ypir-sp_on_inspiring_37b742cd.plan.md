@@ -7,10 +7,10 @@ todos:
     status: completed
   - id: workspace
     content: Phase 1 — Convert /root/inspire into a Cargo workspace with `inspiring` + new `ypir-sp` member; reuse `inspiring`'s stable toolchain config (spiral-rs comes transitively via inspiring)
-    status: pending
+    status: completed
   - id: params
     content: Phase 2 — Add `ypir-sp/src/params.rs` mapping `params_for_simplepir(num_items, item_size_bits)` to `(inspiring::RlweParams, YpirSchemeParams)` at paper Table 5 row 2
-    status: pending
+    status: completed
   - id: server-offline
     content: Phase 3 — Port `perform_offline_precomputation_simplepir` matmul layer; replace CDKS prep with one `PackPreprocessed::build` per RLWE-output block
     status: pending

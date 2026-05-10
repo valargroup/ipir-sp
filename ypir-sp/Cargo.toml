@@ -1,0 +1,19 @@
+[package]
+name = "ypir-sp"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.78"
+license = "MIT OR Apache-2.0"
+description = "YPIR-SP glue crate using InspiRING.Pack as the ring-packing primitive."
+
+[dependencies]
+inspiring = { path = "../inspiring" }
+rand = { version = "0.8.5", features = ["small_rng"] }
+rand_chacha = "0.3.1"
+log = "0.4.20"
+env_logger = "0.11.1"
+clap = { version = "4.5.0", features = ["derive"] }
+fastrand = "2.0.0"
+serde = { version = "1.0.160", features = ["derive"] }
+serde_json = "1.0"
+sha1 = "0.10.6"

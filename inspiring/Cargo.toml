@@ -40,14 +40,3 @@ criterion = { version = "0.5", features = ["html_reports"] }
 [[bench]]
 name = "pack"
 harness = false
-
-[profile.release]
-opt-level = 3
-lto = "thin"
-codegen-units = 1
-
-# Mirrors spiral-rs's profile so our benches link against an equivalent
-# release build of the dependency tree.
-[profile.release-with-debug]
-inherits = "release"
-debug = true
