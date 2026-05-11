@@ -92,7 +92,7 @@ impl LocalIpirBackend {
         let db = snapshot
             .coeff_iter(ypir.db_rows)
             .context("open snapshot coefficient iterator")?;
-        let server = IPIRServer::<u16>::new(ypir.clone(), db, false, true);
+        let server = IPIRServer::<u16>::new_auto_kernel(ypir.clone(), db, false, true);
         let client = IPIRClient::new(rlwe, &ypir);
         let offline_query_polys =
             client.generate_public_query_setup_simplepir_from_seed(seed_from_u64(setup_seed));
