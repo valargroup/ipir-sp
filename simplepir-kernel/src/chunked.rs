@@ -6,7 +6,7 @@ use crate::{FirstDimKernel, ToU64};
 /// coefficients are below a 56-bit modulus and database elements are 14-bit
 /// plaintext values. For wider database scalar types, [`ChunkedSplitKernel`]
 /// automatically clamps the effective window to a type-safe value.
-pub const DEFAULT_CHUNK_ROWS: usize = 1 << 14;
+pub const DEFAULT_CHUNK_ROWS: usize = 1 << 16;
 
 /// Portable YPIR-style first-dimension kernel.
 ///
