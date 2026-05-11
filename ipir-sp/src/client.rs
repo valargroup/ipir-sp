@@ -231,6 +231,7 @@ impl IPIRClient {
         );
 
         let secret = self.secret_from_seed(client_seed);
+        let secret_ntt = secret.to_ntt(&self.rlwe);
         let mut decoded = Vec::with_capacity(self.ypir.db_cols);
         for chunk in response.chunks_exact(response_len) {
             let (row_0, row_1) = recover_rlwe_rows(
@@ -240,7 +241,7 @@ impl IPIRClient {
                 self.ypir.q_prime_2,
                 self.rlwe.q,
             );
-            decoded.extend(decode_rows(&self.rlwe, &row_0, &row_1, &secret.coeffs));
+            decoded.extend(decode_rows(&self.rlwe, &row_0, &row_1, &secret_ntt));
         }
         decoded
     }
@@ -399,12 +400,13 @@ fn negacyclic_monomial_inner_product_mod(
     acc as u64
 }
 
-fn decode_rows(params: &RlweParams, row_0: &[u64], row_1: &[u64], secret: &[u64]) -> Vec<u64> {
-    let phase = add_poly_mod(
-        row_1,
-        &negacyclic_mul_mod(row_0, secret, params.q),
-        params.q,
-    );
+fn decode_rows(
+    params: &RlweParams,
+    row_0: &[u64],
+    row_1: &[u64],
+    secret_ntt: &PolyMatrixNTT<'_>,
+) -> Vec<u64> {
+    let phase = add_poly_mod(row_1, &negacyclic_mul_ntt(params, row_0, secret_ntt), params.q);
     phase
         .iter()
         .map(|coeff| ((coeff + params.delta / 2) / params.delta) % params.p)
@@ -414,10 +416,34 @@ fn decode_rows(params: &RlweParams, row_0: &[u64], row_1: &[u64], secret: &[u64]
 fn add_poly_mod(lhs: &[u64], rhs: &[u64], modulus: u64) -> Vec<u64> {
     lhs.iter()
         .zip(rhs)
-        .map(|(x, y)| ((u128::from(*x) + u128::from(*y)) % u128::from(modulus)) as u64)
+        .map(|(x, y)| {
+            debug_assert!(*x < modulus);
+            debug_assert!(*y < modulus);
+            if *x >= modulus - *y {
+                *x - (modulus - *y)
+            } else {
+                *x + *y
+            }
+        })
         .collect()
 }
 
+fn negacyclic_mul_ntt(
+    params: &RlweParams,
+    left: &[u64],
+    right_ntt: &PolyMatrixNTT<'_>,
+) -> Vec<u64> {
+    assert_eq!(left.len(), params.d);
+    assert_eq!(right_ntt.rows, 1);
+    assert_eq!(right_ntt.cols, 1);
+
+    let left_ntt = polynomial_to_ntt(params, left);
+    let mut product = PolyMatrixNTT::zero(&params.spiral, 1, 1);
+    multiply(&mut product, &left_ntt, right_ntt);
+    from_ntt_alloc(&product).get_poly(0, 0).to_vec()
+}
+
+#[cfg(test)]
 fn negacyclic_mul_mod(left: &[u64], right: &[u64], modulus: u64) -> Vec<u64> {
     assert_eq!(left.len(), right.len());
     let degree = left.len();
@@ -597,6 +623,18 @@ mod tests {
             .map(|shift| negacyclic_monomial_inner_product_mod(&poly, shift, &secret, params.q))
             .collect();
         assert_eq!(inner_products, expected);
+    }
+
+    #[test]
+    fn ntt_decode_multiply_matches_scalar_negacyclic_multiply() {
+        let params = params();
+        let row_0 = vec![5, 9, 0, 12280, 17, 42, 100, 2];
+        let secret = ClientSecret::from_coeffs(&params, vec![3, 1, 7, 11, 13, 19, 23, 29]);
+
+        let product = negacyclic_mul_ntt(&params, &row_0, &secret.to_ntt(&params));
+        let expected = negacyclic_mul_mod(&row_0, &secret.coeffs, params.q);
+
+        assert_eq!(product, expected);
     }
 
     #[test]
