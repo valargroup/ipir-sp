@@ -500,15 +500,46 @@ Compared with the preceding micro-optimized path, packing improved from
 above, packing improved from 171.631 ms to 40.166 ms, and full query latency
 improved from 808.607 ms to 695.698 ms.
 
+### Nullifier PIR After AVX512 First-Pass Kernels
+
+YPIR+SP was rebuilt with its `explicit_avx512` feature enabled using
+`RUSTC_BOOTSTRAP=1 RUSTFLAGS="-C target-cpu=native"`, then served through the
+`nullifier-pir` `ypir-artifact` backend on the full `data/nullifiers.bin`
+snapshot. IPIR+SP was rebuilt with the new `U16Avx512Kernel` selected
+automatically for `u16` servers. Both runs used warm server processes.
+
+For YPIR+SP, one warm pass over the three fixture queries was discarded, then
+the row 0 existing, row 14628 existing, and row 0 absent fixture queries were
+measured. For IPIR+SP, three row 0 warm-up queries were discarded, then three
+row 0 fixture queries were measured.
+
+Average over the three measured queries:
+
+| Backend | Full query | Client query gen | HTTP round trip | Server | Matrix-vector | Packing | Client decode | Upload | Download |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| YPIR+SP AVX512 | 447.334 ms | 162.266 ms | 280.736 ms | 277.964 ms | 240.333 ms | 34.667 ms | 4.037 ms | 4,734,976 bytes | 12,288 bytes |
+| IPIR+SP AVX512 | 440.438 ms | 71.787 ms | 367.872 ms | 363.939 ms | 308.054 ms | 41.931 ms | 0.479 ms | 3,768,320 bytes | 12,288 bytes |
+
+Server-side, YPIR+SP remains faster after enabling AVX512 in both kernels:
+277.964 ms versus 363.939 ms. Most of that gap is the first-dimension
+matrix-vector product: 240.333 ms for YPIR+SP versus 308.054 ms for IPIR+SP.
+YPIR+SP's packing is also lower at 34.667 ms versus 41.931 ms.
+
+End-to-end, IPIR+SP remains slightly lower in this run, 440.438 ms versus
+447.334 ms, because the fresh-query upload is smaller and client query
+generation is much faster in the current IPIR client path. IPIR+SP uploads
+3,768,320 bytes versus YPIR+SP's 4,734,976 bytes.
+
 ## Normalized Interpretation
 
-- YPIR+SP headline full-system timing is 294 ms average online server time, including 199 ms ring packing.
+- YPIR+SP headline full-system timing is 294 ms average online server time, including 199 ms ring packing. Through `nullifier-pir` with the artifact `explicit_avx512` backend, warm full-snapshot online server time is 277.964 ms.
 - IPIR+SP headline now completes on this 31 GiB/no-swap host after removing the dead `a_hat` cache and replacing the preprocessing aggregation path.
 - IPIR+SP pack-only after the affine collapse cache is 16.970 ms for five RLWE outputs. This is the closest local analogue to YPIR's 199 ms ring-packing timer, with the caveat that YPIR's timer includes pack public-parameter unpacking.
 - IPIR+SP pack+serialize after the affine collapse cache is 18.664 ms. This is comparable to YPIR's post-first-pass online work (294 ms online server time minus 91 ms first pass = 203 ms), not to YPIR's full online time including the database dot product.
 - IPIR+SP headline online pack/serialize improved from 4.4272 s before online caching, to 997.07 ms with cached collapse digits, to 18.664 ms with the affine collapse cache.
 - IPIR+SP headline offline CRS extraction/preprocessing is 102.43 s for five RLWE outputs. The affine cache keeps deterministic collapse work offline, so offline setup remains heavy.
-- The reference-compatible fresh-query path intentionally shifts away from the compact affine-cache request shape. It removes the explicit server key-bind/preprocess phase, but the uploaded-key path now caches the fixed public collapse trace; online packing for the full nullifier snapshot is 40.166 ms after the uploaded-key affine cache.
+- The reference-compatible fresh-query path intentionally shifts away from the compact affine-cache request shape. It removes the explicit server key-bind/preprocess phase, but the uploaded-key path now caches the fixed public collapse trace; online packing for the full nullifier snapshot is about 40-42 ms after the uploaded-key affine cache and AVX512 first-pass work.
+- With AVX512 first-pass kernels on both paths, IPIR+SP is still slightly faster end-to-end in the warm `nullifier-pir` comparison (440.438 ms versus 447.334 ms), while YPIR+SP is faster server-side (277.964 ms versus 363.939 ms).
 
 ## Follow-up Needed
 
