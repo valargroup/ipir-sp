@@ -35,3 +35,7 @@ criterion = { version = "0.5.1", features = ["html_reports"] }
 [[bench]]
 name = "end_to_end"
 harness = false
+
+[[bench]]
+name = "client_decode"
+harness = false

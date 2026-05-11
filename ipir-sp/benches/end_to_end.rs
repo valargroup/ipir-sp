@@ -474,6 +474,13 @@ fn bench_end_to_end(c: &mut Criterion) {
     let upload_measurements = measure_uploads(&fixture);
     let packed_query_body =
         IPIRSimpleQuery::new(fixture.first_dim_query.clone()).to_packed_bytes(fixture.rlwe.q);
+    let client = IPIRClient::new(fixture.rlwe, &fixture.ypir);
+    let client_seed = seed_from_u64(SEED);
+    let response_fixture = serialize_rlwe_response(
+        &packed_fixture,
+        fixture.ypir.q_prime_1,
+        fixture.ypir.q_prime_2,
+    );
     let (deserialize_once, multiply_once, packing_once, serialization_once) =
         measure_server_breakdown_once(&fixture, &packed_query_body, &packed_fixture);
 
@@ -648,6 +655,15 @@ fn bench_end_to_end(c: &mut Criterion) {
             });
         },
     );
+
+    group.bench_function(BenchmarkId::new("client_decode_only", output_count), |b| {
+        b.iter(|| {
+            black_box(client.decode_response_simplepir_raw(
+                black_box(client_seed),
+                black_box(&response_fixture),
+            ));
+        });
+    });
 
     group.finish();
 }
