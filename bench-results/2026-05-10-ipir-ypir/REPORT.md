@@ -422,6 +422,46 @@ nullifier run, despite server-side work remaining about 156 ms slower. IPIR+SP
 uploads about 20.4% less data. Server-side packing logs no longer include a
 separate key expansion phase; canonical fused packing averages 171.631 ms.
 
+### Nullifier PIR After Packing Hot-Path Micro-Optimizations
+
+Client commands and exact output: `raw/nullifier-ipir-pack-microopt-3queries.log`
+
+This run was taken after removing dummy online LWE `a` vector construction,
+hoisting repeated packing-key/top-image validation out of the per-block loop,
+removing ad hoc packing stderr instrumentation, reducing once per output
+coefficient in `multiply_permuted_body_by_digits` when safe, and adding
+block-level Rayon parallelism for multi-output configurations. The nullifier
+configuration has one output block, so the parallel block path does not affect
+this specific benchmark.
+
+The server was restarted, three warm-up queries were discarded, then three row
+0 fixture queries were measured.
+
+Average over the three measured queries:
+
+- Full query: 794.022 ms
+- Client query generation: 71.753 ms
+- HTTP POST round trip: 694.685 ms
+- Server: 690.398 ms
+- Client decode: 27.416 ms
+- Upload: 3,768,320 bytes
+- Download: 12,288 bytes
+- Upload breakdown:
+  - Reference packing keys: 98,304 bytes
+  - Packed first-dimension query: 3,670,016 bytes
+- Server breakdown:
+  - Setup/key deserialize: 2.163 ms
+  - Pack preprocess: 0.000 ms
+  - Online query deserialize: 11.644 ms
+  - Matrix-vector multiply: 525.753 ms
+  - Reference-compatible packing: 150.559 ms
+  - Serialization: 0.273 ms
+
+Compared with the previous warmed nullifier run after validation hoisting,
+packing improved from 156.813 ms to 150.559 ms. Compared with the canonical
+fused-packing comparison above, packing improved from 171.631 ms to 150.559 ms,
+and full query latency improved from 808.607 ms to 794.022 ms.
+
 ## Normalized Interpretation
 
 - YPIR+SP headline full-system timing is 294 ms average online server time, including 199 ms ring packing.
