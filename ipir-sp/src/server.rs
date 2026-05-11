@@ -6,8 +6,7 @@
 //! InspiRING preprocessing.
 
 use inspiring::{
-    InspiringError, LweBatch, LweCiphertext, PackingKeys, QueryPackPreprocessed, RlweCiphertext,
-    RlweParams, TopKeyImages,
+    InspiringError, PackingKeys, QueryPackPreprocessed, RlweCiphertext, RlweParams, TopKeyImages,
 };
 use rayon::prelude::*;
 pub use simplepir_kernel::ToU64;
@@ -518,7 +517,6 @@ pub fn pack_intermediate_blocks<'a>(
     }
 
     let mut out = Vec::with_capacity(preprocessed.len());
-    let mut batch_build_us = 0_u128;
     let mut block_pack_us = Vec::with_capacity(preprocessed.len());
     for (block_idx, (b_block, pre)) in intermediate
         .chunks_exact(params.d)
@@ -531,28 +529,15 @@ pub fn pack_intermediate_blocks<'a>(
             )));
         }
 
-        let batch_started = std::time::Instant::now();
-        let batch = LweBatch {
-            inner: b_block
-                .iter()
-                .map(|b| LweCiphertext {
-                    a: vec![0; params.d],
-                    b: *b,
-                })
-                .collect(),
-        };
-        batch_build_us += batch_started.elapsed().as_micros();
-
         let pack_started = std::time::Instant::now();
-        out.push(pre.pack(&batch, packing_keys, top_key_images)?);
+        out.push(pre.pack_b(b_block, packing_keys, top_key_images)?);
         block_pack_us.push(pack_started.elapsed().as_micros());
     }
 
     let block_pack_total_us: u128 = block_pack_us.iter().sum();
     eprintln!(
-        "packing_breakdown_us total={} batch_build={} block_pack_total={} block_pack_by_block={:?}",
+        "packing_breakdown_us total={} block_pack_total={} block_pack_by_block={:?}",
         total_started.elapsed().as_micros(),
-        batch_build_us,
         block_pack_total_us,
         block_pack_us,
     );

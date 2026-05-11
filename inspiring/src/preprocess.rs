@@ -25,7 +25,6 @@ use crate::collapse::{
 };
 use crate::error::InspiringError;
 use crate::key_switching::{automorphic_image, ks_digits_ntt_from_c1, KeySwitchingMatrix};
-use crate::lwe::LweBatch;
 use crate::pack::RlweCiphertext;
 use crate::params::RlweParams;
 
@@ -259,22 +258,29 @@ impl<'a> QueryPackPreprocessed<'a> {
 
     /// Pack one block of online `b` scalars using uploaded reference key bodies.
     ///
-    /// This keeps the reference-compatible upload shape while fusing key-body
-    /// automorphisms into the collapse products that consume them.
-    pub fn pack(
+    /// This is the hot-path variant for callers whose LWE `a` rows were already
+    /// consumed during preprocessing. It keeps the reference-compatible upload
+    /// shape while fusing key-body automorphisms into the collapse products.
+    pub fn pack_b(
         &self,
-        b: &LweBatch,
+        b_scalars: &[u64],
         keys: &PackingKeys<'a>,
         top_images: &TopKeyImages<'a>,
     ) -> Result<RlweCiphertext<'a>, InspiringError> {
-        b.validate(self.params)?;
+        if b_scalars.len() != self.params.d {
+            return Err(InspiringError::LweShape(format!(
+                "expected {} LWE b scalars, got {}",
+                self.params.d,
+                b_scalars.len()
+            )));
+        }
         validate_reference_body(self.params, &keys.kg_body, "reference K_g body")?;
         validate_reference_body(self.params, &keys.kh_body, "reference K_h body")?;
         top_images.validate(self.params)?;
 
         let mut b_tilde = PolyMatrixRaw::zero(&self.params.spiral, 1, 1);
-        for (idx, ct) in b.inner.iter().enumerate() {
-            b_tilde.get_poly_mut(0, 0)[idx] = ct.b % self.params.q;
+        for (idx, b) in b_scalars.iter().copied().enumerate() {
+            b_tilde.get_poly_mut(0, 0)[idx] = b % self.params.q;
         }
 
         Ok(collapse(
@@ -887,15 +893,10 @@ mod tests {
         to_ntt_alloc(&raw)
     }
 
-    fn batch(params: &RlweParams) -> LweBatch {
-        LweBatch {
-            inner: (0..params.d)
-                .map(|idx| crate::lwe::LweCiphertext {
-                    a: vec![0; params.d],
-                    b: (idx as u64 * 17 + 3) % params.q,
-                })
-                .collect(),
-        }
+    fn b_scalars(params: &RlweParams) -> Vec<u64> {
+        (0..params.d)
+            .map(|idx| (idx as u64 * 17 + 3) % params.q)
+            .collect()
     }
 
     fn ntt_matrix<'a>(
@@ -1015,9 +1016,8 @@ mod tests {
         let mut rng = ChaCha20Rng::from_seed([42; 32]);
         let keys = PackingKeys::generate_full(&params, &secret_ntt, &mut rng);
         let top_images = TopKeyImages::build(&params);
-        let b = batch(&params);
-
-        let ct = pre.pack(&b, &keys, &top_images).expect("pack");
+        let b_scalars = b_scalars(&params);
+        let ct = pre.pack_b(&b_scalars, &keys, &top_images).expect("pack b");
 
         assert_eq!(ct.inner.rows, 2);
         assert_eq!(ct.inner.cols, 1);
