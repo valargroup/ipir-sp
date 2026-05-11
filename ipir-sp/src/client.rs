@@ -639,10 +639,10 @@ mod tests {
 
         assert_eq!(query.as_slice().len(), ypir.db_rows);
         assert_ne!(client_seed, [0u8; 32]);
-        assert_eq!(packing_keys.y_body.rows, 1);
-        assert_eq!(packing_keys.y_body.cols, params.gadget.ell);
-        assert_eq!(packing_keys.z_body.rows, 1);
-        assert_eq!(packing_keys.z_body.cols, params.gadget.ell);
+        assert_eq!(packing_keys.kg_body.rows, 1);
+        assert_eq!(packing_keys.kg_body.cols, params.gadget.ell);
+        assert_eq!(packing_keys.kh_body.rows, 1);
+        assert_eq!(packing_keys.kh_body.cols, params.gadget.ell);
     }
 
     #[test]
