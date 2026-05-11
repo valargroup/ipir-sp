@@ -225,8 +225,7 @@ impl<'a> PackingKeys<'a> {
         &self,
         params: &'a RlweParams,
     ) -> Result<(KeySwitchingMatrix<'a>, KeySwitchingMatrix<'a>), InspiringError> {
-        validate_reference_body(params, &self.kg_body, "reference K_g body")?;
-        validate_reference_body(params, &self.kh_body, "reference K_h body")?;
+        self.validate(params)?;
 
         let y_top = reference_mask_top(params, REFERENCE_W_SEED);
         let z_top = reference_mask_top(params, REFERENCE_V_SEED);
@@ -240,6 +239,13 @@ impl<'a> PackingKeys<'a> {
                 params,
             },
         ))
+    }
+
+    /// Validate that uploaded packing-key bodies match the reference wire shape.
+    pub fn validate(&self, params: &RlweParams) -> Result<(), InspiringError> {
+        validate_reference_body(params, &self.kg_body, "reference K_g body")?;
+        validate_reference_body(params, &self.kh_body, "reference K_h body")?;
+        Ok(())
     }
 }
 
@@ -267,6 +273,21 @@ impl<'a> QueryPackPreprocessed<'a> {
         keys: &PackingKeys<'a>,
         top_images: &TopKeyImages<'a>,
     ) -> Result<RlweCiphertext<'a>, InspiringError> {
+        keys.validate(self.params)?;
+        top_images.validate(self.params)?;
+        self.pack_b_prevalidated(b_scalars, keys, top_images)
+    }
+
+    /// Pack `b` scalars after the caller has validated `keys` and `top_images`.
+    ///
+    /// This keeps multi-block server callers from repeating key-shape and
+    /// top-image checks for every independent output block.
+    pub fn pack_b_prevalidated(
+        &self,
+        b_scalars: &[u64],
+        keys: &PackingKeys<'a>,
+        top_images: &TopKeyImages<'a>,
+    ) -> Result<RlweCiphertext<'a>, InspiringError> {
         if b_scalars.len() != self.params.d {
             return Err(InspiringError::LweShape(format!(
                 "expected {} LWE b scalars, got {}",
@@ -274,10 +295,6 @@ impl<'a> QueryPackPreprocessed<'a> {
                 b_scalars.len()
             )));
         }
-        validate_reference_body(self.params, &keys.kg_body, "reference K_g body")?;
-        validate_reference_body(self.params, &keys.kh_body, "reference K_h body")?;
-        top_images.validate(self.params)?;
-
         let mut b_tilde = PolyMatrixRaw::zero(&self.params.spiral, 1, 1);
         for (idx, b) in b_scalars.iter().copied().enumerate() {
             b_tilde.get_poly_mut(0, 0)[idx] = b % self.params.q;
@@ -329,7 +346,8 @@ impl<'a> TopKeyImages<'a> {
         }
     }
 
-    fn validate(&self, params: &RlweParams) -> Result<(), InspiringError> {
+    /// Validate that cached fixed key images and automorphism tables match `params`.
+    pub fn validate(&self, params: &RlweParams) -> Result<(), InspiringError> {
         let expected = params.d / 2 - 1;
         if self.kg_top_left.len() != expected {
             return Err(InspiringError::PreprocessMismatch(format!(
