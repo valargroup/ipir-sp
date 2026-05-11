@@ -20,7 +20,6 @@ use std::time::Duration;
 use crate::client::IPIRSimpleQuery;
 use crate::modulus_switch::serialize_rlwe_response;
 use crate::params::YpirSchemeParams;
-use crate::serialize::deserialize_u64s_le;
 
 /// A YPIR-formatted server database.
 ///
@@ -348,14 +347,9 @@ where
         query: &[u8],
     ) -> Result<Vec<u64>, InspiringError> {
         let rows = self.db_rows_padded();
-        let legacy_len = rows * std::mem::size_of::<u64>();
-        let first_dim_query = if query.len() == legacy_len {
-            deserialize_u64s_le(query)?
-        } else {
-            IPIRSimpleQuery::from_packed_bytes(query, rows, rlwe.q)?
-                .as_slice()
-                .to_vec()
-        };
+        let first_dim_query = IPIRSimpleQuery::from_packed_bytes(query, rows, rlwe.q)?
+            .as_slice()
+            .to_vec();
 
         if first_dim_query.len() != self.db_rows_padded() {
             return Err(InspiringError::LweShape(format!(

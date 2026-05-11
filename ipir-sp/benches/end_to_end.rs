@@ -73,7 +73,6 @@ struct UploadMeasurements {
     packing_keys_bytes: usize,
     offline_query_polys_bytes: usize,
     online_query_packed_bytes: usize,
-    online_query_legacy_bytes: usize,
 }
 
 impl UploadMeasurements {
@@ -395,13 +394,11 @@ fn measure_uploads(fixture: &BenchFixture<'_>) -> UploadMeasurements {
         .sum();
     let online_query = IPIRSimpleQuery::new(fixture.first_dim_query.clone());
     let online_query_packed_bytes = online_query.to_packed_bytes(fixture.rlwe.q).len();
-    let online_query_legacy_bytes = online_query.to_bytes().len();
 
     UploadMeasurements {
         packing_keys_bytes,
         offline_query_polys_bytes,
         online_query_packed_bytes,
-        online_query_legacy_bytes,
     }
 }
 
@@ -481,7 +478,7 @@ fn bench_end_to_end(c: &mut Criterion) {
         measure_server_breakdown_once(&fixture, &packed_query_body, &packed_fixture);
 
     eprintln!(
-        "ipir-sp target: profile={}, rows={}, item_bits={}, d={}, outputs={}, db_cols={}, serialized_packing_keys={} KiB, measured_packing_keys={} KiB, measured_offline_query_polys={} KiB, measured_online_query_packed={} KiB, measured_online_query_legacy={} KiB, measured_fresh_query_upload={} KiB, cdks_upload={} KiB, response={} KiB, ||e_pack||_inf_bits={}, paper_noise_target_bits<={:.1}, cdks_online_target={} ms",
+        "ipir-sp target: profile={}, rows={}, item_bits={}, d={}, outputs={}, db_cols={}, serialized_packing_keys={} KiB, measured_packing_keys={} KiB, measured_offline_query_polys={} KiB, measured_online_query_packed={} KiB, measured_fresh_query_upload={} KiB, cdks_upload={} KiB, response={} KiB, ||e_pack||_inf_bits={}, paper_noise_target_bits<={:.1}, cdks_online_target={} ms",
         fixture.name,
         fixture.ypir.db_rows,
         fixture.ypir.item_size_bits,
@@ -492,7 +489,6 @@ fn bench_end_to_end(c: &mut Criterion) {
         upload_measurements.packing_keys_bytes / 1024,
         upload_measurements.offline_query_polys_bytes / 1024,
         upload_measurements.online_query_packed_bytes / 1024,
-        upload_measurements.online_query_legacy_bytes / 1024,
         upload_measurements.fresh_query_total_bytes() / 1024,
         YPIR_CDKS_UPLOAD_KIB,
         response_bytes / 1024,
@@ -501,11 +497,10 @@ fn bench_end_to_end(c: &mut Criterion) {
         YPIR_CDKS_ONLINE_MS,
     );
     eprintln!(
-        "ipir-sp measured_upload_bytes: packing_keys={} offline_query_polys={} online_query_packed={} online_query_legacy={} fresh_query_total={} current_http_query={}",
+        "ipir-sp measured_upload_bytes: packing_keys={} offline_query_polys={} online_query_packed={} fresh_query_total={} current_http_query={}",
         upload_measurements.packing_keys_bytes,
         upload_measurements.offline_query_polys_bytes,
         upload_measurements.online_query_packed_bytes,
-        upload_measurements.online_query_legacy_bytes,
         upload_measurements.fresh_query_total_bytes(),
         upload_measurements.online_query_packed_bytes,
     );

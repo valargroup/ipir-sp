@@ -381,6 +381,47 @@ average packing time dropped from 1838.673 ms to 1037.349 ms. The dominant
 remaining cost is now automorphing the uploaded `K_g` body row (`~0.79 s` per
 query), while the collapse/key-switch products are about `~0.20 s`.
 
+### Recent Nullifier PIR Comparison: Canonical IPIR+SP vs YPIR+SP
+
+This comparison uses the latest full-dataset `local-ipir` run after making the
+fused uploaded-key collapse path canonical for IPIR-SP packing. The YPIR+SP
+baseline is the last recorded nullifier run in
+`raw/nullifier-ypir-instrumented-3queries.log`.
+
+Average over the three fixture queries from `nullifier-pir/NULLIFIER_FIXTURE.md`:
+
+| Metric | IPIR+SP latest | YPIR+SP last | Difference |
+|---|---:|---:|---:|
+| Full query | 808.607 ms | 824.032 ms | IPIR -15.425 ms |
+| Server total | 705.539 ms | 549.544 ms | IPIR +155.995 ms |
+| Matrix-vector | 517.654 ms | 491.667 ms | IPIR +25.987 ms |
+| Packing | 171.631 ms | 54.667 ms | IPIR +116.964 ms |
+| Client query generation | 71.476 ms | 266.426 ms | IPIR -194.950 ms |
+| Client decode | 26.720 ms | 4.119 ms | IPIR +22.601 ms |
+| Upload | 3,768,320 bytes | 4,734,976 bytes | IPIR -966,656 bytes |
+| Download | 12,288 bytes | 12,288 bytes | same |
+
+Upload breakdown:
+
+| Component | IPIR+SP latest | YPIR+SP last |
+|---|---:|---:|
+| Packing/public parameters | 98,304 bytes packing keys | 540,672 bytes pack public params |
+| Online query | 3,670,016 bytes | 4,194,304 bytes |
+| Total upload | 3,768,320 bytes | 4,734,976 bytes |
+
+Per-fixture IPIR+SP results:
+
+| Fixture | Total | Server | Matrix | Packing | Result |
+|---|---:|---:|---:|---:|---|
+| Row 0 present | 815.571 ms | 710.248 ms | 524.232 ms | 170.336 ms | verified found |
+| Row 14628 present | 811.627 ms | 709.611 ms | 520.460 ms | 172.558 ms | verified found |
+| Absent probe row 0 | 798.624 ms | 696.758 ms | 508.270 ms | 171.998 ms | verified absent |
+
+The latest IPIR+SP run is about 1.02x faster end-to-end than the last YPIR+SP
+nullifier run, despite server-side work remaining about 156 ms slower. IPIR+SP
+uploads about 20.4% less data. Server-side packing logs no longer include a
+separate key expansion phase; canonical fused packing averages 171.631 ms.
+
 ## Normalized Interpretation
 
 - YPIR+SP headline full-system timing is 294 ms average online server time, including 199 ms ring packing.
