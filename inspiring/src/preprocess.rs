@@ -743,26 +743,35 @@ fn multiply_permuted_body_by_digits<'a>(
 
     let spiral = body_row.params;
     let d = spiral.poly_len;
+    let body_indices = body_table.indices();
     let mut out = PolyMatrixNTT::zero(spiral, 1, 1);
     let out_poly = out.get_poly_mut(0, 0);
 
-    for digit_idx in 0..body_row.cols {
-        let body_poly = body_row.get_poly(0, digit_idx);
-        let digit_poly = digits_ntt.get_poly(digit_idx, 0);
-        for crt_idx in 0..spiral.crt_count {
-            let modulus = u128::from(spiral.moduli[crt_idx]);
-            let offset = crt_idx * d;
-            let body_chunk = &body_poly[offset..offset + d];
-            let digit_chunk = &digit_poly[offset..offset + d];
-            let out_chunk = &mut out_poly[offset..offset + d];
-            for dst_idx in 0..d {
-                // NTT-domain automorphisms are slot permutations. Reading the
-                // source slot here is equivalent to multiplying by the
-                // materialized automorphic body image at `dst_idx`.
-                let src_idx = body_table.indices()[dst_idx] as usize;
+    for crt_idx in 0..spiral.crt_count {
+        let modulus = u128::from(spiral.moduli[crt_idx]);
+        let max_product = (modulus - 1) * (modulus - 1);
+        let can_reduce_once = max_product.checked_mul(body_row.cols as u128).is_some();
+        let offset = crt_idx * d;
+        let out_chunk = &mut out_poly[offset..offset + d];
+        for dst_idx in 0..d {
+            // NTT-domain automorphisms are slot permutations. Reading the
+            // source slot here is equivalent to multiplying by the materialized
+            // automorphic body image at `dst_idx`.
+            let src_idx = body_indices[dst_idx] as usize;
+            let mut acc = 0_u128;
+            for digit_idx in 0..body_row.cols {
+                let body_poly = body_row.get_poly(0, digit_idx);
+                let digit_poly = digits_ntt.get_poly(digit_idx, 0);
+                let body_chunk = &body_poly[offset..offset + d];
+                let digit_chunk = &digit_poly[offset..offset + d];
                 let product = u128::from(body_chunk[src_idx]) * u128::from(digit_chunk[dst_idx]);
-                out_chunk[dst_idx] = ((u128::from(out_chunk[dst_idx]) + product) % modulus) as u64;
+                acc = if can_reduce_once {
+                    acc + product
+                } else {
+                    (acc + product) % modulus
+                };
             }
+            out_chunk[dst_idx] = (acc % modulus) as u64;
         }
     }
 

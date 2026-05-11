@@ -517,22 +517,20 @@ pub fn pack_intermediate_blocks<'a>(
     packing_keys.validate(params)?;
     top_key_images.validate(params)?;
 
-    let mut out = Vec::with_capacity(preprocessed.len());
-    for (block_idx, (b_block, pre)) in intermediate
-        .chunks_exact(params.d)
-        .zip(preprocessed.iter())
+    intermediate
+        .par_chunks_exact(params.d)
+        .zip(preprocessed.par_iter())
         .enumerate()
-    {
-        if pre.params.d != params.d || pre.params.q != params.q {
-            return Err(InspiringError::PreprocessMismatch(format!(
-                "preprocessing block {block_idx} uses mismatched RLWE parameters"
-            )));
-        }
+        .map(|(block_idx, (b_block, pre))| {
+            if pre.params.d != params.d || pre.params.q != params.q {
+                return Err(InspiringError::PreprocessMismatch(format!(
+                    "preprocessing block {block_idx} uses mismatched RLWE parameters"
+                )));
+            }
 
-        out.push(pre.pack_b_prevalidated(b_block, packing_keys, top_key_images)?);
-    }
-
-    Ok(out)
+            pre.pack_b_prevalidated(b_block, packing_keys, top_key_images)
+        })
+        .collect()
 }
 
 /// Extract one `d x d` InspiRING CRS block from `hint_0`.
