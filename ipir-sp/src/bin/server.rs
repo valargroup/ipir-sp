@@ -108,7 +108,7 @@ async fn main() -> std::io::Result<()> {
 
     let pt_modulus = ypir.p;
     let db = (0..ypir.db_rows * ypir.db_cols).map(|idx| (idx as u64 % pt_modulus) as u16);
-    let server = IPIRServer::<u16>::new(ypir.clone(), db, false, true);
+    let server = IPIRServer::<u16>::new_auto_kernel(ypir.clone(), db, false, true);
     let offline = server.perform_offline_precomputation_simplepir(client.rlwe_params(), &setup);
     let preprocessed = build_pack_preprocessed_blocks(client.rlwe_params(), &offline.crs_blocks)
         .expect("preprocessing builds");
