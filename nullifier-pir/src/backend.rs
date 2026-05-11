@@ -57,13 +57,21 @@ pub fn seed_from_u64(value: u64) -> [u8; 32] {
 }
 
 pub struct LocalIpirBackend {
+    /// RLWE parameters used by the underlying homomorphic encryption scheme.
     rlwe: &'static inspiring::RlweParams,
+    /// SimplePIR/YPIR dimensions and modulus settings derived for this snapshot.
     ypir: YpirSchemeParams,
+    /// Number of original nullifier records represented by the snapshot.
     record_count: usize,
+    /// Number of PIR rows/items exposed to the PIR server, including padding if any.
     pir_item_count: usize,
+    /// Seed used to deterministically generate the server-side public setup.
     setup_seed: u64,
+    /// In-memory IPIR server containing the encoded database matrix.
     server: IPIRServer<u16>,
+    /// Per-block preprocessing used to pack SimplePIR responses efficiently.
     pack_preprocessed: Vec<inspiring::QueryPackPreprocessed<'static>>,
+    /// Cached top-level key images used during query response packing.
     top_key_images: inspiring::TopKeyImages<'static>,
 }
 
