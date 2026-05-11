@@ -523,10 +523,6 @@ pub fn pack_intermediate_blocks<'a>(
         )));
     }
 
-    let expand_started = std::time::Instant::now();
-    let expanded_keys = packing_keys.expand_with_top_images(params, top_key_images)?;
-    let expand_us = expand_started.elapsed().as_micros();
-
     let mut out = Vec::with_capacity(preprocessed.len());
     let mut batch_build_us = 0_u128;
     let mut block_pack_us = Vec::with_capacity(preprocessed.len());
@@ -554,15 +550,14 @@ pub fn pack_intermediate_blocks<'a>(
         batch_build_us += batch_started.elapsed().as_micros();
 
         let pack_started = std::time::Instant::now();
-        out.push(pre.pack_expanded(&batch, &expanded_keys)?);
+        out.push(pre.pack(&batch, packing_keys, top_key_images)?);
         block_pack_us.push(pack_started.elapsed().as_micros());
     }
 
     let block_pack_total_us: u128 = block_pack_us.iter().sum();
     eprintln!(
-        "packing_breakdown_us total={} expand_keys={} batch_build={} block_pack_total={} block_pack_by_block={:?}",
+        "packing_breakdown_us total={} batch_build={} block_pack_total={} block_pack_by_block={:?}",
         total_started.elapsed().as_micros(),
-        expand_us,
         batch_build_us,
         block_pack_total_us,
         block_pack_us,

@@ -19,12 +19,9 @@ use spiral_rs::poly::{
     PolyMatrixRaw,
 };
 
-use crate::automorph::{
-    apply_tau_ntt_alloc, apply_tau_ntt_double_into, h, tau_g_pow, tau_g_power_tables,
-    NttAutomorphTable,
-};
+use crate::automorph::{apply_tau_ntt_alloc, h, tau_g_pow, tau_g_power_tables, NttAutomorphTable};
 use crate::collapse::{
-    collapse_one, collapse_with_digits, precompute_collapse_affine, CollapseState,
+    collapse_one as collapse_one_materialized, precompute_collapse_affine, CollapseState,
 };
 use crate::error::InspiringError;
 use crate::key_switching::{automorphic_image, ks_digits_ntt_from_c1, KeySwitchingMatrix};
@@ -79,22 +76,9 @@ pub struct PackPreprocessed<'a> {
 /// body rows, matching the reference `PackingKeys` split.
 pub struct PackingKeys<'a> {
     /// Body row for the `tau_g` switching key.
-    pub y_body: PolyMatrixNTT<'a>,
+    pub kg_body: PolyMatrixNTT<'a>,
     /// Body row for the final `tau_h` switching key.
-    pub z_body: PolyMatrixNTT<'a>,
-}
-
-/// Per-request expansion of uploaded packing keys.
-///
-/// This depends only on the uploaded key bodies and RLWE parameters, so it can
-/// be reused across every CRS/output block in the same query.
-pub struct ExpandedPackingKeys<'a> {
-    /// Expanded left-half `K_g` images.
-    pub kg_images_left: Vec<KeySwitchingMatrix<'a>>,
-    /// Expanded right-half `K_g` images.
-    pub kg_images_right: Vec<KeySwitchingMatrix<'a>>,
-    /// Restored final `K_h` key-switching matrix.
-    pub kh: KeySwitchingMatrix<'a>,
+    pub kh_body: PolyMatrixNTT<'a>,
 }
 
 /// Public fixed top-row images and NTT automorphism tables for packing-key
@@ -114,11 +98,11 @@ pub struct TopKeyImages<'a> {
     pub kh_top: PolyMatrixNTT<'a>,
     /// NTT slot tables for uploaded left-half `K_g` body images.
     ///
-    /// Entry `i` applies `τ_g^i` to the uploaded `y_body`.
+    /// Entry `i` applies `τ_g^i` to the uploaded `kg_body`.
     pub kg_body_left_tables: Vec<NttAutomorphTable>,
     /// NTT slot tables for uploaded right-half `K_g` body images.
     ///
-    /// Entry `i` applies `τ_g^i ∘ τ_h` to the uploaded `y_body`.
+    /// Entry `i` applies `τ_g^i ∘ τ_h` to the uploaded `kg_body`.
     pub kg_body_right_tables: Vec<NttAutomorphTable>,
 }
 
@@ -223,17 +207,17 @@ impl<'a> PackingKeys<'a> {
         secret_ntt: &PolyMatrixNTT<'a>,
         rng: &mut ChaCha20Rng,
     ) -> Self {
-        let y_body = generate_reference_body(
+        let kg_body = generate_reference_body(
             params,
             secret_ntt,
             tau_g_pow(1, params.d),
             REFERENCE_W_SEED,
             rng,
         );
-        let z_body =
+        let kh_body =
             generate_reference_body(params, secret_ntt, h(params.d), REFERENCE_V_SEED, rng);
 
-        Self { y_body, z_body }
+        Self { kg_body, kh_body }
     }
 
     /// Convert uploaded bodies into full key-switching matrices by restoring
@@ -242,102 +226,21 @@ impl<'a> PackingKeys<'a> {
         &self,
         params: &'a RlweParams,
     ) -> Result<(KeySwitchingMatrix<'a>, KeySwitchingMatrix<'a>), InspiringError> {
-        validate_reference_body(params, &self.y_body, "reference y_body")?;
-        validate_reference_body(params, &self.z_body, "reference z_body")?;
+        validate_reference_body(params, &self.kg_body, "reference K_g body")?;
+        validate_reference_body(params, &self.kh_body, "reference K_h body")?;
 
         let y_top = reference_mask_top(params, REFERENCE_W_SEED);
         let z_top = reference_mask_top(params, REFERENCE_V_SEED);
         Ok((
             KeySwitchingMatrix {
-                mat: stack_ntt(&y_top, &self.y_body),
+                mat: stack_ntt(&y_top, &self.kg_body),
                 params,
             },
             KeySwitchingMatrix {
-                mat: stack_ntt(&z_top, &self.z_body),
+                mat: stack_ntt(&z_top, &self.kh_body),
                 params,
             },
         ))
-    }
-
-    /// Expand uploaded reference key bodies once for a whole request.
-    pub fn expand(
-        &self,
-        params: &'a RlweParams,
-    ) -> Result<ExpandedPackingKeys<'a>, InspiringError> {
-        let top_images = TopKeyImages::build(params);
-        self.expand_with_top_images(params, &top_images)
-    }
-
-    /// Expand uploaded reference key bodies using precomputed fixed top rows
-    /// and NTT-domain body automorphism tables.
-    ///
-    /// The uploaded `K_g` body is expanded into the two `d/2 - 1` image
-    /// families required by the collapse. This method is intentionally
-    /// once-per-request: the expanded images are shared by every CRS/output
-    /// block packed for that request.
-    ///
-    /// The fixed top rows come from [`TopKeyImages`]. The secret-dependent body
-    /// rows are transformed with slot permutations, mirroring the upstream
-    /// InsPIRe `generate_rotations_double` path and avoiding thousands of
-    /// coefficient-domain automorphism round trips.
-    pub fn expand_with_top_images(
-        &self,
-        params: &'a RlweParams,
-        top_images: &TopKeyImages<'a>,
-    ) -> Result<ExpandedPackingKeys<'a>, InspiringError> {
-        let total_started = std::time::Instant::now();
-        validate_reference_body(params, &self.y_body, "reference y_body")?;
-        validate_reference_body(params, &self.z_body, "reference z_body")?;
-        top_images.validate(params)?;
-
-        let restore_kh_started = std::time::Instant::now();
-        let kh = KeySwitchingMatrix {
-            mat: stack_ntt(&top_images.kh_top, &self.z_body),
-            params,
-        };
-        let restore_kh_us = restore_kh_started.elapsed().as_micros();
-
-        let body_images_started = std::time::Instant::now();
-        let image_count = params.d / 2 - 1;
-        let mut kg_images_left = Vec::with_capacity(image_count);
-        let mut kg_images_right = Vec::with_capacity(image_count);
-        for i in 0..image_count {
-            let mut left_body = PolyMatrixNTT::zero(&params.spiral, 1, params.gadget.ell);
-            let mut right_body = PolyMatrixNTT::zero(&params.spiral, 1, params.gadget.ell);
-            apply_tau_ntt_double_into(
-                &mut left_body,
-                &mut right_body,
-                &self.y_body,
-                &top_images.kg_body_left_tables[i],
-                &top_images.kg_body_right_tables[i],
-            );
-            kg_images_left.push(KeySwitchingMatrix {
-                mat: stack_ntt(&top_images.kg_top_left[i], &left_body),
-                params,
-            });
-            kg_images_right.push(KeySwitchingMatrix {
-                mat: stack_ntt(&top_images.kg_top_right[i], &right_body),
-                params,
-            });
-        }
-        let kg_body_images_us = body_images_started.elapsed().as_micros();
-
-        eprintln!(
-            "packing_key_expand_breakdown_us total={} restore_kh={} kg_left_body_images={} kg_right_body_images={} kg_fused_body_images={} left_count={} right_count={}",
-            total_started.elapsed().as_micros(),
-            restore_kh_us,
-            kg_body_images_us,
-            0,
-            kg_body_images_us,
-            kg_images_left.len(),
-            kg_images_right.len(),
-        );
-
-        Ok(ExpandedPackingKeys {
-            kg_images_left,
-            kg_images_right,
-            kh,
-        })
     }
 }
 
@@ -354,52 +257,35 @@ impl<'a> QueryPackPreprocessed<'a> {
         })
     }
 
-    /// Pack one block of online `b` scalars using uploaded reference keys.
+    /// Pack one block of online `b` scalars using uploaded reference key bodies.
+    ///
+    /// This keeps the reference-compatible upload shape while fusing key-body
+    /// automorphisms into the collapse products that consume them.
     pub fn pack(
         &self,
         b: &LweBatch,
         keys: &PackingKeys<'a>,
-    ) -> Result<RlweCiphertext<'a>, InspiringError> {
-        let expanded = keys.expand(self.params)?;
-        self.pack_expanded(b, &expanded)
-    }
-
-    /// Pack one block using key images expanded once for the whole request.
-    pub fn pack_expanded(
-        &self,
-        b: &LweBatch,
-        keys: &ExpandedPackingKeys<'a>,
+        top_images: &TopKeyImages<'a>,
     ) -> Result<RlweCiphertext<'a>, InspiringError> {
         b.validate(self.params)?;
-        if keys.kg_images_left.len() != self.params.d / 2 - 1 {
-            return Err(InspiringError::PreprocessMismatch(format!(
-                "expected {} left K_g images, got {}",
-                self.params.d / 2 - 1,
-                keys.kg_images_left.len()
-            )));
-        }
-        if keys.kg_images_right.len() != self.params.d / 2 - 1 {
-            return Err(InspiringError::PreprocessMismatch(format!(
-                "expected {} right K_g images, got {}",
-                self.params.d / 2 - 1,
-                keys.kg_images_right.len()
-            )));
-        }
+        validate_reference_body(self.params, &keys.kg_body, "reference K_g body")?;
+        validate_reference_body(self.params, &keys.kh_body, "reference K_h body")?;
+        top_images.validate(self.params)?;
 
         let mut b_tilde = PolyMatrixRaw::zero(&self.params.spiral, 1, 1);
         for (idx, ct) in b.inner.iter().enumerate() {
             b_tilde.get_poly_mut(0, 0)[idx] = ct.b % self.params.q;
         }
 
-        Ok(collapse_with_digits(
+        Ok(collapse(
             self.params,
             crate::intermediate::IRCtx {
                 a_hat: self.a_agg.clone(),
                 b_tilde,
             },
-            &keys.kg_images_left,
-            &keys.kg_images_right,
-            &keys.kh,
+            &keys.kg_body,
+            &keys.kh_body,
+            top_images,
             &self.digits_ntt,
         ))
     }
@@ -535,7 +421,7 @@ fn precompute_reference_digits<'a>(
         b: right_state.b,
     };
     digits_ntt.push(ks_digits_ntt_from_c1(params, &final_state.a[1]));
-    collapse_one(&mut final_state, &kh);
+    collapse_one_materialized(&mut final_state, &kh);
     debug_assert_eq!(digits_ntt.len(), params.d - 1);
     digits_ntt
 }
@@ -551,7 +437,7 @@ fn collect_half_digits<'a>(
             kg_images[image_idx].params,
             &state.a[image_idx + 1],
         ));
-        collapse_one(state, &kg_images[image_idx]);
+        collapse_one_materialized(state, &kg_images[image_idx]);
     }
 }
 
@@ -586,6 +472,277 @@ fn fixed_reference_key<'a>(params: &'a RlweParams, mask_seed: [u8; 32]) -> KeySw
         mat: stack_ntt(&top, &body),
         params,
     }
+}
+
+/// Collapse the wide intermediate ciphertext using uploaded key bodies.
+///
+/// The reference wire format gives us only the secret-dependent `K_g` and `K_h`
+/// body rows. Public top rows and NTT automorphism tables are cached in
+/// [`TopKeyImages`]. This function performs the same `d - 1` logical
+/// key-switches as the materialized-key collapse, but applies each `K_g` body
+/// automorphism inside the product that consumes it.
+fn collapse<'a>(
+    params: &'a RlweParams,
+    agg: crate::intermediate::IRCtx<'a>,
+    kg_body: &PolyMatrixNTT<'a>,
+    kh_body: &PolyMatrixNTT<'a>,
+    top_images: &TopKeyImages<'a>,
+    digits_ntt: &[PolyMatrixNTT<'a>],
+) -> RlweCiphertext<'a> {
+    assert_eq!(
+        digits_ntt.len(),
+        params.d - 1,
+        "preprocess::collapse expects d - 1 digit blocks"
+    );
+    assert_eq!(
+        agg.a_hat.len(),
+        params.d,
+        "preprocess::collapse expects d a_hat slots"
+    );
+
+    let mut slots = agg.a_hat;
+    let right = slots.split_off(params.d / 2);
+    let left = slots;
+    let b = to_ntt_alloc(&agg.b_tilde);
+    let mut digit_idx = 0;
+
+    let mut left_state = CollapseState { a: left, b };
+    collapse_half(
+        &mut left_state,
+        kg_body,
+        &top_images.kg_top_left,
+        &top_images.kg_body_left_tables,
+        digits_ntt,
+        &mut digit_idx,
+    );
+    let left_a = left_state
+        .a
+        .pop()
+        .expect("left collapse leaves one component");
+
+    let mut right_state = CollapseState {
+        a: right,
+        b: left_state.b,
+    };
+    collapse_half(
+        &mut right_state,
+        kg_body,
+        &top_images.kg_top_right,
+        &top_images.kg_body_right_tables,
+        digits_ntt,
+        &mut digit_idx,
+    );
+    let right_a = right_state
+        .a
+        .pop()
+        .expect("right collapse leaves one component");
+
+    let mut final_state = CollapseState {
+        a: vec![left_a, right_a],
+        b: right_state.b,
+    };
+    collapse_final(
+        &mut final_state,
+        &top_images.kh_top,
+        kh_body,
+        &digits_ntt[digit_idx],
+    );
+    digit_idx += 1;
+    assert_eq!(digit_idx, digits_ntt.len());
+
+    RlweCiphertext {
+        inner: stack_ntt(&final_state.a[0], &final_state.b),
+    }
+}
+
+/// Collapse one `d/2` side of the aggregate by consuming its `K_g` image table.
+///
+/// `top_images` is already expanded for the side being collapsed. `kg_body`
+/// remains the single uploaded body row; each `body_tables` entry describes the
+/// automorphism that would have been applied to materialize the matching body.
+fn collapse_half<'a>(
+    state: &mut CollapseState<'a>,
+    kg_body: &PolyMatrixNTT<'a>,
+    top_images: &[PolyMatrixNTT<'a>],
+    body_tables: &[NttAutomorphTable],
+    digits_ntt: &[PolyMatrixNTT<'a>],
+    digit_idx: &mut usize,
+) {
+    assert_eq!(
+        top_images.len(),
+        state.a.len().saturating_sub(1),
+        "preprocess::collapse_half expects one top image per collapse step"
+    );
+    assert_eq!(
+        body_tables.len(),
+        state.a.len().saturating_sub(1),
+        "preprocess::collapse_half expects one body table per collapse step"
+    );
+
+    while state.a.len() > 1 {
+        let image_idx = state.a.len() - 2;
+        // The top row is already stored as this automorphic image. The body row
+        // stays in uploaded form; `body_tables[image_idx]` supplies the slot
+        // permutation needed for this logical `K_g` image.
+        collapse_one(
+            state,
+            &top_images[image_idx],
+            kg_body,
+            &body_tables[image_idx],
+            &digits_ntt[*digit_idx],
+        );
+        *digit_idx += 1;
+    }
+}
+
+/// Apply one logical `K_g` switch and remove the consumed aggregate component.
+///
+/// This mirrors [`crate::collapse::collapse_one`] but accepts split key parts:
+/// an already-expanded public top row plus the base uploaded body row and the
+/// table needed to read that body as the current automorphic image.
+fn collapse_one<'a>(
+    state: &mut CollapseState<'a>,
+    top_row: &PolyMatrixNTT<'a>,
+    body_row: &PolyMatrixNTT<'a>,
+    body_table: &NttAutomorphTable,
+    digits_ntt: &PolyMatrixNTT<'a>,
+) {
+    let k = state.a.len();
+    assert!(
+        k >= 2,
+        "preprocess::collapse_one requires at least two a components"
+    );
+
+    let (delta_a, delta_b) =
+        switch_with_permuted_body(top_row, body_row, body_table, digits_ntt, &state.b);
+    add_into(&mut state.a[k - 2], &delta_a);
+    state.a.pop();
+    state.b = delta_b;
+}
+
+/// Apply the final `K_h` switch after left and right halves have collapsed.
+///
+/// `K_h` is not rotated across a family of images, so its uploaded body row can
+/// be multiplied directly rather than through a permutation table.
+fn collapse_final<'a>(
+    state: &mut CollapseState<'a>,
+    top_row: &PolyMatrixNTT<'a>,
+    body_row: &PolyMatrixNTT<'a>,
+    digits_ntt: &PolyMatrixNTT<'a>,
+) {
+    let k = state.a.len();
+    assert!(
+        k >= 2,
+        "preprocess::collapse_final requires at least two a components"
+    );
+
+    let (delta_a, delta_b) = switch_with_body(top_row, body_row, digits_ntt, &state.b);
+    add_into(&mut state.a[k - 2], &delta_a);
+    state.a.pop();
+    state.b = delta_b;
+}
+
+/// Switch using a key whose body row is represented by an NTT slot permutation.
+///
+/// The result is identical to multiplying `[top_row; tau(body_row)]` by
+/// `digits_ntt`, but the `tau(body_row)` matrix is never allocated.
+fn switch_with_permuted_body<'a>(
+    top_row: &PolyMatrixNTT<'a>,
+    body_row: &PolyMatrixNTT<'a>,
+    body_table: &NttAutomorphTable,
+    digits_ntt: &PolyMatrixNTT<'a>,
+    c2: &PolyMatrixNTT<'a>,
+) -> (PolyMatrixNTT<'a>, PolyMatrixNTT<'a>) {
+    validate_key_parts(top_row, body_row, digits_ntt, c2);
+    assert_eq!(body_table.indices().len(), top_row.params.poly_len);
+
+    // `top_row * digits` is ordinary matrix multiplication because the public
+    // top row was pre-expanded at server setup.
+    let mut delta_a = PolyMatrixNTT::zero(top_row.params, 1, 1);
+    multiply(&mut delta_a, top_row, digits_ntt);
+
+    // `body_row * digits` is evaluated as if `body_row` had first been
+    // automorphed by `body_table`, but without allocating that image.
+    let mut delta_b = multiply_permuted_body_by_digits(body_row, body_table, digits_ntt);
+    add_into(&mut delta_b, c2);
+    (delta_a, delta_b)
+}
+
+/// Switch using explicit top and body rows with no body automorphism.
+///
+/// This is used for the final `K_h` switch, where there is only one key image.
+fn switch_with_body<'a>(
+    top_row: &PolyMatrixNTT<'a>,
+    body_row: &PolyMatrixNTT<'a>,
+    digits_ntt: &PolyMatrixNTT<'a>,
+    c2: &PolyMatrixNTT<'a>,
+) -> (PolyMatrixNTT<'a>, PolyMatrixNTT<'a>) {
+    validate_key_parts(top_row, body_row, digits_ntt, c2);
+
+    let mut delta_a = PolyMatrixNTT::zero(top_row.params, 1, 1);
+    multiply(&mut delta_a, top_row, digits_ntt);
+    let mut delta_b = PolyMatrixNTT::zero(top_row.params, 1, 1);
+    multiply(&mut delta_b, body_row, digits_ntt);
+    add_into(&mut delta_b, c2);
+    (delta_a, delta_b)
+}
+
+/// Validate split key-switch operands before evaluating a switch product.
+fn validate_key_parts(
+    top_row: &PolyMatrixNTT<'_>,
+    body_row: &PolyMatrixNTT<'_>,
+    digits_ntt: &PolyMatrixNTT<'_>,
+    c2: &PolyMatrixNTT<'_>,
+) {
+    assert_eq!(top_row.rows, 1);
+    assert_eq!(top_row.cols, body_row.cols);
+    assert_eq!(body_row.rows, 1);
+    assert_eq!(digits_ntt.rows, top_row.cols);
+    assert_eq!(digits_ntt.cols, 1);
+    assert_eq!(c2.rows, 1);
+    assert_eq!(c2.cols, 1);
+}
+
+/// Multiply an implicit automorphic body image by precomputed gadget digits.
+///
+/// In NTT form the automorphism is a slot permutation, so the multiply reads
+/// `body_row` through `body_table.indices()` and accumulates directly into the
+/// output polynomial.
+fn multiply_permuted_body_by_digits<'a>(
+    body_row: &PolyMatrixNTT<'a>,
+    body_table: &NttAutomorphTable,
+    digits_ntt: &PolyMatrixNTT<'a>,
+) -> PolyMatrixNTT<'a> {
+    assert_eq!(body_row.rows, 1);
+    assert_eq!(digits_ntt.cols, 1);
+    assert_eq!(body_row.cols, digits_ntt.rows);
+
+    let spiral = body_row.params;
+    let d = spiral.poly_len;
+    let mut out = PolyMatrixNTT::zero(spiral, 1, 1);
+    let out_poly = out.get_poly_mut(0, 0);
+
+    for digit_idx in 0..body_row.cols {
+        let body_poly = body_row.get_poly(0, digit_idx);
+        let digit_poly = digits_ntt.get_poly(digit_idx, 0);
+        for crt_idx in 0..spiral.crt_count {
+            let modulus = u128::from(spiral.moduli[crt_idx]);
+            let offset = crt_idx * d;
+            let body_chunk = &body_poly[offset..offset + d];
+            let digit_chunk = &digit_poly[offset..offset + d];
+            let out_chunk = &mut out_poly[offset..offset + d];
+            for dst_idx in 0..d {
+                // NTT-domain automorphisms are slot permutations. Reading the
+                // source slot here is equivalent to multiplying by the
+                // materialized automorphic body image at `dst_idx`.
+                let src_idx = body_table.indices()[dst_idx] as usize;
+                let product = u128::from(body_chunk[src_idx]) * u128::from(digit_chunk[dst_idx]);
+                out_chunk[dst_idx] = ((u128::from(out_chunk[dst_idx]) + product) % modulus) as u64;
+            }
+        }
+    }
+
+    out
 }
 
 fn reference_mask_top<'a>(params: &'a RlweParams, mask_seed: [u8; 32]) -> PolyMatrixNTT<'a> {
@@ -730,6 +887,30 @@ mod tests {
         to_ntt_alloc(&raw)
     }
 
+    fn batch(params: &RlweParams) -> LweBatch {
+        LweBatch {
+            inner: (0..params.d)
+                .map(|idx| crate::lwe::LweCiphertext {
+                    a: vec![0; params.d],
+                    b: (idx as u64 * 17 + 3) % params.q,
+                })
+                .collect(),
+        }
+    }
+
+    fn ntt_matrix<'a>(
+        params: &'a RlweParams,
+        rows: usize,
+        cols: usize,
+        seed: u64,
+    ) -> PolyMatrixNTT<'a> {
+        let mut matrix = PolyMatrixNTT::zero(&params.spiral, rows, cols);
+        for (idx, coeff) in matrix.as_mut_slice().iter_mut().enumerate() {
+            *coeff = (seed + idx as u64 * 19 + (idx / params.d) as u64 * 7) % params.q;
+        }
+        matrix
+    }
+
     #[test]
     fn build_precomputes_affine_collapse_cache() {
         let params = params();
@@ -777,5 +958,68 @@ mod tests {
             assert_eq!(images.kg_top_left[i].as_slice(), expected_left.as_slice());
             assert_eq!(images.kg_top_right[i].as_slice(), expected_right.as_slice());
         }
+    }
+
+    #[test]
+    fn permuted_body_multiply_matches_materialized_body_image() {
+        let params = params();
+        let images = TopKeyImages::build(&params);
+        let body = ntt_matrix(&params, 1, params.gadget.ell, 11);
+        let digits = ntt_matrix(&params, params.gadget.ell, 1, 29);
+        let table = &images.kg_body_right_tables[1];
+
+        let materialized_body = apply_tau_ntt_alloc(&body, table);
+        let mut expected = PolyMatrixNTT::zero(&params.spiral, 1, 1);
+        multiply(&mut expected, &materialized_body, &digits);
+
+        let actual = multiply_permuted_body_by_digits(&body, table, &digits);
+
+        assert_eq!(actual.as_slice(), expected.as_slice());
+    }
+
+    #[test]
+    fn switch_with_permuted_body_matches_materialized_key_product() {
+        let params = params();
+        let images = TopKeyImages::build(&params);
+        let top = ntt_matrix(&params, 1, params.gadget.ell, 5);
+        let body = ntt_matrix(&params, 1, params.gadget.ell, 13);
+        let digits = ntt_matrix(&params, params.gadget.ell, 1, 31);
+        let c2 = ntt_matrix(&params, 1, 1, 43);
+        let table = &images.kg_body_left_tables[2];
+
+        let (actual_a, actual_b) = switch_with_permuted_body(&top, &body, table, &digits, &c2);
+
+        let materialized_body = apply_tau_ntt_alloc(&body, table);
+        let mut expected_a = PolyMatrixNTT::zero(&params.spiral, 1, 1);
+        multiply(&mut expected_a, &top, &digits);
+        let mut expected_b = PolyMatrixNTT::zero(&params.spiral, 1, 1);
+        multiply(&mut expected_b, &materialized_body, &digits);
+        add_into(&mut expected_b, &c2);
+
+        assert_eq!(actual_a.as_slice(), expected_a.as_slice());
+        assert_eq!(actual_b.as_slice(), expected_b.as_slice());
+    }
+
+    #[test]
+    fn pack_with_uploaded_key_bodies_returns_rlwe_ciphertext() {
+        let params = params();
+        let crs = crs(&params);
+        let pre = QueryPackPreprocessed::build(&params, &crs).expect("preprocess");
+        let secret_raw = {
+            let mut raw = PolyMatrixRaw::zero(&params.spiral, 1, 1);
+            raw.get_poly_mut(0, 0)[0] = 1;
+            raw.get_poly_mut(0, 0)[2] = params.q - 1;
+            raw
+        };
+        let secret_ntt = to_ntt_alloc(&secret_raw);
+        let mut rng = ChaCha20Rng::from_seed([42; 32]);
+        let keys = PackingKeys::generate_full(&params, &secret_ntt, &mut rng);
+        let top_images = TopKeyImages::build(&params);
+        let b = batch(&params);
+
+        let ct = pre.pack(&b, &keys, &top_images).expect("pack");
+
+        assert_eq!(ct.inner.rows, 2);
+        assert_eq!(ct.inner.cols, 1);
     }
 }

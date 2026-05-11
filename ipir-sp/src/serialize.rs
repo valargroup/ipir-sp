@@ -18,12 +18,12 @@ pub fn serialize_packing_keys(
     params: &RlweParams,
     keys: &PackingKeys<'_>,
 ) -> Result<Vec<u8>, InspiringError> {
-    validate_packing_key_body(params, &keys.y_body, "packing key y_body")?;
-    validate_packing_key_body(params, &keys.z_body, "packing key z_body")?;
+    validate_packing_key_body(params, &keys.kg_body, "packing key K_g body")?;
+    validate_packing_key_body(params, &keys.kh_body, "packing key K_h body")?;
 
     let mut out = Vec::with_capacity(serialized_packing_keys_len(params));
-    write_u64s_le(&mut out, keys.y_body.as_slice());
-    write_u64s_le(&mut out, keys.z_body.as_slice());
+    write_u64s_le(&mut out, keys.kg_body.as_slice());
+    write_u64s_le(&mut out, keys.kh_body.as_slice());
     Ok(out)
 }
 
@@ -42,9 +42,11 @@ pub fn deserialize_packing_keys<'a>(
 
     let coeffs = deserialize_u64s_le(data)?;
     let body_len = packing_key_body_u64_len(params);
-    let y_body = packing_key_body_from_coeffs(params, &coeffs[..body_len], "packing key y_body")?;
-    let z_body = packing_key_body_from_coeffs(params, &coeffs[body_len..], "packing key z_body")?;
-    Ok(PackingKeys { y_body, z_body })
+    let kg_body =
+        packing_key_body_from_coeffs(params, &coeffs[..body_len], "packing key K_g body")?;
+    let kh_body =
+        packing_key_body_from_coeffs(params, &coeffs[body_len..], "packing key K_h body")?;
+    Ok(PackingKeys { kg_body, kh_body })
 }
 
 /// Serialize a sequence of `u64` values as little-endian bytes.
@@ -166,7 +168,7 @@ mod tests {
     }
 
     #[test]
-    fn packing_keys_roundtrip_y_then_z_bodies() {
+    fn packing_keys_roundtrip_kg_then_kh_bodies() {
         let params = params();
         let secret = secret(&params);
         let secret_ntt = secret.to_ntt(&params);
@@ -178,18 +180,18 @@ mod tests {
         assert_eq!(bytes.len(), serialized_packing_keys_len(&params));
         assert_eq!(
             &bytes[..8],
-            &keys.y_body.as_slice()[0].to_le_bytes(),
-            "y body is serialized first"
+            &keys.kg_body.as_slice()[0].to_le_bytes(),
+            "K_g body is serialized first"
         );
         assert_eq!(
             &bytes[body_len..body_len + 8],
-            &keys.z_body.as_slice()[0].to_le_bytes(),
-            "z body follows y body"
+            &keys.kh_body.as_slice()[0].to_le_bytes(),
+            "K_h body follows K_g body"
         );
 
         let decoded = deserialize_packing_keys(&params, &bytes).expect("deserialize");
-        assert_eq!(decoded.y_body.as_slice(), keys.y_body.as_slice());
-        assert_eq!(decoded.z_body.as_slice(), keys.z_body.as_slice());
+        assert_eq!(decoded.kg_body.as_slice(), keys.kg_body.as_slice());
+        assert_eq!(decoded.kh_body.as_slice(), keys.kh_body.as_slice());
     }
 
     #[test]
