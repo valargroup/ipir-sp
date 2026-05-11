@@ -10,7 +10,7 @@ use inspiring::{
 };
 use rayon::prelude::*;
 pub use simplepir_kernel::ToU64;
-use simplepir_kernel::{ChunkedSplitKernel, FirstDimKernel};
+use simplepir_kernel::{ChunkedSplitKernel, FirstDimKernel, U16Avx512Kernel};
 use spiral_rs::poly::{
     add_into, from_ntt_alloc, multiply, to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw,
 };
@@ -359,6 +359,30 @@ where
         }
 
         Ok(first_dim_query)
+    }
+}
+
+impl YServer<u16> {
+    /// Build a `u16` server using the fastest available local first-pass kernel.
+    ///
+    /// On AVX512F hosts this selects the YPIR-style explicit vector kernel;
+    /// otherwise it falls back to the portable chunked split kernel.
+    pub fn new_auto_kernel<I>(
+        params: YpirSchemeParams,
+        db: I,
+        input_is_transposed: bool,
+        pad_rows: bool,
+    ) -> Self
+    where
+        I: Iterator<Item = u16>,
+    {
+        let kernel: Box<dyn FirstDimKernel<u16>> = if U16Avx512Kernel::is_supported() {
+            Box::new(U16Avx512Kernel::default())
+        } else {
+            Box::new(ChunkedSplitKernel::default())
+        };
+
+        Self::with_kernel(params, db, input_is_transposed, pad_rows, kernel)
     }
 }
 

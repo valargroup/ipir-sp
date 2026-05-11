@@ -14,12 +14,14 @@
 //! the simple reference implementation for tests and comparisons.
 
 #![deny(rust_2018_idioms)]
-#![forbid(unsafe_code)]
+#![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod avx512;
 pub mod backend;
 pub mod chunked;
 pub mod scalar;
 
+pub use avx512::U16Avx512Kernel;
 pub use backend::{FirstDimKernel, ToU64};
 pub use chunked::ChunkedSplitKernel;
 pub use scalar::ScalarKernel;
