@@ -1,4 +1,5 @@
 use crate::{FirstDimKernel, ToU64};
+use spiral_rs::arith::barrett_reduction_u128;
 
 /// Default delayed-reduction window for the portable split kernel.
 ///
@@ -10,9 +11,10 @@ pub const DEFAULT_CHUNK_ROWS: usize = 1 << 16;
 
 /// Portable YPIR-style first-dimension kernel.
 ///
-/// This kernel splits each `u64` query coefficient into low/high 32-bit limbs,
-/// accumulates products in `u64` over a bounded row window, and performs one
-/// modular reduction per window instead of per database element.
+/// This kernel follows YPIR's first-pass loop structure: split each `u64` query
+/// coefficient into low/high 32-bit limbs, sweep row chunks before columns,
+/// accumulate products in `u64` over a bounded row window, and perform one
+/// Barrett reduction per window instead of per database element.
 ///
 /// The implementation is safe Rust and does not use rayon or architecture
 /// intrinsics. For `u8`, `u16`, and `u32` databases it uses the chunked
@@ -72,20 +74,20 @@ where
             return;
         }
 
-        let modulus = rlwe.q as u128;
         let chunk_rows = self
             .chunk_rows
             .min(max_safe_chunk_rows::<T>())
             .min(rows_padded)
             .max(1);
 
-        for (col, out_col) in out.iter_mut().enumerate().take(cols) {
-            let col_offset = col * rows_padded;
-            let mut acc = 0u128;
-            let mut row_start = 0;
+        out.fill(0);
 
-            while row_start < rows_padded {
-                let row_end = (row_start + chunk_rows).min(rows_padded);
+        let mut row_start = 0;
+        while row_start < rows_padded {
+            let row_end = (row_start + chunk_rows).min(rows_padded);
+
+            for (col, out_col) in out.iter_mut().enumerate().take(cols) {
+                let col_offset = col * rows_padded;
                 let mut total_lo = 0u64;
                 let mut total_hi = 0u64;
 
@@ -97,12 +99,25 @@ where
                 }
 
                 let chunk_sum = (total_lo as u128) + ((total_hi as u128) << 32);
-                acc = (acc + chunk_sum) % modulus;
-                row_start = row_end;
+                let chunk_reduced = barrett_reduction_u128(&rlwe.spiral, chunk_sum);
+                *out_col = add_mod(*out_col, chunk_reduced, rlwe.q);
             }
 
-            *out_col = acc as u64;
+            row_start = row_end;
         }
+    }
+}
+
+fn add_mod(lhs: u64, rhs: u64, modulus: u64) -> u64 {
+    debug_assert!(lhs < modulus);
+    debug_assert!(rhs < modulus);
+
+    let sum = u128::from(lhs) + u128::from(rhs);
+    let modulus = u128::from(modulus);
+    if sum >= modulus {
+        (sum - modulus) as u64
+    } else {
+        sum as u64
     }
 }
 
@@ -221,6 +236,25 @@ mod tests {
         compare::<u8, _>(41, 4, 16, |rng| rng.gen());
         compare::<u16, _>(41, 4, 16, |rng| rng.gen());
         compare::<u32, _>(41, 4, 16, |rng| rng.gen());
+    }
+
+    #[test]
+    fn chunked_split_overwrites_reused_output_buffers() {
+        let rlwe = production_like_rlwe();
+        let rows = 33;
+        let cols = 5;
+        let mut rng = ChaCha20Rng::seed_from_u64(0x4f55_5450_5554);
+        let db: Vec<u16> = (0..rows * cols)
+            .map(|_| rng.gen_range(0..(1 << 14)))
+            .collect();
+        let query: Vec<_> = (0..rows).map(|_| rng.gen_range(0..rlwe.q)).collect();
+        let mut scalar = vec![0u64; cols];
+        let mut chunked = vec![rlwe.q - 1; cols];
+
+        ScalarKernel.multiply_query(&rlwe, &db, rows, cols, &query, &mut scalar);
+        ChunkedSplitKernel::new(16).multiply_query(&rlwe, &db, rows, cols, &query, &mut chunked);
+
+        assert_eq!(chunked, scalar);
     }
 
     #[test]

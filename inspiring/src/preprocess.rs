@@ -987,7 +987,7 @@ mod tests {
     #[test]
     fn pack_b_prevalidated_matches_pack_b() {
         let (params, pre, _public, keys, top_images) = uploaded_key_fixture();
-        let b_scalars = b_scalars(&params);
+        let b_scalars = b_scalars(params);
 
         let checked = pre.pack_b(&b_scalars, &keys, &top_images).expect("pack b");
         keys.validate(pre.params).expect("keys validate");
@@ -1022,7 +1022,7 @@ mod tests {
     #[test]
     fn pack_with_uploaded_key_bodies_returns_rlwe_ciphertext() {
         let (params, pre, _public, keys, top_images) = uploaded_key_fixture();
-        let b_scalars = b_scalars(&params);
+        let b_scalars = b_scalars(params);
         let ct = pre.pack_b(&b_scalars, &keys, &top_images).expect("pack b");
         let mut b_tilde = PolyMatrixRaw::zero(&params.spiral, 1, 1);
         for (idx, b) in b_scalars.iter().copied().enumerate() {
