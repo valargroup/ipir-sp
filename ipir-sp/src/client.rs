@@ -15,7 +15,6 @@ use crate::bits::{contiguous_bytes_to_u64s, u64s_to_contiguous_bytes};
 use crate::modulus_switch::modulus_bits;
 use crate::modulus_switch::{recover_rlwe_rows, switched_rlwe_response_len};
 use crate::params::{params_for_simplepir, YpirSchemeParams};
-use crate::serialize::{deserialize_u64s_le, serialize_u64s_le};
 
 /// Seed used to regenerate IPIR client secret material.
 pub type IPIRSeed = [u8; 32];
@@ -78,15 +77,6 @@ pub struct IPIRClient {
     ypir: YpirSchemeParams,
 }
 
-/// Client-only setup material needed to generate online SimplePIR queries.
-#[derive(Debug, Clone)]
-pub struct IPIRSimpleQuerySetup {
-    /// Seed used to regenerate the client secret for online query generation and decoding.
-    pub client_seed: IPIRSeed,
-    /// Offline query polynomials, one per `d`-row database block.
-    pub offline_query_polys: Vec<Vec<u64>>,
-}
-
 /// Online SimplePIR first-dimension query.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IPIRSimpleQuery {
@@ -106,27 +96,10 @@ impl IPIRSimpleQuery {
         &self.first_dim
     }
 
-    /// Serialize as little-endian `u64` coefficients.
-    ///
-    /// This is the original uncompressed query encoding. New callers should
-    /// prefer [`Self::to_packed_bytes`] to avoid uploading unused high bits.
-    #[must_use]
-    pub fn to_bytes(&self) -> Vec<u8> {
-        serialize_u64s_le(&self.first_dim)
-    }
-
     /// Serialize query coefficients using the exact bit width of `modulus`.
-    ///
-    /// For the production 56-bit IPIR-SP modulus this saves one byte per query
-    /// coefficient compared with [`Self::to_bytes`].
     #[must_use]
     pub fn to_packed_bytes(&self, modulus: u64) -> Vec<u8> {
         u64s_to_contiguous_bytes(&self.first_dim, modulus_bits(modulus))
-    }
-
-    /// Parse a query serialized by [`Self::to_bytes`].
-    pub fn from_bytes(data: &[u8]) -> Result<Self, inspiring::InspiringError> {
-        deserialize_u64s_le(data).map(Self::new)
     }
 
     /// Parse a query serialized by [`Self::to_packed_bytes`].
@@ -186,36 +159,6 @@ impl IPIRClient {
         &self.ypir
     }
 
-    /// Generate only the client-side setup material needed for online queries.
-    ///
-    /// This exists for tests that need a deterministic query secret. Production
-    /// callers with public CRS setup use [`Self::generate_fresh_query_simplepir`].
-    pub fn generate_query_setup_simplepir_from_seed(
-        &self,
-        client_seed: IPIRSeed,
-    ) -> IPIRSimpleQuerySetup {
-        assert_eq!(
-            self.ypir.db_rows % self.rlwe.d,
-            0,
-            "db rows must split into d-row blocks"
-        );
-
-        let mut rng = ChaCha20Rng::from_seed(client_seed);
-        let _secret = ClientSecret::sample_ternary(&self.rlwe, &mut rng);
-        let offline_query_polys = (0..self.ypir.db_rows / self.rlwe.d)
-            .map(|_| {
-                (0..self.rlwe.d)
-                    .map(|_| rng.gen_range(0..self.rlwe.q))
-                    .collect()
-            })
-            .collect();
-
-        IPIRSimpleQuerySetup {
-            client_seed,
-            offline_query_polys,
-        }
-    }
-
     /// Generate public offline query polynomials from shared setup randomness.
     ///
     /// These polynomials are secret-independent, so a server may precompute the
@@ -262,31 +205,6 @@ impl IPIRClient {
         );
 
         (IPIRSimpleQuery::new(first_dim), packing_keys, client_seed)
-    }
-
-    /// Generate an online SimplePIR query from client-only setup material.
-    pub fn generate_query_simplepir_from_query_setup(
-        &self,
-        setup: &IPIRSimpleQuerySetup,
-        target_row: usize,
-    ) -> (IPIRSimpleQuery, IPIRSeed) {
-        assert!(target_row < self.ypir.db_rows, "target row out of bounds");
-        assert_eq!(
-            setup.offline_query_polys.len(),
-            self.ypir.db_rows / self.rlwe.d,
-            "setup offline query count does not match params"
-        );
-
-        let secret = self.secret_from_seed(setup.client_seed);
-        let first_dim = encrypted_selection_query(
-            &self.rlwe,
-            &setup.offline_query_polys,
-            &secret.coeffs,
-            target_row,
-            self.ypir.db_rows,
-        );
-
-        (IPIRSimpleQuery::new(first_dim), setup.client_seed)
     }
 
     /// Decode serialized response bytes into contiguous plaintext bytes.
