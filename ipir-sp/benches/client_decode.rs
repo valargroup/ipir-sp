@@ -57,10 +57,12 @@ fn bench_decode(c: &mut Criterion) {
 
         group.bench_function(BenchmarkId::new(name, output_count), |b| {
             b.iter(|| {
-                black_box(client.decode_response_simplepir_raw(
-                    black_box(client_seed),
-                    black_box(&response),
-                ));
+                black_box(
+                    client.decode_response_simplepir_raw(
+                        black_box(client_seed),
+                        black_box(&response),
+                    ),
+                );
             });
         });
     }

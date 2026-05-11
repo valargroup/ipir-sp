@@ -406,7 +406,11 @@ fn decode_rows(
     row_1: &[u64],
     secret_ntt: &PolyMatrixNTT<'_>,
 ) -> Vec<u64> {
-    let phase = add_poly_mod(row_1, &negacyclic_mul_ntt(params, row_0, secret_ntt), params.q);
+    let phase = add_poly_mod(
+        row_1,
+        &negacyclic_mul_ntt(params, row_0, secret_ntt),
+        params.q,
+    );
     phase
         .iter()
         .map(|coeff| ((coeff + params.delta / 2) / params.delta) % params.p)
