@@ -860,6 +860,11 @@ mod tests {
         let hint_0 = vec![0u64; rlwe.d * ypir.db_cols];
         let offline = offline_precompute_from_hint(&rlwe, &ypir, hint_0);
         let pre = build_pack_preprocessed_blocks(&rlwe, &offline.crs_blocks).expect("build");
+        assert_eq!(
+            pre.len(),
+            2,
+            "test fixture must exercise multi-block packing"
+        );
         let mut rng = ChaCha20Rng::seed_from_u64(0x5155);
         let secret = secret_ntt(&rlwe);
         let keys = PackingKeys::generate_full(&rlwe, &secret, &mut rng);

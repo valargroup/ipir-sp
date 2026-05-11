@@ -46,7 +46,7 @@ upstream YPIR+SP baseline. Full report and raw logs:
 
 | Metric | YPIR+SP | IPIR+SP | Delta |
 |---|---:|---:|---:|
-| End-to-end query | 824 ms | 794 ms | **−4%** |
+| End-to-end query | 824 ms | 696 ms | **−16%** |
 | Upload | 4.73 MB | 3.77 MB | **−20%** |
 | Packing public params (per setup) | 540,672 B | 98,304 B | **−5.5×** |
 | Online query bytes | 4.19 MB | 3.67 MB | **−12%** |
@@ -57,12 +57,12 @@ Two things are worth highlighting:
 - **Cryptographic key material is ~5.5× smaller.** InsPIRe's two-matrix
   `(K_g, K_h)` upload replaces CDKS's `log d` expansion matrices, which is the
   single largest contributor to the upload reduction.
-- **End-to-end latency is comparable.** IPIR+SP's online server work is
-  slightly heavier than YPIR+SP's, but the smaller upload more than absorbs
-  that on a real network round-trip. On the Criterion bench
-  (`IPIR_SP_BENCH_FULL=1`, `d=2048`, 5 outputs) the *pack-only* online phase
-  is **17 ms** after the affine collapse cache, well below YPIR's
-  199 ms ring-packing timer.
+- **End-to-end latency is lower in the latest run.** IPIR+SP's online server
+  work is still slightly heavier than YPIR+SP's, but the smaller upload and
+  faster uploaded-key packing more than absorb that on a real network
+  round-trip. On the Criterion bench (`IPIR_SP_BENCH_FULL=1`, `d=2048`, 5
+  outputs) the *pack-only* online phase is **17 ms** after the affine collapse
+  cache, well below YPIR's 199 ms ring-packing timer.
 
 The trade-off — and it is a real one — is offline preprocessing. The full
 fixture's CRS extraction and `PackPreprocessed` build takes ~100 s today,

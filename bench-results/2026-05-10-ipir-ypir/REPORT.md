@@ -462,6 +462,44 @@ packing improved from 156.813 ms to 150.559 ms. Compared with the canonical
 fused-packing comparison above, packing improved from 171.631 ms to 150.559 ms,
 and full query latency improved from 808.607 ms to 794.022 ms.
 
+### Nullifier PIR After Uploaded-Key Affine Cache
+
+Client commands and exact output: `raw/nullifier-ipir-uploaded-affine-cache-3queries.log`
+
+This run keeps the reference-compatible fresh-query wire format, but
+`QueryPackPreprocessed` now caches the fixed public `c1` collapse trace for the
+uploaded-key path. Online packing builds `b̃`, transforms it to NTT form, folds
+in only the uploaded body-row `c2` contributions, and stacks with the cached
+fixed `c1`.
+
+The server was restarted, three warm-up queries were discarded, then three row
+0 fixture queries were measured.
+
+Average over the three measured queries:
+
+- Full query: 695.698 ms
+- Client query generation: 82.196 ms
+- HTTP POST round trip: 586.136 ms
+- Server: 580.595 ms
+- Client decode: 27.170 ms
+- Upload: 3,768,320 bytes
+- Download: 12,288 bytes
+- Upload breakdown:
+  - Reference packing keys: 98,304 bytes
+  - Packed first-dimension query: 3,670,016 bytes
+- Server breakdown:
+  - Setup/key deserialize: 2.273 ms
+  - Pack preprocess: 0.000 ms
+  - Online query deserialize: 13.413 ms
+  - Matrix-vector multiply: 524.467 ms
+  - Reference-compatible packing: 40.166 ms
+  - Serialization: 0.270 ms
+
+Compared with the preceding micro-optimized path, packing improved from
+150.559 ms to 40.166 ms. Compared with the canonical fused-packing comparison
+above, packing improved from 171.631 ms to 40.166 ms, and full query latency
+improved from 808.607 ms to 695.698 ms.
+
 ## Normalized Interpretation
 
 - YPIR+SP headline full-system timing is 294 ms average online server time, including 199 ms ring packing.
@@ -470,7 +508,7 @@ and full query latency improved from 808.607 ms to 794.022 ms.
 - IPIR+SP pack+serialize after the affine collapse cache is 18.664 ms. This is comparable to YPIR's post-first-pass online work (294 ms online server time minus 91 ms first pass = 203 ms), not to YPIR's full online time including the database dot product.
 - IPIR+SP headline online pack/serialize improved from 4.4272 s before online caching, to 997.07 ms with cached collapse digits, to 18.664 ms with the affine collapse cache.
 - IPIR+SP headline offline CRS extraction/preprocessing is 102.43 s for five RLWE outputs. The affine cache keeps deterministic collapse work offline, so offline setup remains heavy.
-- The reference-compatible fresh-query path intentionally shifts away from the compact affine-cache request shape. It removes the explicit server key-bind/preprocess phase, but the server's online packing phase now consumes uploaded packing-key bodies and took 1.037 s on average for the full nullifier snapshot after caching fixed top-row images and expanding uploaded keys once per request.
+- The reference-compatible fresh-query path intentionally shifts away from the compact affine-cache request shape. It removes the explicit server key-bind/preprocess phase, but the uploaded-key path now caches the fixed public collapse trace; online packing for the full nullifier snapshot is 40.166 ms after the uploaded-key affine cache.
 
 ## Follow-up Needed
 

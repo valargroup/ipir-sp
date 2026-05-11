@@ -113,8 +113,21 @@ cargo bench -p ipir-sp --bench end_to_end
 
 The default benchmark uses a smaller development profile. Set
 `IPIR_SP_BENCH_FULL=1` to attempt the full `params_for_simplepir(32768, 131072)`
-profile. See `bench/REPORT.md` for the latest local run notes and the paper
-comparison targets.
+profile. See `../bench-results/2026-05-10-ipir-ypir/REPORT.md` for the latest
+local run notes and the paper comparison targets.
+
+Latest full nullifier-snapshot comparison on `ipir-avx512-32gb`:
+
+| Metric | IPIR+SP latest | YPIR+SP last | Difference |
+|---|---:|---:|---:|
+| Full query | 695.698 ms | 824.032 ms | IPIR -128.334 ms |
+| Server total | 580.595 ms | 549.544 ms | IPIR +31.051 ms |
+| Matrix-vector | 524.467 ms | 491.667 ms | IPIR +32.800 ms |
+| Packing | 40.166 ms | 54.667 ms | IPIR -14.501 ms |
+| Client query generation | 82.196 ms | 266.426 ms | IPIR -184.230 ms |
+| Client decode | 27.170 ms | 4.119 ms | IPIR +23.051 ms |
+| Upload | 3,768,320 bytes | 4,734,976 bytes | IPIR -966,656 bytes |
+| Download | 12,288 bytes | 12,288 bytes | same |
 
 ## References
 

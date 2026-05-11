@@ -112,10 +112,15 @@ pub struct TopKeyImages<'a> {
 pub struct QueryPackPreprocessed<'a> {
     /// Underlying parameter set.
     pub params: &'a RlweParams,
-    /// Aggregated public `a` slots.
-    pub a_agg: Vec<PolyMatrixNTT<'a>>,
+    /// Final RLWE `c1` from collapsing the fixed public top-row trace.
+    pub collapse_a_final_ntt: PolyMatrixNTT<'a>,
     /// Precomputed gadget digits in collapse execution order.
     pub digits_ntt: Vec<PolyMatrixNTT<'a>>,
+}
+
+struct QueryReferencePrecomputed<'a> {
+    collapse_a_final_ntt: PolyMatrixNTT<'a>,
+    digits_ntt: Vec<PolyMatrixNTT<'a>>,
 }
 
 impl<'a> PackPreprocessed<'a> {
@@ -253,12 +258,12 @@ impl<'a> QueryPackPreprocessed<'a> {
     /// Build public/static packing preprocessing for one CRS block.
     pub fn build(params: &'a RlweParams, crs: &PolyMatrixNTT<'a>) -> Result<Self, InspiringError> {
         let public = PackPublicPreprocessed::build(params, crs)?;
-        let digits_ntt = precompute_reference_digits(params, public.a_agg.clone());
+        let reference = precompute_reference_trace(params, public.a_agg);
 
         Ok(Self {
             params,
-            a_agg: public.a_agg,
-            digits_ntt,
+            collapse_a_final_ntt: reference.collapse_a_final_ntt,
+            digits_ntt: reference.digits_ntt,
         })
     }
 
@@ -300,17 +305,18 @@ impl<'a> QueryPackPreprocessed<'a> {
             b_tilde.get_poly_mut(0, 0)[idx] = b % self.params.q;
         }
 
-        Ok(collapse(
+        let b_final = collapse_uploaded_body_b(
             self.params,
-            crate::intermediate::IRCtx {
-                a_hat: self.a_agg.clone(),
-                b_tilde,
-            },
+            to_ntt_alloc(&b_tilde),
             &keys.kg_body,
             &keys.kh_body,
             top_images,
             &self.digits_ntt,
-        ))
+        );
+
+        Ok(RlweCiphertext {
+            inner: stack_ntt(&self.collapse_a_final_ntt, &b_final),
+        })
     }
 }
 
@@ -402,10 +408,10 @@ impl<'a> TopKeyImages<'a> {
     }
 }
 
-fn precompute_reference_digits<'a>(
+fn precompute_reference_trace<'a>(
     params: &'a RlweParams,
     a_agg: Vec<PolyMatrixNTT<'a>>,
-) -> Vec<PolyMatrixNTT<'a>> {
+) -> QueryReferencePrecomputed<'a> {
     let kg = fixed_reference_key(params, REFERENCE_W_SEED);
     let kh = fixed_reference_key(params, REFERENCE_V_SEED);
     let two_d = 2 * params.d as u64;
@@ -447,7 +453,14 @@ fn precompute_reference_digits<'a>(
     digits_ntt.push(ks_digits_ntt_from_c1(params, &final_state.a[1]));
     collapse_one_materialized(&mut final_state, &kh);
     debug_assert_eq!(digits_ntt.len(), params.d - 1);
-    digits_ntt
+    let collapse_a_final_ntt = final_state
+        .a
+        .pop()
+        .expect("final reference collapse leaves one component");
+    QueryReferencePrecomputed {
+        collapse_a_final_ntt,
+        digits_ntt,
+    }
 }
 
 fn collect_half_digits<'a>(
@@ -498,178 +511,74 @@ fn fixed_reference_key<'a>(params: &'a RlweParams, mask_seed: [u8; 32]) -> KeySw
     }
 }
 
-/// Collapse the wide intermediate ciphertext using uploaded key bodies.
+/// Collapse only the `c2` chain for uploaded packing-key bodies.
 ///
-/// The reference wire format gives us only the secret-dependent `K_g` and `K_h`
-/// body rows. Public top rows and NTT automorphism tables are cached in
-/// [`TopKeyImages`]. This function performs the same `d - 1` logical
-/// key-switches as the materialized-key collapse, but applies each `K_g` body
-/// automorphism inside the product that consumes it.
-fn collapse<'a>(
+/// `QueryPackPreprocessed` already stores the matching fixed public `c1` trace,
+/// so online packing only needs to add the body-row products to the initial
+/// `NTT(b̃)` value.
+fn collapse_uploaded_body_b<'a>(
     params: &'a RlweParams,
-    agg: crate::intermediate::IRCtx<'a>,
+    mut b: PolyMatrixNTT<'a>,
     kg_body: &PolyMatrixNTT<'a>,
     kh_body: &PolyMatrixNTT<'a>,
     top_images: &TopKeyImages<'a>,
     digits_ntt: &[PolyMatrixNTT<'a>],
-) -> RlweCiphertext<'a> {
+) -> PolyMatrixNTT<'a> {
     assert_eq!(
         digits_ntt.len(),
         params.d - 1,
-        "preprocess::collapse expects d - 1 digit blocks"
-    );
-    assert_eq!(
-        agg.a_hat.len(),
-        params.d,
-        "preprocess::collapse expects d a_hat slots"
+        "preprocess::collapse_uploaded_body_b expects d - 1 digit blocks"
     );
 
-    let mut slots = agg.a_hat;
-    let right = slots.split_off(params.d / 2);
-    let left = slots;
-    let b = to_ntt_alloc(&agg.b_tilde);
     let mut digit_idx = 0;
-
-    let mut left_state = CollapseState { a: left, b };
-    collapse_half(
-        &mut left_state,
+    b = collapse_uploaded_body_half(
+        b,
         kg_body,
-        &top_images.kg_top_left,
         &top_images.kg_body_left_tables,
         digits_ntt,
         &mut digit_idx,
     );
-    let left_a = left_state
-        .a
-        .pop()
-        .expect("left collapse leaves one component");
-
-    let mut right_state = CollapseState {
-        a: right,
-        b: left_state.b,
-    };
-    collapse_half(
-        &mut right_state,
+    b = collapse_uploaded_body_half(
+        b,
         kg_body,
-        &top_images.kg_top_right,
         &top_images.kg_body_right_tables,
         digits_ntt,
         &mut digit_idx,
     );
-    let right_a = right_state
-        .a
-        .pop()
-        .expect("right collapse leaves one component");
 
-    let mut final_state = CollapseState {
-        a: vec![left_a, right_a],
-        b: right_state.b,
-    };
-    collapse_final(
-        &mut final_state,
-        &top_images.kh_top,
-        kh_body,
-        &digits_ntt[digit_idx],
-    );
+    let mut final_b = PolyMatrixNTT::zero(&params.spiral, 1, 1);
+    multiply(&mut final_b, kh_body, &digits_ntt[digit_idx]);
+    add_into(&mut final_b, &b);
     digit_idx += 1;
     assert_eq!(digit_idx, digits_ntt.len());
-
-    RlweCiphertext {
-        inner: stack_ntt(&final_state.a[0], &final_state.b),
-    }
+    final_b
 }
 
-/// Collapse one `d/2` side of the aggregate by consuming its `K_g` image table.
-///
-/// `top_images` is already expanded for the side being collapsed. `kg_body`
-/// remains the single uploaded body row; each `body_tables` entry describes the
-/// automorphism that would have been applied to materialize the matching body.
-fn collapse_half<'a>(
-    state: &mut CollapseState<'a>,
+fn collapse_uploaded_body_half<'a>(
+    mut b: PolyMatrixNTT<'a>,
     kg_body: &PolyMatrixNTT<'a>,
-    top_images: &[PolyMatrixNTT<'a>],
     body_tables: &[NttAutomorphTable],
     digits_ntt: &[PolyMatrixNTT<'a>],
     digit_idx: &mut usize,
-) {
-    assert_eq!(
-        top_images.len(),
-        state.a.len().saturating_sub(1),
-        "preprocess::collapse_half expects one top image per collapse step"
-    );
-    assert_eq!(
-        body_tables.len(),
-        state.a.len().saturating_sub(1),
-        "preprocess::collapse_half expects one body table per collapse step"
-    );
-
-    while state.a.len() > 1 {
-        let image_idx = state.a.len() - 2;
-        // The top row is already stored as this automorphic image. The body row
-        // stays in uploaded form; `body_tables[image_idx]` supplies the slot
-        // permutation needed for this logical `K_g` image.
-        collapse_one(
-            state,
-            &top_images[image_idx],
+) -> PolyMatrixNTT<'a> {
+    for image_idx in (0..body_tables.len()).rev() {
+        let mut next_b = multiply_permuted_body_by_digits(
             kg_body,
             &body_tables[image_idx],
             &digits_ntt[*digit_idx],
         );
+        add_into(&mut next_b, &b);
+        b = next_b;
         *digit_idx += 1;
     }
-}
-
-/// Apply one logical `K_g` switch and remove the consumed aggregate component.
-///
-/// This mirrors [`crate::collapse::collapse_one`] but accepts split key parts:
-/// an already-expanded public top row plus the base uploaded body row and the
-/// table needed to read that body as the current automorphic image.
-fn collapse_one<'a>(
-    state: &mut CollapseState<'a>,
-    top_row: &PolyMatrixNTT<'a>,
-    body_row: &PolyMatrixNTT<'a>,
-    body_table: &NttAutomorphTable,
-    digits_ntt: &PolyMatrixNTT<'a>,
-) {
-    let k = state.a.len();
-    assert!(
-        k >= 2,
-        "preprocess::collapse_one requires at least two a components"
-    );
-
-    let (delta_a, delta_b) =
-        switch_with_permuted_body(top_row, body_row, body_table, digits_ntt, &state.b);
-    add_into(&mut state.a[k - 2], &delta_a);
-    state.a.pop();
-    state.b = delta_b;
-}
-
-/// Apply the final `K_h` switch after left and right halves have collapsed.
-///
-/// `K_h` is not rotated across a family of images, so its uploaded body row can
-/// be multiplied directly rather than through a permutation table.
-fn collapse_final<'a>(
-    state: &mut CollapseState<'a>,
-    top_row: &PolyMatrixNTT<'a>,
-    body_row: &PolyMatrixNTT<'a>,
-    digits_ntt: &PolyMatrixNTT<'a>,
-) {
-    let k = state.a.len();
-    assert!(
-        k >= 2,
-        "preprocess::collapse_final requires at least two a components"
-    );
-
-    let (delta_a, delta_b) = switch_with_body(top_row, body_row, digits_ntt, &state.b);
-    add_into(&mut state.a[k - 2], &delta_a);
-    state.a.pop();
-    state.b = delta_b;
+    b
 }
 
 /// Switch using a key whose body row is represented by an NTT slot permutation.
 ///
 /// The result is identical to multiplying `[top_row; tau(body_row)]` by
 /// `digits_ntt`, but the `tau(body_row)` matrix is never allocated.
+#[cfg(test)]
 fn switch_with_permuted_body<'a>(
     top_row: &PolyMatrixNTT<'a>,
     body_row: &PolyMatrixNTT<'a>,
@@ -695,6 +604,7 @@ fn switch_with_permuted_body<'a>(
 /// Switch using explicit top and body rows with no body automorphism.
 ///
 /// This is used for the final `K_h` switch, where there is only one key image.
+#[cfg(test)]
 fn switch_with_body<'a>(
     top_row: &PolyMatrixNTT<'a>,
     body_row: &PolyMatrixNTT<'a>,
@@ -712,6 +622,7 @@ fn switch_with_body<'a>(
 }
 
 /// Validate split key-switch operands before evaluating a switch product.
+#[cfg(test)]
 fn validate_key_parts(
     top_row: &PolyMatrixNTT<'_>,
     body_row: &PolyMatrixNTT<'_>,
@@ -1029,10 +940,36 @@ mod tests {
     }
 
     #[test]
-    fn pack_with_uploaded_key_bodies_returns_rlwe_ciphertext() {
+    fn switch_with_body_matches_materialized_key_product() {
         let params = params();
-        let crs = crs(&params);
-        let pre = QueryPackPreprocessed::build(&params, &crs).expect("preprocess");
+        let top = ntt_matrix(&params, 1, params.gadget.ell, 5);
+        let body = ntt_matrix(&params, 1, params.gadget.ell, 13);
+        let digits = ntt_matrix(&params, params.gadget.ell, 1, 31);
+        let c2 = ntt_matrix(&params, 1, 1, 43);
+
+        let (actual_a, actual_b) = switch_with_body(&top, &body, &digits, &c2);
+
+        let mut expected_a = PolyMatrixNTT::zero(&params.spiral, 1, 1);
+        multiply(&mut expected_a, &top, &digits);
+        let mut expected_b = PolyMatrixNTT::zero(&params.spiral, 1, 1);
+        multiply(&mut expected_b, &body, &digits);
+        add_into(&mut expected_b, &c2);
+
+        assert_eq!(actual_a.as_slice(), expected_a.as_slice());
+        assert_eq!(actual_b.as_slice(), expected_b.as_slice());
+    }
+
+    fn uploaded_key_fixture() -> (
+        &'static RlweParams,
+        QueryPackPreprocessed<'static>,
+        PackPublicPreprocessed<'static>,
+        PackingKeys<'static>,
+        TopKeyImages<'static>,
+    ) {
+        let params = Box::leak(Box::new(params()));
+        let crs = crs(params);
+        let public = PackPublicPreprocessed::build(params, &crs).expect("public preprocess");
+        let pre = QueryPackPreprocessed::build(params, &crs).expect("preprocess");
         let secret_raw = {
             let mut raw = PolyMatrixRaw::zero(&params.spiral, 1, 1);
             raw.get_poly_mut(0, 0)[0] = 1;
@@ -1041,12 +978,70 @@ mod tests {
         };
         let secret_ntt = to_ntt_alloc(&secret_raw);
         let mut rng = ChaCha20Rng::from_seed([42; 32]);
-        let keys = PackingKeys::generate_full(&params, &secret_ntt, &mut rng);
-        let top_images = TopKeyImages::build(&params);
+        let keys = PackingKeys::generate_full(params, &secret_ntt, &mut rng);
+        let top_images = TopKeyImages::build(params);
+
+        (params, pre, public, keys, top_images)
+    }
+
+    #[test]
+    fn pack_b_prevalidated_matches_pack_b() {
+        let (params, pre, _public, keys, top_images) = uploaded_key_fixture();
+        let b_scalars = b_scalars(&params);
+
+        let checked = pre.pack_b(&b_scalars, &keys, &top_images).expect("pack b");
+        keys.validate(pre.params).expect("keys validate");
+        top_images
+            .validate(pre.params)
+            .expect("top images validate");
+        let prevalidated = pre
+            .pack_b_prevalidated(&b_scalars, &keys, &top_images)
+            .expect("pack b prevalidated");
+
+        assert_eq!(prevalidated.inner.as_slice(), checked.inner.as_slice());
+    }
+
+    #[test]
+    fn query_preprocess_stores_fixed_c1_trace() {
+        let (params, pre, public, _keys, _top_images) = uploaded_key_fixture();
+        let expected = precompute_reference_trace(params, public.a_agg);
+
+        assert_eq!(pre.collapse_a_final_ntt.rows, 1);
+        assert_eq!(pre.collapse_a_final_ntt.cols, 1);
+        assert_eq!(pre.digits_ntt.len(), pre.params.d - 1);
+        assert_eq!(
+            pre.collapse_a_final_ntt.as_slice(),
+            expected.collapse_a_final_ntt.as_slice()
+        );
+        assert_eq!(pre.digits_ntt.len(), expected.digits_ntt.len());
+        for (actual, expected) in pre.digits_ntt.iter().zip(expected.digits_ntt.iter()) {
+            assert_eq!(actual.as_slice(), expected.as_slice());
+        }
+    }
+
+    #[test]
+    fn pack_with_uploaded_key_bodies_returns_rlwe_ciphertext() {
+        let (params, pre, _public, keys, top_images) = uploaded_key_fixture();
         let b_scalars = b_scalars(&params);
         let ct = pre.pack_b(&b_scalars, &keys, &top_images).expect("pack b");
+        let mut b_tilde = PolyMatrixRaw::zero(&params.spiral, 1, 1);
+        for (idx, b) in b_scalars.iter().copied().enumerate() {
+            b_tilde.get_poly_mut(0, 0)[idx] = b;
+        }
+        let expected_b = collapse_uploaded_body_b(
+            params,
+            to_ntt_alloc(&b_tilde),
+            &keys.kg_body,
+            &keys.kh_body,
+            &top_images,
+            &pre.digits_ntt,
+        );
+        let expected = RlweCiphertext {
+            inner: stack_ntt(&pre.collapse_a_final_ntt, &expected_b),
+        };
 
         assert_eq!(ct.inner.rows, 2);
         assert_eq!(ct.inner.cols, 1);
+        assert_eq!(ct.inner.as_slice(), expected.inner.as_slice());
     }
 }

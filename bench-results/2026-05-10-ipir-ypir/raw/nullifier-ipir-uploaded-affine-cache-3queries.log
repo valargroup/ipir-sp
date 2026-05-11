@@ -1,0 +1,29 @@
+Command context:
+
+- Built with `cargo build --release -p nullifier-pir`.
+- Restarted server:
+  `target/release/nullifier-pir serve --snapshot-path "data/nullifiers.bin" --backend local-ipir --host 127.0.0.1 --port 8090 --setup-seed 7`
+- Ran three warm-up queries and discarded their output.
+- Measured three queries against the warmed process using the first nullifier in `data/nullifiers.bin`.
+
+--- measured query 1 ---
+queried row 0 against 49925853 records and decoded 3584 bytes
+timing_us total_query=660324 client_query_gen=71315 http_post_round_trip=561665 server=557207 client_decode=27201
+server_breakdown_us setup_deserialize=2106 pack_preprocess=0 online_deserialize=11657 matrix_vector=502929 packing=40235 serialization=273
+wire_bytes upload=3768320 download=12288
+upload_breakdown backend=local-ipir total=3768320 packing_keys=98304 online_query=3670016
+existing nullifier b3cdb97715d5e3dd624fc87906b9d13b4e4ec6a63989d989936f2504f0a1f706 found at global index 0, row 0, offset 0 and verified through PIR
+--- measured query 2 ---
+queried row 0 against 49925853 records and decoded 3584 bytes
+timing_us total_query=704107 client_query_gen=95956 http_post_round_trip=580904 server=572557 client_decode=27065
+server_breakdown_us setup_deserialize=2489 pack_preprocess=0 online_deserialize=16956 matrix_vector=512860 packing=39977 serialization=269
+wire_bytes upload=3768320 download=12288
+upload_breakdown backend=local-ipir total=3768320 packing_keys=98304 online_query=3670016
+existing nullifier b3cdb97715d5e3dd624fc87906b9d13b4e4ec6a63989d989936f2504f0a1f706 found at global index 0, row 0, offset 0 and verified through PIR
+--- measured query 3 ---
+queried row 0 against 49925853 records and decoded 3584 bytes
+timing_us total_query=722664 client_query_gen=79318 http_post_round_trip=615840 server=612021 client_decode=27243
+server_breakdown_us setup_deserialize=2223 pack_preprocess=0 online_deserialize=11627 matrix_vector=557611 packing=40285 serialization=268
+wire_bytes upload=3768320 download=12288
+upload_breakdown backend=local-ipir total=3768320 packing_keys=98304 online_query=3670016
+existing nullifier b3cdb97715d5e3dd624fc87906b9d13b4e4ec6a63989d989936f2504f0a1f706 found at global index 0, row 0, offset 0 and verified through PIR
