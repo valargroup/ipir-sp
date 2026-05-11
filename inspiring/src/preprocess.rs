@@ -72,27 +72,16 @@ pub struct PackPreprocessed<'a> {
     pub collapse_b_offset_ntt: PolyMatrixNTT<'a>,
 }
 
-/// Packing-key upload mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PackingKeyMode {
-    /// Upload only the `y` body, matching reference `PackingKeys::init`.
-    Half,
-    /// Upload `y` and `z` bodies, matching reference `PackingKeys::init_full`.
-    Full,
-}
-
 /// Secret-dependent packing-key upload.
 ///
 /// The fixed top rows/masks are derived by both client and server from
 /// [`REFERENCE_W_SEED`] and [`REFERENCE_V_SEED`]. The client uploads only these
 /// body rows, matching the reference `PackingKeys` split.
 pub struct PackingKeys<'a> {
-    /// Packing mode for this upload.
-    pub mode: PackingKeyMode,
     /// Body row for the `tau_g` switching key.
     pub y_body: PolyMatrixNTT<'a>,
-    /// Optional body row for the final `tau_h` switching key.
-    pub z_body: Option<PolyMatrixNTT<'a>>,
+    /// Body row for the final `tau_h` switching key.
+    pub z_body: PolyMatrixNTT<'a>,
 }
 
 /// Per-request expansion of uploaded packing keys.
@@ -244,11 +233,7 @@ impl<'a> PackingKeys<'a> {
         let z_body =
             generate_reference_body(params, secret_ntt, h(params.d), REFERENCE_V_SEED, rng);
 
-        Self {
-            mode: PackingKeyMode::Full,
-            y_body,
-            z_body: Some(z_body),
-        }
+        Self { y_body, z_body }
     }
 
     /// Convert uploaded bodies into full key-switching matrices by restoring
@@ -258,10 +243,7 @@ impl<'a> PackingKeys<'a> {
         params: &'a RlweParams,
     ) -> Result<(KeySwitchingMatrix<'a>, KeySwitchingMatrix<'a>), InspiringError> {
         validate_reference_body(params, &self.y_body, "reference y_body")?;
-        let z_body = self.z_body.as_ref().ok_or_else(|| {
-            InspiringError::PreprocessMismatch("full packing keys require z_body".to_string())
-        })?;
-        validate_reference_body(params, z_body, "reference z_body")?;
+        validate_reference_body(params, &self.z_body, "reference z_body")?;
 
         let y_top = reference_mask_top(params, REFERENCE_W_SEED);
         let z_top = reference_mask_top(params, REFERENCE_V_SEED);
@@ -271,7 +253,7 @@ impl<'a> PackingKeys<'a> {
                 params,
             },
             KeySwitchingMatrix {
-                mat: stack_ntt(&z_top, z_body),
+                mat: stack_ntt(&z_top, &self.z_body),
                 params,
             },
         ))
@@ -305,15 +287,12 @@ impl<'a> PackingKeys<'a> {
     ) -> Result<ExpandedPackingKeys<'a>, InspiringError> {
         let total_started = std::time::Instant::now();
         validate_reference_body(params, &self.y_body, "reference y_body")?;
-        let z_body = self.z_body.as_ref().ok_or_else(|| {
-            InspiringError::PreprocessMismatch("full packing keys require z_body".to_string())
-        })?;
-        validate_reference_body(params, z_body, "reference z_body")?;
+        validate_reference_body(params, &self.z_body, "reference z_body")?;
         top_images.validate(params)?;
 
         let restore_kh_started = std::time::Instant::now();
         let kh = KeySwitchingMatrix {
-            mat: stack_ntt(&top_images.kh_top, z_body),
+            mat: stack_ntt(&top_images.kh_top, &self.z_body),
             params,
         };
         let restore_kh_us = restore_kh_started.elapsed().as_micros();

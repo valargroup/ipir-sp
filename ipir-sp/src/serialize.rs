@@ -4,7 +4,7 @@
 //! stream for the secret-dependent `K_g` and `K_h` packing-key bodies. Public
 //! top rows are derived from fixed CRS seeds by the client and server.
 
-use inspiring::{InspiringError, PackingKeyMode, PackingKeys, RlweParams};
+use inspiring::{InspiringError, PackingKeys, RlweParams};
 use spiral_rs::poly::{PolyMatrix, PolyMatrixNTT};
 
 /// Number of bytes used by uploaded full packing-key bodies.
@@ -18,20 +18,12 @@ pub fn serialize_packing_keys(
     params: &RlweParams,
     keys: &PackingKeys<'_>,
 ) -> Result<Vec<u8>, InspiringError> {
-    if keys.mode != PackingKeyMode::Full {
-        return Err(InspiringError::PreprocessMismatch(
-            "local-ipir wire format requires full packing keys".to_string(),
-        ));
-    }
     validate_packing_key_body(params, &keys.y_body, "packing key y_body")?;
-    let z_body = keys.z_body.as_ref().ok_or_else(|| {
-        InspiringError::PreprocessMismatch("full packing keys require z_body".to_string())
-    })?;
-    validate_packing_key_body(params, z_body, "packing key z_body")?;
+    validate_packing_key_body(params, &keys.z_body, "packing key z_body")?;
 
     let mut out = Vec::with_capacity(serialized_packing_keys_len(params));
     write_u64s_le(&mut out, keys.y_body.as_slice());
-    write_u64s_le(&mut out, z_body.as_slice());
+    write_u64s_le(&mut out, keys.z_body.as_slice());
     Ok(out)
 }
 
@@ -52,11 +44,7 @@ pub fn deserialize_packing_keys<'a>(
     let body_len = packing_key_body_u64_len(params);
     let y_body = packing_key_body_from_coeffs(params, &coeffs[..body_len], "packing key y_body")?;
     let z_body = packing_key_body_from_coeffs(params, &coeffs[body_len..], "packing key z_body")?;
-    Ok(PackingKeys {
-        mode: PackingKeyMode::Full,
-        y_body,
-        z_body: Some(z_body),
-    })
+    Ok(PackingKeys { y_body, z_body })
 }
 
 /// Serialize a sequence of `u64` values as little-endian bytes.
@@ -195,16 +183,13 @@ mod tests {
         );
         assert_eq!(
             &bytes[body_len..body_len + 8],
-            &keys.z_body.as_ref().unwrap().as_slice()[0].to_le_bytes(),
+            &keys.z_body.as_slice()[0].to_le_bytes(),
             "z body follows y body"
         );
 
         let decoded = deserialize_packing_keys(&params, &bytes).expect("deserialize");
         assert_eq!(decoded.y_body.as_slice(), keys.y_body.as_slice());
-        assert_eq!(
-            decoded.z_body.as_ref().unwrap().as_slice(),
-            keys.z_body.as_ref().unwrap().as_slice()
-        );
+        assert_eq!(decoded.z_body.as_slice(), keys.z_body.as_slice());
     }
 
     #[test]

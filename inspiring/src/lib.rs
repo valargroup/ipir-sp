@@ -81,6 +81,6 @@ pub use lwe::{LweBatch, LweCiphertext};
 pub use pack::{pack, RlweCiphertext};
 pub use params::{GadgetParams, RlweParams};
 pub use preprocess::{
-    ExpandedPackingKeys, PackPreprocessed, PackPublicPreprocessed, PackingKeyMode, PackingKeys,
+    ExpandedPackingKeys, PackPreprocessed, PackPublicPreprocessed, PackingKeys,
     QueryPackPreprocessed, TopKeyImages, REFERENCE_V_SEED, REFERENCE_W_SEED,
 };

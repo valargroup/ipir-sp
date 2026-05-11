@@ -641,9 +641,8 @@ mod tests {
         assert_ne!(client_seed, [0u8; 32]);
         assert_eq!(packing_keys.y_body.rows, 1);
         assert_eq!(packing_keys.y_body.cols, params.gadget.ell);
-        let z_body = packing_keys.z_body.as_ref().expect("full keys include z");
-        assert_eq!(z_body.rows, 1);
-        assert_eq!(z_body.cols, params.gadget.ell);
+        assert_eq!(packing_keys.z_body.rows, 1);
+        assert_eq!(packing_keys.z_body.cols, params.gadget.ell);
     }
 
     #[test]
