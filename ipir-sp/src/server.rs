@@ -495,7 +495,6 @@ pub fn pack_intermediate_blocks<'a>(
     top_key_images: &TopKeyImages<'a>,
     preprocessed: &'a [QueryPackPreprocessed<'a>],
 ) -> Result<Vec<RlweCiphertext<'a>>, InspiringError> {
-    let total_started = std::time::Instant::now();
     let Some(first) = preprocessed.first() else {
         return if intermediate.is_empty() {
             Ok(Vec::new())
@@ -515,9 +514,10 @@ pub fn pack_intermediate_blocks<'a>(
             intermediate.len()
         )));
     }
+    packing_keys.validate(params)?;
+    top_key_images.validate(params)?;
 
     let mut out = Vec::with_capacity(preprocessed.len());
-    let mut block_pack_us = Vec::with_capacity(preprocessed.len());
     for (block_idx, (b_block, pre)) in intermediate
         .chunks_exact(params.d)
         .zip(preprocessed.iter())
@@ -529,18 +529,8 @@ pub fn pack_intermediate_blocks<'a>(
             )));
         }
 
-        let pack_started = std::time::Instant::now();
-        out.push(pre.pack_b(b_block, packing_keys, top_key_images)?);
-        block_pack_us.push(pack_started.elapsed().as_micros());
+        out.push(pre.pack_b_prevalidated(b_block, packing_keys, top_key_images)?);
     }
-
-    let block_pack_total_us: u128 = block_pack_us.iter().sum();
-    eprintln!(
-        "packing_breakdown_us total={} block_pack_total={} block_pack_by_block={:?}",
-        total_started.elapsed().as_micros(),
-        block_pack_total_us,
-        block_pack_us,
-    );
 
     Ok(out)
 }
