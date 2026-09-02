@@ -1,5 +1,6 @@
 use crate::FirstDimKernel;
 use rayon::prelude::*;
+#[cfg(target_arch = "x86_64")]
 use spiral_rs::arith::barrett_reduction_u128;
 
 /// AVX512 first-dimension kernel specialized for `u16` database columns.
@@ -52,6 +53,7 @@ impl FirstDimKernel<u16> for U16Avx512Kernel {
         rows_padded: usize,
         cols: usize,
         query: &[u64],
+        element_max: u64,
         out: &mut [u64],
     ) {
         assert_eq!(query.len(), rows_padded, "query length must match rows");
@@ -62,7 +64,15 @@ impl FirstDimKernel<u16> for U16Avx512Kernel {
             "U16Avx512Kernel requires AVX512F CPU support"
         );
 
-        let chunk_rows = self.chunk_rows.min(rows_padded).max(8);
+        // The delayed-reduction accumulators are `u64`, so the window has to
+        // respect the plaintext bound exactly as the portable kernel does. This
+        // clamp was previously missing here and the kernel was correct only
+        // because production plaintexts happen to be 14-bit.
+        let chunk_rows = self
+            .chunk_rows
+            .min(crate::chunked::max_safe_chunk_rows_for(element_max))
+            .min(rows_padded)
+            .max(8);
         let band_cols = crate::band_cols::<u16>(rows_padded, cols);
 
         // Column bands are disjoint and contiguous in a column-major database,
@@ -178,6 +188,7 @@ unsafe fn multiply_query_avx512_u16(
     unreachable!("U16Avx512Kernel is only available on x86_64");
 }
 
+#[cfg(target_arch = "x86_64")]
 fn add_mod(lhs: u64, rhs: u64, modulus: u64) -> u64 {
     debug_assert!(lhs < modulus);
     debug_assert!(rhs < modulus);
@@ -228,12 +239,29 @@ mod tests {
         let db: Vec<u16> = (0..rows * cols)
             .map(|_| rng.gen_range(0..(1 << 14)))
             .collect();
+        let element_max = db.iter().map(|value| u64::from(*value)).max().unwrap_or(0);
         let query: Vec<_> = (0..rows).map(|_| rng.gen_range(0..rlwe.q)).collect();
         let mut chunked = vec![0u64; cols];
         let mut avx512 = vec![rlwe.q - 1; cols];
 
-        ChunkedSplitKernel::new(16).multiply_query(&rlwe, &db, rows, cols, &query, &mut chunked);
-        U16Avx512Kernel::new(16).multiply_query(&rlwe, &db, rows, cols, &query, &mut avx512);
+        ChunkedSplitKernel::new(16).multiply_query(
+            &rlwe,
+            &db,
+            rows,
+            cols,
+            &query,
+            element_max,
+            &mut chunked,
+        );
+        U16Avx512Kernel::new(16).multiply_query(
+            &rlwe,
+            &db,
+            rows,
+            cols,
+            &query,
+            element_max,
+            &mut avx512,
+        );
 
         assert_eq!(avx512, chunked);
     }

@@ -30,6 +30,11 @@ pub struct YServer<T> {
     params: YpirSchemeParams,
     db: Vec<T>,
     pad_rows: bool,
+    /// Largest value present in `db`, measured at load.
+    ///
+    /// Kernels use this to size their delayed-reduction window; see
+    /// [`FirstDimKernel::multiply_query`].
+    element_max: u64,
     kernel: Box<dyn FirstDimKernel<T>>,
 }
 
@@ -104,16 +109,28 @@ where
         let cols = params.db_cols;
         let mut stored = vec![T::default(); padded_rows * cols];
 
+        // Kernels size their delayed-reduction window from a bound on the
+        // database values. Tracking the true maximum on the pass we are already
+        // making gives them a tight one for free: for SimplePIR plaintexts it
+        // is far below the storage type's maximum, which is what lets a whole
+        // column stay inside one reduction window.
+        let mut element_max = 0_u64;
+        let take = |db: &mut I, element_max: &mut u64| {
+            let value = db.next().expect("database is too short");
+            *element_max = (*element_max).max(value.to_u64());
+            value
+        };
+
         if input_is_transposed {
             for col in 0..cols {
                 for row in 0..rows {
-                    stored[col * padded_rows + row] = db.next().expect("database is too short");
+                    stored[col * padded_rows + row] = take(&mut db, &mut element_max);
                 }
             }
         } else {
             for row in 0..rows {
                 for col in 0..cols {
-                    stored[col * padded_rows + row] = db.next().expect("database is too short");
+                    stored[col * padded_rows + row] = take(&mut db, &mut element_max);
                 }
             }
         }
@@ -124,6 +141,7 @@ where
             params,
             db: stored,
             pad_rows,
+            element_max,
             kernel,
         }
     }
@@ -189,8 +207,15 @@ where
         assert_eq!(query.len(), rows, "query length must match padded rows");
 
         let mut out = vec![0u64; cols];
-        self.kernel
-            .multiply_query(rlwe, &self.db, rows, cols, query, &mut out);
+        self.kernel.multiply_query(
+            rlwe,
+            &self.db,
+            rows,
+            cols,
+            query,
+            self.element_max,
+            &mut out,
+        );
         out
     }
 
@@ -503,8 +528,11 @@ pub fn build_pack_preprocessed_blocks<'a>(
     params: &'a RlweParams,
     crs_blocks: &[CrsBlock],
 ) -> Result<Vec<QueryPackPreprocessed<'a>>, InspiringError> {
+    // Blocks are independent. Each one is internally parallel only in its
+    // aggregate step; its collapse cascade is serial, so building them one at a
+    // time left most cores idle for most of the offline phase.
     crs_blocks
-        .iter()
+        .par_iter()
         .map(|block| {
             let crs = block.to_ntt(params);
             QueryPackPreprocessed::build(params, &crs)

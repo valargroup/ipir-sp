@@ -85,8 +85,18 @@ where
     /// - `db.len() == rows_padded * cols`
     /// - `out.len() == cols`
     ///
+    /// `element_max` is an upper bound on every value in `db`, which kernels
+    /// use to size delayed-reduction windows. It must be a true bound: a value
+    /// larger than it silently overflows the accumulators. `ToU64::MAX_VALUE`
+    /// is always safe but is usually far too loose — SimplePIR plaintexts are
+    /// `log2(p)`-bit values, so the production database of 14-bit plaintexts in
+    /// `u16` storage gets a `2^18`-row window from the real bound against
+    /// `2^16` from the type, which decides whether a 112,640-row column is
+    /// swept in one pass or two.
+    ///
     /// Implementations should write every element of `out`. They may panic on
     /// shape mismatches, matching the existing `ipir-sp` server behavior.
+    #[allow(clippy::too_many_arguments)]
     fn multiply_query(
         &self,
         rlwe: &RlweParams,
@@ -94,6 +104,7 @@ where
         rows_padded: usize,
         cols: usize,
         query: &[u64],
+        element_max: u64,
         out: &mut [u64],
     );
 }

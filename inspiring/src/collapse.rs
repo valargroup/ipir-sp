@@ -53,7 +53,7 @@ pub fn collapse_one<'a>(state: &mut CollapseState<'a>, k_image: &KeySwitchingMat
     state.b = delta_b;
 }
 
-fn collapse_one_with_digits<'a>(
+pub(crate) fn collapse_one_with_digits<'a>(
     state: &mut CollapseState<'a>,
     k_image: &KeySwitchingMatrix<'a>,
     digits_ntt: &PolyMatrixNTT<'a>,

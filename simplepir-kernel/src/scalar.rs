@@ -21,6 +21,7 @@ where
         rows_padded: usize,
         cols: usize,
         query: &[u64],
+        _element_max: u64,
         out: &mut [u64],
     ) {
         assert_eq!(query.len(), rows_padded, "query length must match rows");

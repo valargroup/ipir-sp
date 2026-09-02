@@ -11,6 +11,11 @@ pub const MIN_BAND_BYTES: usize = 1 << 21;
 
 /// Default delayed-reduction window for the portable split kernel.
 ///
+/// This is a requested maximum; `multiply_query` clamps it to the number of
+/// rows and to what the database's element bound allows. At the deployed shape
+/// (28,672 rows of 14-bit plaintexts) both clamps land above the row count, so
+/// a column is swept in a single pass.
+///
 /// The value is chosen for the production IPIR-SP shape where query
 /// coefficients are below a 56-bit modulus and database elements are 14-bit
 /// plaintext values. For wider database scalar types, [`ChunkedSplitKernel`]
@@ -73,6 +78,7 @@ where
         rows_padded: usize,
         cols: usize,
         query: &[u64],
+        element_max: u64,
         out: &mut [u64],
     ) {
         assert_eq!(query.len(), rows_padded, "query length must match rows");
@@ -86,7 +92,7 @@ where
 
         let chunk_rows = self
             .chunk_rows
-            .min(max_safe_chunk_rows::<T>())
+            .min(max_safe_chunk_rows_for(element_max))
             .min(rows_padded)
             .max(1);
 
@@ -148,15 +154,18 @@ where
     u128::from(u32::MAX) * u128::from(T::MAX_VALUE) > u128::from(u64::MAX)
 }
 
-fn max_safe_chunk_rows<T>() -> usize
-where
-    T: ToU64,
-{
-    if T::MAX_VALUE == 0 {
+/// Rows that can share one delayed-reduction window for a given element bound.
+///
+/// The split accumulators are `u64` and each term is at most
+/// `u32::MAX * element_max`, so this is how many terms fit before a reduction
+/// is forced. The caller supplies the real bound rather than the storage
+/// type's maximum; see [`crate::FirstDimKernel::multiply_query`].
+pub(crate) fn max_safe_chunk_rows_for(element_max: u64) -> usize {
+    if element_max == 0 {
         return usize::MAX;
     }
 
-    let max_term = u128::from(u32::MAX) * u128::from(T::MAX_VALUE);
+    let max_term = u128::from(u32::MAX) * u128::from(element_max);
     if max_term > u128::from(u64::MAX) {
         1
     } else {
@@ -220,17 +229,19 @@ mod tests {
         let rlwe = production_like_rlwe();
         let mut rng = ChaCha20Rng::seed_from_u64(0x5950_4952_5350);
         let db: Vec<_> = (0..rows * cols).map(|_| sample_db(&mut rng)).collect();
+        let element_max = db.iter().map(|value| value.to_u64()).max().unwrap_or(0);
         let query: Vec<_> = (0..rows).map(|_| rng.gen_range(0..rlwe.q)).collect();
         let mut scalar = vec![0u64; cols];
         let mut chunked = vec![0u64; cols];
 
-        ScalarKernel.multiply_query(&rlwe, &db, rows, cols, &query, &mut scalar);
+        ScalarKernel.multiply_query(&rlwe, &db, rows, cols, &query, element_max, &mut scalar);
         ChunkedSplitKernel::new(chunk_rows).multiply_query(
             &rlwe,
             &db,
             rows,
             cols,
             &query,
+            element_max,
             &mut chunked,
         );
 
@@ -284,12 +295,21 @@ mod tests {
         let db: Vec<u16> = (0..rows * cols)
             .map(|_| rng.gen_range(0..(1 << 14)))
             .collect();
+        let element_max = db.iter().map(|value| u64::from(*value)).max().unwrap_or(0);
         let query: Vec<_> = (0..rows).map(|_| rng.gen_range(0..rlwe.q)).collect();
         let mut scalar = vec![0u64; cols];
         let mut chunked = vec![rlwe.q - 1; cols];
 
-        ScalarKernel.multiply_query(&rlwe, &db, rows, cols, &query, &mut scalar);
-        ChunkedSplitKernel::new(16).multiply_query(&rlwe, &db, rows, cols, &query, &mut chunked);
+        ScalarKernel.multiply_query(&rlwe, &db, rows, cols, &query, element_max, &mut scalar);
+        ChunkedSplitKernel::new(16).multiply_query(
+            &rlwe,
+            &db,
+            rows,
+            cols,
+            &query,
+            element_max,
+            &mut chunked,
+        );
 
         assert_eq!(chunked, scalar);
     }

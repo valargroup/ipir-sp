@@ -60,6 +60,7 @@ fn bench_first_dim(c: &mut Criterion) {
     let db: Vec<u16> = (0..rows * cols)
         .map(|_| rng.gen_range(0..(1 << 14)))
         .collect();
+    let element_max = db.iter().map(|value| u64::from(*value)).max().unwrap_or(0);
     let query: Vec<u64> = (0..rows).map(|_| rng.gen_range(0..rlwe.q)).collect();
     let mut out = vec![0u64; cols];
 
@@ -77,6 +78,7 @@ fn bench_first_dim(c: &mut Criterion) {
                     rows,
                     cols,
                     black_box(&query),
+                    element_max,
                     black_box(&mut out),
                 );
             });
@@ -96,6 +98,7 @@ fn bench_first_dim(c: &mut Criterion) {
                         rows,
                         cols,
                         black_box(&query),
+                        element_max,
                         black_box(&mut out),
                     );
                 });

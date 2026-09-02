@@ -18,7 +18,7 @@ use spiral_rs::poly::{
     PolyMatrixNTT, PolyMatrixRaw,
 };
 
-use crate::automorph::tau_ntt;
+use crate::automorph::{apply_tau_ntt_alloc, tau_ntt, NttAutomorphTable};
 use crate::params::RlweParams;
 
 /// A single key-switching matrix `K`. Internally a `[2, ℓ]` `PolyMatrixNTT`
@@ -218,16 +218,39 @@ fn signed_gadget_invert_alloc<'a>(
     let mut out = PolyMatrixRaw::zero(&params.spiral, params.gadget.ell, 1);
     let z = params.gadget.z();
     let half = z / 2;
+    // `z` is `2^bits_per` by construction (`RlweParams::new` validates it
+    // against spiral's gadget width), so the digit extraction is a mask and a
+    // shift. The compiler cannot prove that on its own because `z` is a runtime
+    // value, and this loop runs `d * ell` times per key switch and `d - 1` key
+    // switches per CRS block — 12.6 M iterations at the production set, each of
+    // which was paying three hardware divisions plus an `i128` `rem_euclid`.
+    let shift = params.gadget.bits_per;
+    let mask = z - 1;
+    assert!(
+        half <= params.q,
+        "signed digits must be representable modulo q"
+    );
+
     for coeff_idx in 0..params.d {
-        let mut x = input.get_poly(0, 0)[coeff_idx] % params.q;
+        let mut x = input.get_poly(0, 0)[coeff_idx];
+        // Coefficients arrive from `from_ntt_alloc`, which reduces; the branch
+        // is for callers that have not.
+        if x >= params.q {
+            x %= params.q;
+        }
         for digit_idx in 0..params.gadget.ell {
-            let mut digit = (x % z) as i128;
-            if x % z >= half {
-                digit -= z as i128;
-                x += z;
-            }
-            out.get_poly_mut(digit_idx, 0)[coeff_idx] = digit.rem_euclid(params.q as i128) as u64;
-            x /= z;
+            let low = x & mask;
+            x >>= shift;
+            // Balanced digits: anything at or above z/2 becomes `low - z` and
+            // carries one into the next digit. `+z` before the shift is exactly
+            // `+1` after it.
+            let digit = if low >= half {
+                x += 1;
+                params.q - (z - low)
+            } else {
+                low
+            };
+            out.get_poly_mut(digit_idx, 0)[coeff_idx] = digit;
         }
     }
     out
@@ -243,6 +266,24 @@ fn signed_gadget_invert_alloc<'a>(
 pub fn automorphic_image<'a>(k: &KeySwitchingMatrix<'a>, t: u64) -> KeySwitchingMatrix<'a> {
     KeySwitchingMatrix {
         mat: tau_ntt(&k.mat, t),
+        params: k.params,
+    }
+}
+
+/// `τ_t(K)` using a precomputed NTT slot permutation.
+///
+/// Identical result to [`automorphic_image`], but an automorphism in the NTT
+/// domain is only a slot permutation, so this avoids the inverse/forward NTT
+/// pair per polynomial that [`crate::automorph::tau_ntt`] pays — `6 + 6` of
+/// them per image, `d - 2` images per collapse. `tau_ntt` stays as the
+/// coefficient-domain oracle the tests check this against.
+#[must_use]
+pub fn automorphic_image_with_table<'a>(
+    k: &KeySwitchingMatrix<'a>,
+    table: &NttAutomorphTable,
+) -> KeySwitchingMatrix<'a> {
+    KeySwitchingMatrix {
+        mat: apply_tau_ntt_alloc(&k.mat, table),
         params: k.params,
     }
 }
