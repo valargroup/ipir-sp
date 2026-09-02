@@ -37,96 +37,87 @@ So we kept what works in each system:
 
 The result is **IPIR+SP**.
 
-## Headline impact
+## Where it stands
 
-Numbers below are from the latest local run on the production
-nullifier dataset (49,925,853 records, 32-byte items), measured against the
-upstream YPIR+SP baseline. Full report and raw logs:
-[`bench-results/2026-05-10-ipir-ypir/REPORT.md`](bench-results/2026-05-10-ipir-ypir/REPORT.md).
-
-| Metric | YPIR+SP | IPIR+SP | Delta |
-|---|---:|---:|---:|
-| End-to-end query | 447 ms | 440 ms | **−2%** |
-| Server time | 278 ms | 364 ms | +31% |
-| Matrix-vector | 240 ms | 308 ms | +28% |
-| Packing | 35 ms | 42 ms | +21% |
-| Upload | 4.73 MB | 3.77 MB | **−20%** |
-| Packing public params (per setup) | 540,672 B | 98,304 B | **−5.5×** |
-| Online query bytes | 4.19 MB | 3.67 MB | **−12%** |
-| Download | 12.3 KB | 12.3 KB | same |
-
-Two things are worth highlighting:
-
-- **Cryptographic key material is ~5.5× smaller.** InsPIRe's two-matrix
-  `(K_g, K_h)` upload replaces CDKS's `log d` expansion matrices, which is the
-  single largest contributor to the upload reduction.
-- **End-to-end latency is still slightly lower in the latest AVX-512 run.**
-  YPIR+SP now has the faster server path after enabling its explicit AVX-512
-  first-pass kernel, but IPIR+SP's smaller upload and faster client query path
-  offset that in the measured HTTP flow. On the Criterion bench
-  (`IPIR_SP_BENCH_FULL=1`, `d=2048`, 5 outputs) the *pack-only* online phase is
-  **17 ms** after the affine collapse cache, well below YPIR's 199 ms
-  ring-packing timer.
-
-The trade-off — and it is a real one — is offline preprocessing. The full
-fixture's CRS extraction and `PackPreprocessed` build takes ~100 s today,
-versus YPIR+SP's ~9 s offline phase. This is the cost InsPIRe explicitly opts
-into: heavier offline work in exchange for cheaper, smaller online queries.
-
-### Superseded by the 2026-09-02 optimization pass
-
-The table above predates
-[`bench-results/2026-09-02-optimization-pass/REPORT.md`](bench-results/2026-09-02-optimization-pass/REPORT.md),
-which changed the production shape and has not yet been re-baselined against
-YPIR+SP on the Xeon host. Measured deltas from that pass:
-
-| Metric | before | after |
-|---|---:|---:|
-| Upload | 3,768,320 B | 886,784 B (**4.25×**) |
-| Download | 12,288 B | 49,152 B |
-| Total wire | 3,780,608 B | 935,936 B (**4.04×**) |
-| First-dimension matvec | single-threaded | **3.6× on 8 threads** |
-| Offline per CRS block | 12.11 s | 6.41 s (**1.89×**) |
-
-Most of the upload win was not cryptographic. The database was arranged
-`524,288 × 2,048` — a 256:1 skew between a 3.5 MB query and a 12 KB response —
-so rebalancing it to `112,640 × 8,192` (four instances, 448 nullifiers per row)
-cut total wire traffic 4× without touching the packing protocol.
-
-That pass also fixed a query-privacy break: the first-dimension query carried no
-error term, and since the mask `a` is public, the server could solve for the
-client secret by linear algebra and read the target row off directly.
-
-### Superseded again by the second optimization pass
-
-Both tables above are now stale. The current numbers are in
+All current numbers are from
 [`bench-results/2026-09-02-second-optimization-pass/REPORT.md`](bench-results/2026-09-02-second-optimization-pass/REPORT.md),
-measured on a Xeon Platinum 8358 — the same CPU model as the 2026-05-10 host, so
-directly comparable to it — against baseline `0e16fc1`:
+measured on a Xeon Platinum 8358 (8 cores, AVX-512, the same CPU model as the
+production PIR host) at the deployed shape: `28,672 × 32,768`, sixteen RLWE
+output blocks, 1,792 nullifiers per row.
 
-| Metric | before | after |
-|---|---:|---:|
-| Total wire per query | 935,936 B | **318,464 B** (**2.94×**) |
-| Offline preprocessing (deployed shape) | 37.57 s | **6.65 s** (**5.65×**) |
-| Offline per CRS block | 9.394 s | **0.416 s** (**22.6×**) |
-| Online server total | 138.93 ms | **122.39 ms** (1.14×) |
-| Packing per output block | 20.55 ms | **4.18 ms** (**4.92×**) |
+| Metric | current | note |
+|---|---:|---|
+| Total wire per query | **318,464 B** | 86,016 B packing keys + 150,528 B query up, 81,920 B down |
+| Online server time | **122 ms** | 52 ms matrix-vector, 67 ms packing, 4 ms (de)serialization |
+| Packing per output block | **4.2 ms** | |
+| Offline preprocessing, full snapshot | **6.6 s** | `build_pack_preprocessed_blocks` over all sixteen CRS blocks |
+| Offline per CRS block | **0.42 s** | |
+| Decryption margin | 2^36 vs Δ/2 = 2^41 | real pipeline, production RLWE parameters, worst of 8 queries |
 
-Three changes, one per dimension, and they are coupled. `InspiRING.Pack`'s
-`Θ(d³)` CRS aggregate was reformulated in the NTT domain as `Θ(d² log d)`, and
-the online collapse was fused into a single pass with one Barrett reduction per
-block instead of one per `(step, slot)`. Those cut the per-output-block costs
-enough to afford a much wider database — sixteen instances instead of four,
-`28,672 × 32,768` — which, together with dropping the snapshot-constant `c1` row
-from every response and modulus-switching the query from 56 bits to 42, is where
-the bandwidth comes from.
+### How it got here
 
-Online server time improved only slightly because most of the packing win was
-spent on the four-fold increase in output blocks that bought the bandwidth.
-Every per-block figure improved; the absolute ones carry four times the blocks.
+Three passes since the initial port, each with its own report and raw logs.
+The wire numbers are the cleanest thread to follow:
 
-That pass also confirmed `U16Avx512Kernel` on real AVX-512 hardware for the
-first time, and ran the first live end-to-end HTTP flow in this workspace.
+| | shape | total wire | offline / block | report |
+|---|---|---:|---:|---|
+| Initial port, vs YPIR+SP | `524,288 × 2,048` | 3,780,608 B | — | [2026-05-10](bench-results/2026-05-10-ipir-ypir/REPORT.md) |
+| First pass | `112,640 × 8,192` | 935,936 B (**4.04×**) | 9.39 s | [2026-09-02](bench-results/2026-09-02-optimization-pass/REPORT.md) |
+| Second pass | `28,672 × 32,768` | 318,464 B (**2.94×**) | 0.42 s | [2026-09-02, second](bench-results/2026-09-02-second-optimization-pass/REPORT.md) |
+
+Cumulatively that is **11.9× less wire** than the initial port. The offline
+column is per CRS block on the Xeon; the first pass measured its own
+preprocessing win on an arm64 laptop, so its Xeon figure is the second pass's
+baseline measurement of that tree, and the initial port has no comparable
+per-block number.
+
+**Initial port (2026-05-10).** Against upstream YPIR+SP on the same Xeon:
+end-to-end query 440 ms vs 447 ms, upload 3.77 MB vs 4.73 MB, packing public
+parameters 98 KB vs 541 KB (**5.5×** — InsPIRe's two-matrix `(K_g, K_h)`
+replacing CDKS's `log d` expansion matrices). Server time was 31% worse and
+offline preprocessing ~10× worse; that was the trade InsPIRe opts into.
+
+**First pass.** Mostly not cryptographic. The database was a 256:1 skew between
+a 3.5 MB query and a 12 KB response; rebalancing it to four instances per row
+cut wire 4× without touching the packing protocol. The first-dimension kernel
+went parallel (3.6× on 8 threads), and three redundant divisions came out of
+the `Θ(d³)` preprocessing loop. It also fixed a query-privacy break: the
+first-dimension query carried no error term, and since the mask `a` is public,
+the server could solve for the client secret by linear algebra.
+
+**Second pass.** Three coupled changes. `InspiRING.Pack`'s `Θ(d³)` CRS
+aggregate was reformulated in the NTT domain as `Θ(d² log d)`, and the online
+collapse was fused into a single pass with one Barrett reduction per block
+instead of one per `(step, slot)` — 4.9× per block. Those made output blocks
+cheap enough to afford sixteen of them, and the wider shape, together with
+serving the snapshot-constant `c1` row once from `GET /public-params` and
+modulus-switching the query from 56 bits to 42, is where the 2.94× comes
+from. Online server time moved only 1.14× because most of the packing win was
+spent on the four-fold increase in blocks that bought the bandwidth.
+
+**Hardening (2026-09-02, #10).** A review of the client encryption path found
+the construction sound and landed the low-risk fixes: `target_row` is
+bounds-checked (an out-of-range row used to encrypt the all-zero selector,
+which decodes as "absent"), the selector and modular helpers are branch-free,
+and the gadget carry-out term is pinned under budget by a test.
+
+### Not yet re-baselined
+
+The YPIR+SP comparison is still the 2026-05-10 numbers. YPIR+SP has not been
+re-run at the new shape, so no current claim is made about relative server
+time or end-to-end latency against it — only against this workspace's own
+earlier commits.
+
+### What the parameters assume
+
+`d = 2048`, `q ≈ 2^56`, `σ = 6.4`, uniform ternary secret — Table 5 row 2 of
+ePrint 2024/270. That sits on the HE-standard 128-bit line for `n = 2048`
+rather than above it; a lattice-estimator run has not been recorded in this
+repository. Every query samples a fresh secret and fresh `(K_g, K_h)`, which
+is load-bearing: the server controls every byte the client decrypts, and a
+reused secret would turn the client's observable behaviour into a decryption
+oracle. PIR gives privacy, not integrity — the snapshot's SHA-256 is recorded
+but not verified against anything, and a server can lie about content.
 
 ## Workspace layout
 
@@ -190,8 +181,8 @@ See [`nullifier-pir/README.md`](nullifier-pir/README.md).
 Each dated subdirectory contains a `REPORT.md` plus `raw/` logs reproducible
 from the commands documented in the report. The YPIR+SP comparison lives in
 [`bench-results/2026-05-10-ipir-ypir/REPORT.md`](bench-results/2026-05-10-ipir-ypir/REPORT.md);
-the most recent work is
-[`bench-results/2026-09-02-optimization-pass/REPORT.md`](bench-results/2026-09-02-optimization-pass/REPORT.md).
+the current numbers are in
+[`bench-results/2026-09-02-second-optimization-pass/REPORT.md`](bench-results/2026-09-02-second-optimization-pass/REPORT.md).
 
 ## Backend
 
@@ -250,21 +241,25 @@ For a single SimplePIR query:
 
 1. **Params.** `ipir_sp::params_for_simplepir(num_items, item_size_bits)`
    returns an `inspiring::RlweParams` plus YPIR transport and database
-   dimensions.
-2. **Client setup.** Sample a ternary RLWE secret and generate one per-query
-   `(K_g, K_h)` pair via `client::generate_ks_pair`.
-3. **Server offline.** `YServer::perform_offline_precomputation_simplepir`
-   computes `hint_0`, splits it into CRS blocks, and builds an
-   `inspiring::PackPreprocessed` cache for each block (with the affine
-   collapse output cached so the online path performs zero key-switch
-   matrix products).
-4. **Server online.** `YServer::perform_online_computation_simplepir` runs the
-   SimplePIR matrix product through `simplepir-kernel`, packs each
-   intermediate `b` block with `inspiring::pack`, and serializes the response
-   with single-CRT row-wise modulus switching.
-5. **Client decode.** Standard RLWE decryption on the recovered rows; do
-   **not** apply YPIR's extra `poly_len` multiplier (InspiRING absorbs the
-   `d^-1` scaling internally).
+   dimensions, including the derived first-dimension query width.
+2. **Server offline.** `YServer::perform_offline_precomputation_simplepir`
+   computes `hint_0` from the public setup polynomials and splits it into CRS
+   blocks; `build_pack_preprocessed_blocks` turns each into an
+   `inspiring::QueryPackPreprocessed` (the fixed `c1` trace plus the gadget
+   digit schedule), and `published_c1_rows` serializes the snapshot-constant
+   `c1` rows once for `GET /public-params`.
+3. **Client query.** `IPIRClient::generate_fresh_query_simplepir` samples a
+   fresh ternary secret, the `(K_g, K_h)` packing-key bodies under it, and the
+   encrypted one-hot selector; the selector goes on the wire via
+   `to_switched_bytes` at the derived width.
+4. **Server online.** `YServer::perform_full_online_computation_simplepir_measured`
+   lifts the query back to `q`, runs the matrix product through
+   `simplepir-kernel`, packs each intermediate `b` block against the uploaded
+   key bodies, and returns only the `c2` rows, modulus-switched.
+5. **Client decode.** `IPIRClient::decode_response_simplepir` pairs each `c2`
+   with its published `c1` and runs standard RLWE decryption; do **not** apply
+   YPIR's extra `poly_len` multiplier (InspiRING absorbs the `d^-1` scaling
+   internally).
 
 A worked example lives in
 [`ipir-sp/README.md`](ipir-sp/README.md#basic-flow).
@@ -285,7 +280,8 @@ cargo run --release -p nullifier-pir -- serve \
   --port 8080
 ```
 
-The server exposes `GET /health`, `GET /meta`, and `POST /query` with
+The server exposes `GET /health`, `GET /meta`, `GET /public-params` (the
+snapshot-constant `c1` rows, fetched once per snapshot), and `POST /query` with
 backend-native query bytes.
 
 ## References
