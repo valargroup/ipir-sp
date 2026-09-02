@@ -2,7 +2,6 @@
 
 use anyhow::{Context, Result};
 use ipir_sp::client::IPIRClient;
-use ipir_sp::modulus_switch::modulus_bits;
 use ipir_sp::params_for_simplepir;
 use ipir_sp::serialize::deserialize_packing_keys;
 use ipir_sp::server::{build_pack_preprocessed_blocks, IPIRServer};
@@ -43,11 +42,23 @@ pub struct BackendMetadata {
     pub db_cols: usize,
     pub item_size_bits: u64,
     pub setup_seed: u64,
+    /// Byte length of the snapshot-constant `c1` rows served by
+    /// `GET /public-params`. Zero for backends that inline `c1` in responses.
+    #[serde(default)]
+    pub published_c1_len: usize,
 }
 
 pub trait PirBackend: Send + Sync {
     fn meta(&self) -> BackendMetadata;
     fn answer_query(&self, query: &[u8]) -> Result<QueryAnswer>;
+
+    /// Snapshot-constant public parameters a client needs before it can decode
+    /// a response. For `local-ipir` this is the `c1` row of every output block;
+    /// it is fixed for the life of the snapshot, so it is fetched once rather
+    /// than repeated in every response.
+    fn public_params(&self) -> Vec<u8> {
+        Vec::new()
+    }
 }
 
 pub fn seed_from_u64(value: u64) -> [u8; 32] {
@@ -69,6 +80,8 @@ pub struct LocalIpirBackend {
     setup_seed: u64,
     /// In-memory IPIR server containing the encoded database matrix.
     server: IPIRServer<u16>,
+    /// Serialized snapshot-constant `c1` rows, one per output block.
+    published_c1: Vec<u8>,
     /// Per-block preprocessing used to pack SimplePIR responses efficiently.
     pack_preprocessed: Vec<inspiring::QueryPackPreprocessed<'static>>,
     /// Cached top-level key images used during query response packing.
@@ -108,6 +121,7 @@ impl LocalIpirBackend {
             pir_item_count: snapshot.pir_row_count(),
             setup_seed,
             server,
+            published_c1: ipir_sp::server::published_c1_rows(&pack_preprocessed, rlwe.q),
             pack_preprocessed,
             top_key_images,
         })
@@ -118,7 +132,7 @@ impl LocalIpirBackend {
         query: &[u8],
     ) -> Result<(inspiring::PackingKeys<'static>, Vec<u8>)> {
         let packing_keys_len = ipir_sp::serialize::serialized_packing_keys_len(self.rlwe);
-        let online_query_bytes_len = (self.ypir.db_rows * modulus_bits(self.rlwe.q)).div_ceil(8);
+        let online_query_bytes_len = (self.ypir.db_rows * self.ypir.query_bits).div_ceil(8);
         let expected_len = packing_keys_len + online_query_bytes_len;
         if query.len() != expected_len {
             anyhow::bail!(
@@ -145,7 +159,12 @@ impl PirBackend for LocalIpirBackend {
             db_cols: self.ypir.db_cols,
             item_size_bits: self.ypir.item_size_bits,
             setup_seed: self.setup_seed,
+            published_c1_len: self.published_c1.len(),
         }
+    }
+
+    fn public_params(&self) -> Vec<u8> {
+        self.published_c1.clone()
     }
 
     fn answer_query(&self, query: &[u8]) -> Result<QueryAnswer> {
@@ -228,6 +247,14 @@ impl PirBackend for Backend {
             Self::Local(backend) => backend.answer_query(query),
             #[cfg(feature = "ypir-artifact")]
             Self::YpirArtifact(backend) => backend.answer_query(query),
+        }
+    }
+
+    fn public_params(&self) -> Vec<u8> {
+        match self {
+            Self::Local(backend) => backend.public_params(),
+            #[cfg(feature = "ypir-artifact")]
+            Self::YpirArtifact(backend) => backend.public_params(),
         }
     }
 }
@@ -367,6 +394,9 @@ mod tests {
             q2_bits: 8,
             t_exp_left: 3,
             t_exp_right: 2,
+            // Tiny fixtures exercise exact arithmetic, so they transmit the
+            // query at full precision.
+            query_bits: 14,
         }
     }
 
@@ -418,7 +448,7 @@ mod tests {
         let backend = LocalIpirBackend::prepare_with_params(&snapshot, 7, rlwe, tiny_ypir(8, 8))
             .expect("prepare backend");
         let old_key_pair_len = 4 * backend.rlwe.gadget.ell * backend.rlwe.d * 8;
-        let online_query_len = (backend.ypir.db_rows * modulus_bits(backend.rlwe.q)).div_ceil(8);
+        let online_query_len = (backend.ypir.db_rows * backend.ypir.query_bits).div_ceil(8);
         let old_body = vec![0u8; old_key_pair_len + online_query_len];
 
         let err = match backend.parse_fresh_query(&old_body) {

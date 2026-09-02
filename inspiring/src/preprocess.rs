@@ -12,19 +12,22 @@
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
+use spiral_rs::arith::barrett_reduction_u128;
 use spiral_rs::discrete_gaussian::DiscreteGaussian;
 use spiral_rs::gadget::build_gadget;
+use spiral_rs::ntt::ntt_forward;
+use spiral_rs::params::Params as SpiralParams;
 use spiral_rs::poly::{
     add_into, from_ntt_alloc, multiply, stack_ntt, to_ntt_alloc, PolyMatrix, PolyMatrixNTT,
     PolyMatrixRaw,
 };
 
 use crate::automorph::{apply_tau_ntt_alloc, h, tau_g_pow, tau_g_power_tables, NttAutomorphTable};
-use crate::collapse::{
-    collapse_one as collapse_one_materialized, precompute_collapse_affine, CollapseState,
-};
+use crate::collapse::{collapse_one_with_digits, precompute_collapse_affine, CollapseState};
 use crate::error::InspiringError;
-use crate::key_switching::{automorphic_image, ks_digits_ntt_from_c1, KeySwitchingMatrix};
+use crate::key_switching::{
+    automorphic_image_with_table, ks_digits_ntt_from_c1, KeySwitchingMatrix,
+};
 use crate::pack::RlweCiphertext;
 use crate::params::RlweParams;
 
@@ -180,13 +183,17 @@ impl<'a> PackPublicPreprocessed<'a> {
             )));
         }
 
-        let two_d = 2 * params.d as u64;
-        let h_d = h(params.d);
-        let kg_images_left: Vec<_> = (0..(params.d / 2 - 1))
-            .map(|i| automorphic_image(kg, tau_g_pow(i, params.d)))
+        // `τ_g^i(K_g)` and `τ_g^i ∘ τ_h(K_g)` for every collapse step. Both
+        // families are slot permutations of the same matrix, so they are built
+        // from composed tables rather than `d - 2` NTT round trips.
+        let (left_tables, right_tables) = tau_g_power_tables(params, params.d / 2 - 1);
+        let kg_images_left: Vec<_> = left_tables
+            .iter()
+            .map(|table| automorphic_image_with_table(kg, table))
             .collect();
-        let kg_images_right: Vec<_> = (0..(params.d / 2 - 1))
-            .map(|i| automorphic_image(kg, (tau_g_pow(i, params.d) * h_d) % two_d))
+        let kg_images_right: Vec<_> = right_tables
+            .iter()
+            .map(|table| automorphic_image_with_table(kg, table))
             .collect();
         let collapse_affine = precompute_collapse_affine(
             params,
@@ -414,13 +421,14 @@ fn precompute_reference_trace<'a>(
 ) -> QueryReferencePrecomputed<'a> {
     let kg = fixed_reference_key(params, REFERENCE_W_SEED);
     let kh = fixed_reference_key(params, REFERENCE_V_SEED);
-    let two_d = 2 * params.d as u64;
-    let h_d = h(params.d);
-    let kg_images_left: Vec<_> = (0..(params.d / 2 - 1))
-        .map(|i| automorphic_image(&kg, tau_g_pow(i, params.d)))
+    let (left_tables, right_tables) = tau_g_power_tables(params, params.d / 2 - 1);
+    let kg_images_left: Vec<_> = left_tables
+        .iter()
+        .map(|table| automorphic_image_with_table(&kg, table))
         .collect();
-    let kg_images_right: Vec<_> = (0..(params.d / 2 - 1))
-        .map(|i| automorphic_image(&kg, (tau_g_pow(i, params.d) * h_d) % two_d))
+    let kg_images_right: Vec<_> = right_tables
+        .iter()
+        .map(|table| automorphic_image_with_table(&kg, table))
         .collect();
 
     let mut digits_ntt = Vec::with_capacity(params.d - 1);
@@ -450,8 +458,9 @@ fn precompute_reference_trace<'a>(
         a: vec![left_a, right_a],
         b: right_state.b,
     };
-    digits_ntt.push(ks_digits_ntt_from_c1(params, &final_state.a[1]));
-    collapse_one_materialized(&mut final_state, &kh);
+    let final_digits = ks_digits_ntt_from_c1(params, &final_state.a[1]);
+    collapse_one_with_digits(&mut final_state, &kh, &final_digits);
+    digits_ntt.push(final_digits);
     debug_assert_eq!(digits_ntt.len(), params.d - 1);
     let collapse_a_final_ntt = final_state
         .a
@@ -470,11 +479,12 @@ fn collect_half_digits<'a>(
 ) {
     while state.a.len() > 1 {
         let image_idx = state.a.len() - 2;
-        digits_ntt.push(ks_digits_ntt_from_c1(
-            kg_images[image_idx].params,
-            &state.a[image_idx + 1],
-        ));
-        collapse_one_materialized(state, &kg_images[image_idx]);
+        // `collapse_one` switches on `state.a[len - 1]`, which is the same `c1`
+        // the digits were just taken from, so it must be handed the digits
+        // rather than decomposing and re-transforming them a second time.
+        let digits = ks_digits_ntt_from_c1(kg_images[image_idx].params, &state.a[image_idx + 1]);
+        collapse_one_with_digits(state, &kg_images[image_idx], &digits);
+        digits_ntt.push(digits);
     }
 }
 
@@ -516,9 +526,24 @@ fn fixed_reference_key<'a>(params: &'a RlweParams, mask_seed: [u8; 32]) -> KeySw
 /// `QueryPackPreprocessed` already stores the matching fixed public `c1` trace,
 /// so online packing only needs to add the body-row products to the initial
 /// `NTT(b̃)` value.
+///
+/// The running `c2` enters every collapse step purely additively — it is never
+/// permuted or multiplied — so the whole cascade is a *sum*, not a dependency
+/// chain:
+///
+/// ```text
+/// b_final = NTT(b̃) + Σ_i τ_i(kg_body) · digits_i + kh_body · digits_last
+/// ```
+///
+/// That has two consequences this implementation exploits. The `d - 1` terms
+/// are independent, so they are accumulated by a parallel reduction instead of
+/// a serial loop; and every product is bounded by `(q-1)²`, so a single `u128`
+/// accumulator per NTT slot absorbs all `(d-1)·ell` of them and needs exactly
+/// one Barrett reduction at the end. The previous formulation reduced once per
+/// (step, slot), i.e. `(d-1)·d` times per block.
 fn collapse_uploaded_body_b<'a>(
     params: &'a RlweParams,
-    mut b: PolyMatrixNTT<'a>,
+    b: PolyMatrixNTT<'a>,
     kg_body: &PolyMatrixNTT<'a>,
     kh_body: &PolyMatrixNTT<'a>,
     top_images: &TopKeyImages<'a>,
@@ -530,6 +555,172 @@ fn collapse_uploaded_body_b<'a>(
         "preprocess::collapse_uploaded_body_b expects d - 1 digit blocks"
     );
 
+    if !fused_accumulator_fits(params, kg_body.cols) {
+        return collapse_uploaded_body_b_stepwise(
+            params, b, kg_body, kh_body, top_images, digits_ntt,
+        );
+    }
+
+    // Collapse execution order: the left half runs its tables from the last
+    // image down to the first, then the right half does the same, then the
+    // single `K_h` step. `digits_ntt` was recorded in exactly this order.
+    let left = &top_images.kg_body_left_tables;
+    let right = &top_images.kg_body_right_tables;
+    assert_eq!(left.len(), params.d / 2 - 1);
+    assert_eq!(right.len(), params.d / 2 - 1);
+
+    let mut schedule: Vec<CollapseTerm<'_, 'a>> = Vec::with_capacity(params.d - 1);
+    for (digit_idx, image_idx) in (0..left.len()).rev().enumerate() {
+        schedule.push(CollapseTerm {
+            body: kg_body,
+            table: Some(&left[image_idx]),
+            digits: &digits_ntt[digit_idx],
+        });
+    }
+    let right_base = left.len();
+    for (digit_idx, image_idx) in (0..right.len()).rev().enumerate() {
+        schedule.push(CollapseTerm {
+            body: kg_body,
+            table: Some(&right[image_idx]),
+            digits: &digits_ntt[right_base + digit_idx],
+        });
+    }
+    schedule.push(CollapseTerm {
+        body: kh_body,
+        table: None,
+        digits: &digits_ntt[params.d - 2],
+    });
+    debug_assert_eq!(schedule.len(), params.d - 1);
+
+    let spiral = &params.spiral;
+    let d = spiral.poly_len;
+    let lanes = d * spiral.crt_count;
+
+    // Steps are split across threads, each with a private `u128` accumulator
+    // over all slots. Splitting by step rather than by slot keeps every thread
+    // streaming the digit blocks and permutation tables contiguously, and the
+    // per-thread accumulator is only `lanes * 16` bytes.
+    let partials = schedule
+        .par_chunks(collapse_steps_per_task(schedule.len()))
+        .map(|chunk| {
+            let mut acc = vec![0_u128; lanes];
+            for term in chunk {
+                accumulate_collapse_term(spiral, term, &mut acc);
+            }
+            acc
+        })
+        .reduce(
+            || vec![0_u128; lanes],
+            |mut lhs, rhs| {
+                for (slot, add) in lhs.iter_mut().zip(rhs.iter()) {
+                    *slot += *add;
+                }
+                lhs
+            },
+        );
+
+    let mut out = b;
+    let out_poly = out.get_poly_mut(0, 0);
+    for crt_idx in 0..spiral.crt_count {
+        let modulus = spiral.moduli[crt_idx];
+        let offset = crt_idx * d;
+        for lane in 0..d {
+            let acc = partials[offset + lane];
+            debug_assert!(
+                acc <= u128::MAX - u128::from(modulus),
+                "fused collapse accumulator overflowed its proven bound"
+            );
+            let reduced = barrett_reduction_u128(spiral, acc);
+            let sum = out_poly[offset + lane] + reduced;
+            out_poly[offset + lane] = if sum >= modulus { sum - modulus } else { sum };
+        }
+    }
+    out
+}
+
+/// One term of the fused collapse sum.
+///
+/// `table` is `None` for the final `K_h` step, which uses the body row directly
+/// rather than an automorphic image of it.
+struct CollapseTerm<'t, 'a> {
+    body: &'t PolyMatrixNTT<'a>,
+    table: Option<&'t NttAutomorphTable>,
+    digits: &'t PolyMatrixNTT<'a>,
+}
+
+/// Whether one `u128` accumulator can hold every product of a whole block.
+///
+/// Each product is at most `(q-1)²` and there are `(d-1) · ell` of them. The
+/// production set leaves ample room — `2047 · 3 · (2^56)² ≈ 2^124.6` — but a
+/// future parameter set with a larger `q` or `ell` would not, so the stepwise
+/// path is retained as a fallback rather than assumed away.
+fn fused_accumulator_fits(params: &RlweParams, ell: usize) -> bool {
+    let terms = ((params.d - 1) * ell) as u128;
+    let max_product = u128::from(params.q - 1).saturating_mul(u128::from(params.q - 1));
+    max_product.checked_mul(terms).is_some()
+}
+
+/// Steps handed to one rayon task.
+///
+/// Each task streams `steps * ell` digit polynomials, so the chunk is sized to
+/// give every worker a few tasks without making the per-task accumulator setup
+/// and the final reduction dominate.
+fn collapse_steps_per_task(steps: usize) -> usize {
+    let tasks = rayon::current_num_threads().max(1) * 4;
+    steps.div_ceil(tasks).max(1)
+}
+
+/// Accumulate `τ_table(body) · digits` into `acc` without reducing.
+///
+/// Slot `dst` of the automorphic image is slot `table[dst]` of `body`, so the
+/// image is read through the permutation instead of being materialized.
+fn accumulate_collapse_term(spiral: &SpiralParams, term: &CollapseTerm<'_, '_>, acc: &mut [u128]) {
+    let d = spiral.poly_len;
+    let ell = term.body.cols;
+    debug_assert_eq!(term.digits.rows, ell);
+    debug_assert_eq!(term.digits.cols, 1);
+
+    for crt_idx in 0..spiral.crt_count {
+        let offset = crt_idx * d;
+        let acc_chunk = &mut acc[offset..offset + d];
+        for digit_idx in 0..ell {
+            let body_chunk = &term.body.get_poly(0, digit_idx)[offset..offset + d];
+            let digit_chunk = &term.digits.get_poly(digit_idx, 0)[offset..offset + d];
+            match term.table {
+                Some(table) => {
+                    let indices = table.indices();
+                    debug_assert_eq!(indices.len(), d);
+                    for (dst, (slot, digit)) in
+                        acc_chunk.iter_mut().zip(digit_chunk.iter()).enumerate()
+                    {
+                        let src = indices[dst] as usize;
+                        *slot += u128::from(body_chunk[src]) * u128::from(*digit);
+                    }
+                }
+                None => {
+                    for ((slot, body), digit) in acc_chunk
+                        .iter_mut()
+                        .zip(body_chunk.iter())
+                        .zip(digit_chunk.iter())
+                    {
+                        *slot += u128::from(*body) * u128::from(*digit);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Original per-step collapse, retained for parameter sets whose products do
+/// not fit a single `u128` accumulator across a whole block.
+fn collapse_uploaded_body_b_stepwise<'a>(
+    params: &'a RlweParams,
+    mut b: PolyMatrixNTT<'a>,
+    kg_body: &PolyMatrixNTT<'a>,
+    kh_body: &PolyMatrixNTT<'a>,
+    top_images: &TopKeyImages<'a>,
+    digits_ntt: &[PolyMatrixNTT<'a>],
+) -> PolyMatrixNTT<'a> {
     let mut digit_idx = 0;
     b = collapse_uploaded_body_half(
         b,
@@ -554,6 +745,7 @@ fn collapse_uploaded_body_b<'a>(
     final_b
 }
 
+/// One half of the stepwise fallback cascade.
 fn collapse_uploaded_body_half<'a>(
     mut b: PolyMatrixNTT<'a>,
     kg_body: &PolyMatrixNTT<'a>,
@@ -716,7 +908,138 @@ fn validate_reference_body(
     Ok(())
 }
 
+/// Build the `d` aggregated CRS slots of `PackPublicPreprocessed`.
+///
+/// Slot `e` is `Σ_j X^j · τ_e(ã_j)` scaled by `d^{-1}`, where `e` runs over the
+/// `d/2` powers of `τ_g` and then those same powers composed with `τ_h`.
+///
+/// Evaluated literally that is `Θ(d³)` — `d` slots × `d` rows × `d` coefficients
+/// — which at `d = 2048` is 8.6e9 scatter-adds and was essentially all of the
+/// offline cost. The NTT domain collapses it to `Θ(d² log d)`:
+///
+/// - an automorphism is a slot permutation there, so `τ_e(ã_j)` at slot `s` is
+///   just `Â_j` read at slot `π_e(s)` (this is what [`NttAutomorphTable`]
+///   already encodes for the online path);
+/// - multiplying by `X^j` is pointwise multiplication by `ω_s^j`.
+///
+/// So `out_e[s] = Σ_j ω_s^j · Â_j[π_e(s)] = Q_{π_e(s)}(ω_s)`, where
+/// `Q_v(Y) = Σ_j Â_j[v] · Y^j` is the polynomial whose coefficients are slot `v`
+/// taken across all `d` rows. Evaluating `Q_v` at every `ω_s` *is* one forward
+/// NTT, and with `s` fixed `π_e(s)` runs over every slot as `e` varies — so the
+/// whole family needs the single table `E[v][s] = Q_v(ω_s)`, which is `d` NTTs.
+///
+/// Total: `2d` length-`d` NTTs plus `O(d²)` data movement, against `d³`.
+/// The result is exact — the NTT is a ring isomorphism, so this agrees with the
+/// direct computation coefficient for coefficient, which
+/// `build_a_agg_matches_direct_transform` pins.
 fn build_a_agg<'a>(params: &'a RlweParams, a_tildes: &[Vec<u64>]) -> Vec<PolyMatrixNTT<'a>> {
+    let spiral = &params.spiral;
+    let d = params.d;
+    assert_eq!(a_tildes.len(), d, "preprocess::build_a_agg expects d rows");
+
+    // The transposed formulation indexes NTT slots and CRS rows by the same
+    // range, which only lines up for a single CRT modulus. Every `inspiring`
+    // parameter set is single-CRT; a hypothetical multi-CRT one falls back.
+    if spiral.crt_count != 1 {
+        return build_a_agg_direct(params, a_tildes);
+    }
+
+    // Step 1: Â_j = NTT(ã_j), one row per CRS row.
+    let mut a_hat = vec![0_u64; d * d];
+    a_hat
+        .par_chunks_mut(d)
+        .zip(a_tildes.par_iter())
+        .for_each(|(dst, src)| {
+            debug_assert!(src.iter().all(|coeff| *coeff < params.q));
+            dst.copy_from_slice(src);
+            ntt_forward(spiral, dst);
+        });
+
+    // Step 2: Q_v has coefficients (Â_j[v])_j, so transpose and NTT again.
+    // `e_table[v * d + s]` is then Q_v(ω_s).
+    let mut e_table = vec![0_u64; d * d];
+    transpose_square(&a_hat, &mut e_table, d);
+    drop(a_hat);
+    e_table
+        .par_chunks_mut(d)
+        .for_each(|row| ntt_forward(spiral, row));
+
+    // Step 3 reads `E[π_e(s)][s]` for every `(e, s)`. Transposing once more so
+    // the varying index is contiguous turns that from a 16 KiB-stride gather
+    // into a scan of one cache-resident row per `s`.
+    let mut e_by_slot = vec![0_u64; d * d];
+    transpose_square(&e_table, &mut e_by_slot, d);
+    drop(e_table);
+
+    // Slot order matches `aggregate_slot`: τ_g^e for the left half, then
+    // τ_g^(e - d/2) ∘ τ_h for the right half.
+    let (left_tables, right_tables) = tau_g_power_tables(params, d / 2);
+
+    let mut out: Vec<PolyMatrixNTT<'a>> =
+        (0..d).map(|_| PolyMatrixNTT::zero(spiral, 1, 1)).collect();
+    out.par_chunks_mut(A_AGG_SLOT_BLOCK)
+        .enumerate()
+        .for_each(|(block_idx, out_block)| {
+            let base = block_idx * A_AGG_SLOT_BLOCK;
+            for s_start in (0..d).step_by(A_AGG_COEFF_BLOCK) {
+                let s_end = (s_start + A_AGG_COEFF_BLOCK).min(d);
+                for (offset, out_poly) in out_block.iter_mut().enumerate() {
+                    let slot = base + offset;
+                    let table = if slot < d / 2 {
+                        &left_tables[slot]
+                    } else {
+                        &right_tables[slot - d / 2]
+                    };
+                    let indices = table.indices();
+                    let dst = out_poly.get_poly_mut(0, 0);
+                    for s in s_start..s_end {
+                        let value = e_by_slot[s * d + indices[s] as usize];
+                        dst[s] = ((u128::from(value) * u128::from(params.d_inv))
+                            % u128::from(params.q)) as u64;
+                    }
+                }
+            }
+        });
+
+    out
+}
+
+/// Output slots handed to one rayon task.
+const A_AGG_SLOT_BLOCK: usize = 64;
+
+/// Coefficient tile held in cache while a task sweeps its output slots.
+///
+/// Each `s` needs a whole `d`-wide row of `e_by_slot`, so the tile is sized so
+/// that `A_AGG_COEFF_BLOCK * d * 8` bytes stay resident across the inner slot
+/// loop rather than being re-streamed per slot.
+const A_AGG_COEFF_BLOCK: usize = 32;
+
+/// Cache-blocked square transpose.
+fn transpose_square(src: &[u64], dst: &mut [u64], d: usize) {
+    const TILE: usize = 32;
+    debug_assert_eq!(src.len(), d * d);
+    debug_assert_eq!(dst.len(), d * d);
+
+    dst.par_chunks_mut(TILE * d)
+        .enumerate()
+        .for_each(|(tile_idx, dst_rows)| {
+            let row_start = tile_idx * TILE;
+            let rows = dst_rows.len() / d;
+            for col_start in (0..d).step_by(TILE) {
+                let col_end = (col_start + TILE).min(d);
+                for (local_row, row) in (row_start..row_start + rows).enumerate() {
+                    let dst_row = &mut dst_rows[local_row * d..local_row * d + d];
+                    for col in col_start..col_end {
+                        dst_row[col] = src[col * d + row];
+                    }
+                }
+            }
+        });
+}
+
+/// Direct `Θ(d³)` aggregate: the definition, retained as the multi-CRT
+/// fallback and as the differential oracle for [`build_a_agg`].
+fn build_a_agg_direct<'a>(params: &'a RlweParams, a_tildes: &[Vec<u64>]) -> Vec<PolyMatrixNTT<'a>> {
     (0..params.d)
         .into_par_iter()
         .map(|slot| aggregate_slot(params, a_tildes, slot))
@@ -765,23 +1088,48 @@ fn a_tilde_coeffs(params: &RlweParams, a: &[u64]) -> Vec<u64> {
     out
 }
 
+/// Accumulate `X^shift * tau_exponent(poly)` into `out`, modulo `q`.
+///
+/// This is the innermost loop of [`build_a_agg`] and runs `d^3` times per CRS
+/// block, so it avoids hardware division entirely:
+///
+/// - `poly` is an `a_tilde`, and [`a_tilde_coeffs`] already reduces every
+///   coefficient modulo `q`, so no input reduction is needed.
+/// - `2d` is a power of two, so the exponent wrap is a mask rather than a `%`.
+/// - both addends are already below `q`, so the accumulation is a conditional
+///   subtract rather than a 128-bit modulo.
+///
+/// # Panics
+///
+/// Panics in debug builds if `out.len()` is not a power of two, or if any
+/// coefficient of `poly` is not already reduced modulo `q`.
 fn add_shifted_tau(out: &mut [u64], poly: &[u64], exponent: u64, shift: usize, q: u64) {
     let d = out.len();
-    let two_d = 2 * d as u64;
+    debug_assert!(
+        d.is_power_of_two(),
+        "add_shifted_tau requires power-of-two d"
+    );
+    debug_assert!(
+        poly.iter().all(|coeff| *coeff < q),
+        "add_shifted_tau expects a_tilde coefficients already reduced mod q"
+    );
+
+    let d_u64 = d as u64;
+    let two_d_mask = 2 * d_u64 - 1;
 
     for (source_idx, coeff) in poly.iter().enumerate() {
-        let reduced = *coeff % q;
+        let reduced = *coeff;
         if reduced == 0 {
             continue;
         }
 
-        let exp = (source_idx as u64 * exponent) % two_d;
-        let mut idx = if exp < d as u64 {
+        let exp = (source_idx as u64 * exponent) & two_d_mask;
+        let mut idx = if exp < d_u64 {
             exp as usize
         } else {
-            (exp - d as u64) as usize
+            (exp - d_u64) as usize
         };
-        let mut negate = exp >= d as u64;
+        let mut negate = exp >= d_u64;
 
         idx += shift;
         if idx >= d {
@@ -790,7 +1138,8 @@ fn add_shifted_tau(out: &mut [u64], poly: &[u64], exponent: u64, shift: usize, q
         }
 
         let term = if negate { q - reduced } else { reduced };
-        out[idx] = ((u128::from(out[idx]) + u128::from(term)) % u128::from(q)) as u64;
+        let sum = out[idx] + term;
+        out[idx] = if sum >= q { sum - q } else { sum };
     }
 }
 
@@ -1043,5 +1392,132 @@ mod tests {
         assert_eq!(ct.inner.rows, 2);
         assert_eq!(ct.inner.cols, 1);
         assert_eq!(ct.inner.as_slice(), expected.inner.as_slice());
+    }
+
+    /// A `d = 128`, 56-bit-`q`, `ell = 3` set: the production shape in
+    /// miniature, so the fused accumulator carries realistic magnitudes.
+    fn production_like_params() -> RlweParams {
+        RlweParams::new(
+            128,
+            72_057_594_037_641_217,
+            1 << 14,
+            6.4,
+            GadgetParams {
+                bits_per: 19,
+                ell: 3,
+            },
+        )
+        .expect("valid production-like params")
+    }
+
+    fn random_crs<'a>(params: &'a RlweParams, seed: u64) -> PolyMatrixNTT<'a> {
+        let mut rng = ChaCha20Rng::seed_from_u64(seed);
+        let mut raw = PolyMatrixRaw::zero(&params.spiral, params.d, 1);
+        for coeff in raw.as_mut_slice().iter_mut() {
+            *coeff = rand::Rng::gen_range(&mut rng, 0..params.q);
+        }
+        to_ntt_alloc(&raw)
+    }
+
+    /// The fused collapse must be byte-identical to the per-step cascade it
+    /// replaced. The accumulator bound is what makes it safe, so this runs at a
+    /// 56-bit modulus rather than the 14-bit fixture modulus.
+    #[test]
+    fn fused_collapse_matches_stepwise_cascade() {
+        let params = production_like_params();
+        assert!(
+            fused_accumulator_fits(&params, params.gadget.ell),
+            "the fused path must be the one under test here"
+        );
+
+        let crs = random_crs(&params, 0x_C0_11_AB_5E);
+        let pre = QueryPackPreprocessed::build(&params, &crs).expect("preprocess");
+        let top_images = TopKeyImages::build(&params);
+
+        let mut rng = ChaCha20Rng::from_seed([7; 32]);
+        let secret_ntt = to_ntt_alloc(&PolyMatrixRaw::random_rng(&params.spiral, 1, 1, &mut rng));
+        let keys = PackingKeys::generate_full(&params, &secret_ntt, &mut rng);
+
+        let mut b_tilde = PolyMatrixRaw::zero(&params.spiral, 1, 1);
+        for coeff in b_tilde.get_poly_mut(0, 0).iter_mut() {
+            *coeff = rand::Rng::gen_range(&mut rng, 0..params.q);
+        }
+        let b_ntt = to_ntt_alloc(&b_tilde);
+
+        let fused = collapse_uploaded_body_b(
+            &params,
+            b_ntt.clone(),
+            &keys.kg_body,
+            &keys.kh_body,
+            &top_images,
+            &pre.digits_ntt,
+        );
+        let stepwise = collapse_uploaded_body_b_stepwise(
+            &params,
+            b_ntt,
+            &keys.kg_body,
+            &keys.kh_body,
+            &top_images,
+            &pre.digits_ntt,
+        );
+
+        assert_eq!(fused.as_slice(), stepwise.as_slice());
+    }
+
+    /// The fallback exists for parameter sets whose products would overflow one
+    /// `u128` across a block. Pin both sides of that decision.
+    #[test]
+    fn fused_accumulator_bound_gates_on_q_and_ell() {
+        let production = production_like_params();
+        assert!(fused_accumulator_fits(&production, 3));
+        // 2^63-scale moduli leave no room: (2^63)^2 * 3 * (d-1) exceeds 2^128.
+        let wide = RlweParams {
+            q: (1 << 63) - 25,
+            ..production
+        };
+        assert!(!fused_accumulator_fits(&wide, 3));
+    }
+
+    /// The NTT-domain aggregate must reproduce the `Θ(d³)` definition exactly,
+    /// not approximately: the NTT is a ring isomorphism, so any mismatch is a
+    /// bug in the index algebra, not rounding.
+    #[test]
+    fn build_a_agg_matches_direct_transform() {
+        for params in [params(), production_like_params()] {
+            let mut rng = ChaCha20Rng::seed_from_u64(0x_A6_6E_60);
+            let a_tildes: Vec<Vec<u64>> = (0..params.d)
+                .map(|_| {
+                    (0..params.d)
+                        .map(|_| rand::Rng::gen_range(&mut rng, 0..params.q))
+                        .collect()
+                })
+                .collect();
+
+            let fast = build_a_agg(&params, &a_tildes);
+            let direct = build_a_agg_direct(&params, &a_tildes);
+
+            assert_eq!(fast.len(), direct.len());
+            for (slot, (fast, direct)) in fast.iter().zip(direct.iter()).enumerate() {
+                assert_eq!(
+                    fast.as_slice(),
+                    direct.as_slice(),
+                    "aggregate slot {slot} differs at d={}",
+                    params.d
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn transpose_square_moves_every_element() {
+        let d = 64;
+        let src: Vec<u64> = (0..(d * d) as u64).collect();
+        let mut dst = vec![0_u64; d * d];
+        transpose_square(&src, &mut dst, d);
+        for row in 0..d {
+            for col in 0..d {
+                assert_eq!(dst[row * d + col], src[col * d + row]);
+            }
+        }
     }
 }

@@ -73,6 +73,61 @@ fixture's CRS extraction and `PackPreprocessed` build takes ~100 s today,
 versus YPIR+SP's ~9 s offline phase. This is the cost InsPIRe explicitly opts
 into: heavier offline work in exchange for cheaper, smaller online queries.
 
+### Superseded by the 2026-09-02 optimization pass
+
+The table above predates
+[`bench-results/2026-09-02-optimization-pass/REPORT.md`](bench-results/2026-09-02-optimization-pass/REPORT.md),
+which changed the production shape and has not yet been re-baselined against
+YPIR+SP on the Xeon host. Measured deltas from that pass:
+
+| Metric | before | after |
+|---|---:|---:|
+| Upload | 3,768,320 B | 886,784 B (**4.25×**) |
+| Download | 12,288 B | 49,152 B |
+| Total wire | 3,780,608 B | 935,936 B (**4.04×**) |
+| First-dimension matvec | single-threaded | **3.6× on 8 threads** |
+| Offline per CRS block | 12.11 s | 6.41 s (**1.89×**) |
+
+Most of the upload win was not cryptographic. The database was arranged
+`524,288 × 2,048` — a 256:1 skew between a 3.5 MB query and a 12 KB response —
+so rebalancing it to `112,640 × 8,192` (four instances, 448 nullifiers per row)
+cut total wire traffic 4× without touching the packing protocol.
+
+That pass also fixed a query-privacy break: the first-dimension query carried no
+error term, and since the mask `a` is public, the server could solve for the
+client secret by linear algebra and read the target row off directly.
+
+### Superseded again by the second optimization pass
+
+Both tables above are now stale. The current numbers are in
+[`bench-results/2026-09-02-second-optimization-pass/REPORT.md`](bench-results/2026-09-02-second-optimization-pass/REPORT.md),
+measured on a Xeon Platinum 8358 — the same CPU model as the 2026-05-10 host, so
+directly comparable to it — against baseline `0e16fc1`:
+
+| Metric | before | after |
+|---|---:|---:|
+| Total wire per query | 935,936 B | **318,464 B** (**2.94×**) |
+| Offline preprocessing (deployed shape) | 37.57 s | **6.65 s** (**5.65×**) |
+| Offline per CRS block | 9.394 s | **0.416 s** (**22.6×**) |
+| Online server total | 138.93 ms | **122.39 ms** (1.14×) |
+| Packing per output block | 20.55 ms | **4.18 ms** (**4.92×**) |
+
+Three changes, one per dimension, and they are coupled. `InspiRING.Pack`'s
+`Θ(d³)` CRS aggregate was reformulated in the NTT domain as `Θ(d² log d)`, and
+the online collapse was fused into a single pass with one Barrett reduction per
+block instead of one per `(step, slot)`. Those cut the per-output-block costs
+enough to afford a much wider database — sixteen instances instead of four,
+`28,672 × 32,768` — which, together with dropping the snapshot-constant `c1` row
+from every response and modulus-switching the query from 56 bits to 42, is where
+the bandwidth comes from.
+
+Online server time improved only slightly because most of the packing win was
+spent on the four-fold increase in output blocks that bought the bandwidth.
+Every per-block figure improved; the absolute ones carry four times the blocks.
+
+That pass also confirmed `U16Avx512Kernel` on real AVX-512 hardware for the
+first time, and ran the first live end-to-end HTTP flow in this workspace.
+
 ## Workspace layout
 
 ```
@@ -121,8 +176,8 @@ YPIR-style chunked-split accumulator) and a simple `ScalarKernel` reference.
 ### `nullifier-pir/` — production HTTP server
 
 Actix-based PIR server tailored to fixed-width 32-byte nullifier snapshots.
-Packs 112 nullifiers per SimplePIR row to fill the 28,672-bit plaintext
-capacity at the headline parameter set. Two backends are available:
+Packs 1,792 nullifiers per SimplePIR row — sixteen RLWE output blocks — to fill
+the 458,752-bit plaintext capacity at the headline parameter set. Two backends are available:
 
 - `local-ipir` (default): the IPIR+SP path implemented in this workspace.
 - `ypir-artifact`: pinned upstream YPIR+SP, used for apples-to-apples
@@ -133,8 +188,10 @@ See [`nullifier-pir/README.md`](nullifier-pir/README.md).
 ### `bench-results/`
 
 Each dated subdirectory contains a `REPORT.md` plus `raw/` logs reproducible
-from the commands documented in the report. The current headline report is
-[`bench-results/2026-05-10-ipir-ypir/REPORT.md`](bench-results/2026-05-10-ipir-ypir/REPORT.md).
+from the commands documented in the report. The YPIR+SP comparison lives in
+[`bench-results/2026-05-10-ipir-ypir/REPORT.md`](bench-results/2026-05-10-ipir-ypir/REPORT.md);
+the most recent work is
+[`bench-results/2026-09-02-optimization-pass/REPORT.md`](bench-results/2026-09-02-optimization-pass/REPORT.md).
 
 ## Backend
 
@@ -169,9 +226,23 @@ cargo bench -p ipir-sp --bench end_to_end
 ```
 
 The default `ipir-sp` benchmark uses a small `d = 64` development profile.
-Set `IPIR_SP_BENCH_MID=1` for the `d = 1024` mid-size profile, or
+Set `IPIR_SP_BENCH_MID=1` for the `d = 1024` mid-size profile,
 `IPIR_SP_BENCH_FULL=1` for the full `params_for_simplepir(32768, 131072)`
-profile (`d = 2048`, ~7+ GiB RAM during preprocessing).
+profile (`d = 2048`, ~7+ GiB RAM during preprocessing), or
+`IPIR_SP_BENCH_NULLIFIER=1` for the production nullifier shape
+(`28,672 × 32,768`) — the only profile matching the deployed server. Its
+constants mirror `nullifier-pir/src/encoding.rs`; nothing enforces that across
+crates, so they have to be changed together.
+
+The first-dimension kernel can also be benchmarked on its own, without paying
+for offline preprocessing. Note it pins `112,640 × 8,192` — the previous
+deployed shape — so that results stay comparable across this change; it no
+longer matches the server:
+
+```bash
+cargo bench -p simplepir-kernel --bench first_dim
+RAYON_NUM_THREADS=1 cargo bench -p simplepir-kernel --bench first_dim  # serial
+```
 
 ## High-level flow
 

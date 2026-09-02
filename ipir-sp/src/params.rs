@@ -68,6 +68,12 @@ pub struct YpirSchemeParams {
     pub t_exp_left: usize,
     /// Right expansion gadget width retained for wire compatibility notes.
     pub t_exp_right: usize,
+    /// Bit width the first-dimension query is transmitted at.
+    ///
+    /// Derived from `(q, p, db_rows)` by
+    /// [`crate::modulus_switch::query_modulus_bits`]; it must be recomputed
+    /// whenever the shape changes, never copied across parameter sets.
+    pub query_bits: usize,
 }
 
 /// Return `(inspiring::RlweParams, YpirSchemeParams)` for YPIR's SimplePIR scenario.
@@ -87,8 +93,13 @@ pub fn params_for_simplepir(
         "YPIR SimplePIR expects at least poly_len rows"
     );
 
-    let db_rows = num_items.next_power_of_two();
-    let db_dim_1 = db_rows.trailing_zeros() as usize - 11;
+    // The first dimension only needs a whole number of RLWE blocks; YPIR's
+    // power-of-two padding costs up to 2x of both the database and the upload
+    // for no benefit here. At the production nullifier shape it was 15%.
+    let db_rows = num_items.div_ceil(POLY_LEN as u64) * POLY_LEN as u64;
+    // Retained for YPIR wire-compatibility reporting only; nothing on the IPIR
+    // path consumes it, so it is derived from the padded power of two.
+    let db_dim_1 = db_rows.next_power_of_two().trailing_zeros() as usize - 11;
     let instances = item_size_bits.div_ceil(POLY_LEN as u64 * 14) as usize;
 
     let rlwe = RlweParams::new(
@@ -117,6 +128,11 @@ pub fn params_for_simplepir(
         q2_bits: Q2_BITS,
         t_exp_left: T_EXP_LEFT,
         t_exp_right: T_EXP_RIGHT,
+        query_bits: crate::modulus_switch::query_modulus_bits(
+            SINGLE_CRT_Q,
+            PLAINTEXT_MODULUS,
+            db_rows as usize,
+        ),
     };
 
     Ok((rlwe, ypir))
@@ -142,6 +158,7 @@ mod tests {
         assert_eq!(ypir.instances, 5);
         assert_eq!(ypir.db_rows, 1 << 14);
         assert_eq!(ypir.db_cols, 5 * 2048);
+        assert_eq!(ypir.db_rows % rlwe.d, 0);
         assert_eq!(ypir.q_prime_1, 1 << 20);
         assert_eq!(ypir.q_prime_2, 268_369_921);
     }

@@ -25,3 +25,22 @@ pub use avx512::U16Avx512Kernel;
 pub use backend::{FirstDimKernel, ToU64};
 pub use chunked::ChunkedSplitKernel;
 pub use scalar::ScalarKernel;
+
+/// Choose how many columns each parallel task owns.
+///
+/// The kernels are DRAM-bandwidth bound, so the goal is one contiguous stripe
+/// of at least [`chunked::MIN_BAND_BYTES`] per task while still producing at
+/// least one band per thread. Returns a value in `1..=cols`, so callers can pass
+/// it straight to `par_chunks_mut` without further clamping.
+#[must_use]
+pub fn band_cols<T>(rows_padded: usize, cols: usize) -> usize {
+    if cols == 0 || rows_padded == 0 {
+        return 1;
+    }
+
+    let col_bytes = rows_padded.saturating_mul(std::mem::size_of::<T>()).max(1);
+    let by_size = chunked::MIN_BAND_BYTES.div_ceil(col_bytes).max(1);
+    let by_threads = cols.div_ceil(rayon::current_num_threads().max(1)).max(1);
+
+    by_size.min(by_threads).clamp(1, cols)
+}

@@ -1,7 +1,20 @@
 use crate::{FirstDimKernel, ToU64};
+use rayon::prelude::*;
 use spiral_rs::arith::barrett_reduction_u128;
 
+/// Minimum database bytes handed to one rayon task.
+///
+/// Column bands are sized so each task streams a contiguous multi-megabyte
+/// stripe. Splitting finer would trade DRAM bandwidth — the actual ceiling for
+/// this kernel — for scheduling overhead.
+pub const MIN_BAND_BYTES: usize = 1 << 21;
+
 /// Default delayed-reduction window for the portable split kernel.
+///
+/// This is a requested maximum; `multiply_query` clamps it to the number of
+/// rows and to what the database's element bound allows. At the deployed shape
+/// (28,672 rows of 14-bit plaintexts) both clamps land above the row count, so
+/// a column is swept in a single pass.
 ///
 /// The value is chosen for the production IPIR-SP shape where query
 /// coefficients are below a 56-bit modulus and database elements are 14-bit
@@ -16,11 +29,13 @@ pub const DEFAULT_CHUNK_ROWS: usize = 1 << 16;
 /// accumulate products in `u64` over a bounded row window, and perform one
 /// Barrett reduction per window instead of per database element.
 ///
-/// The implementation is safe Rust and does not use rayon or architecture
-/// intrinsics. For `u8`, `u16`, and `u32` databases it uses the chunked
-/// split-accumulation path. For element types whose maximum value would make
-/// one limb product overflow `u64` (currently `u64`), it conservatively falls
-/// back to the scalar reference algorithm.
+/// The implementation is safe Rust and uses no architecture intrinsics. Column
+/// bands are evaluated in parallel with rayon: the database is column-major, so
+/// a band is a contiguous, disjoint slice writing a disjoint output slice, and
+/// no reduction or synchronization is needed. For `u8`, `u16`, and `u32`
+/// databases it uses the chunked split-accumulation path. For element types
+/// whose maximum value would make one limb product overflow `u64` (currently
+/// `u64`), it conservatively falls back to the scalar reference algorithm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkedSplitKernel {
     /// Rows per delayed-reduction window.
@@ -63,6 +78,7 @@ where
         rows_padded: usize,
         cols: usize,
         query: &[u64],
+        element_max: u64,
         out: &mut [u64],
     ) {
         assert_eq!(query.len(), rows_padded, "query length must match rows");
@@ -76,32 +92,42 @@ where
 
         let chunk_rows = self
             .chunk_rows
-            .min(max_safe_chunk_rows::<T>())
+            .min(max_safe_chunk_rows_for(element_max))
             .min(rows_padded)
             .max(1);
 
         out.fill(0);
 
+        let band_cols = crate::band_cols::<T>(rows_padded, cols);
+
+        // Row chunks stay the outer, sequential loop: the query window for one
+        // chunk is small enough to stay resident while every column streams past
+        // it. Inverting the nest would re-read the whole query once per column.
         let mut row_start = 0;
         while row_start < rows_padded {
             let row_end = (row_start + chunk_rows).min(rows_padded);
 
-            for (col, out_col) in out.iter_mut().enumerate().take(cols) {
-                let col_offset = col * rows_padded;
-                let mut total_lo = 0u64;
-                let mut total_hi = 0u64;
+            out[..cols]
+                .par_chunks_mut(band_cols)
+                .zip(db[..cols * rows_padded].par_chunks(band_cols * rows_padded))
+                .for_each(|(out_band, db_band)| {
+                    for (band_col, out_col) in out_band.iter_mut().enumerate() {
+                        let col_offset = band_col * rows_padded;
+                        let mut total_lo = 0u64;
+                        let mut total_hi = 0u64;
 
-                for row in row_start..row_end {
-                    let query_val = query[row];
-                    let db_val = db[col_offset + row].to_u64();
-                    total_lo += ((query_val as u32) as u64) * db_val;
-                    total_hi += (query_val >> 32) * db_val;
-                }
+                        for row in row_start..row_end {
+                            let query_val = query[row];
+                            let db_val = db_band[col_offset + row].to_u64();
+                            total_lo += ((query_val as u32) as u64) * db_val;
+                            total_hi += (query_val >> 32) * db_val;
+                        }
 
-                let chunk_sum = (total_lo as u128) + ((total_hi as u128) << 32);
-                let chunk_reduced = barrett_reduction_u128(&rlwe.spiral, chunk_sum);
-                *out_col = add_mod(*out_col, chunk_reduced, rlwe.q);
-            }
+                        let chunk_sum = (total_lo as u128) + ((total_hi as u128) << 32);
+                        let chunk_reduced = barrett_reduction_u128(&rlwe.spiral, chunk_sum);
+                        *out_col = add_mod(*out_col, chunk_reduced, rlwe.q);
+                    }
+                });
 
             row_start = row_end;
         }
@@ -128,15 +154,18 @@ where
     u128::from(u32::MAX) * u128::from(T::MAX_VALUE) > u128::from(u64::MAX)
 }
 
-fn max_safe_chunk_rows<T>() -> usize
-where
-    T: ToU64,
-{
-    if T::MAX_VALUE == 0 {
+/// Rows that can share one delayed-reduction window for a given element bound.
+///
+/// The split accumulators are `u64` and each term is at most
+/// `u32::MAX * element_max`, so this is how many terms fit before a reduction
+/// is forced. The caller supplies the real bound rather than the storage
+/// type's maximum; see [`crate::FirstDimKernel::multiply_query`].
+pub(crate) fn max_safe_chunk_rows_for(element_max: u64) -> usize {
+    if element_max == 0 {
         return usize::MAX;
     }
 
-    let max_term = u128::from(u32::MAX) * u128::from(T::MAX_VALUE);
+    let max_term = u128::from(u32::MAX) * u128::from(element_max);
     if max_term > u128::from(u64::MAX) {
         1
     } else {
@@ -200,17 +229,19 @@ mod tests {
         let rlwe = production_like_rlwe();
         let mut rng = ChaCha20Rng::seed_from_u64(0x5950_4952_5350);
         let db: Vec<_> = (0..rows * cols).map(|_| sample_db(&mut rng)).collect();
+        let element_max = db.iter().map(|value| value.to_u64()).max().unwrap_or(0);
         let query: Vec<_> = (0..rows).map(|_| rng.gen_range(0..rlwe.q)).collect();
         let mut scalar = vec![0u64; cols];
         let mut chunked = vec![0u64; cols];
 
-        ScalarKernel.multiply_query(&rlwe, &db, rows, cols, &query, &mut scalar);
+        ScalarKernel.multiply_query(&rlwe, &db, rows, cols, &query, element_max, &mut scalar);
         ChunkedSplitKernel::new(chunk_rows).multiply_query(
             &rlwe,
             &db,
             rows,
             cols,
             &query,
+            element_max,
             &mut chunked,
         );
 
@@ -231,6 +262,23 @@ mod tests {
         }
     }
 
+    /// The column loop is split across rayon tasks, so the shapes above (which
+    /// all fit in a single band) do not exercise the parallel path. This one
+    /// forces many bands and several row chunks at once.
+    #[test]
+    fn chunked_split_matches_scalar_across_many_parallel_bands() {
+        let rows = 512;
+        let cols = 257;
+        assert!(
+            crate::band_cols::<u16>(rows, cols) < cols,
+            "shape must split into more than one column band"
+        );
+
+        // chunk_rows below `rows` also forces the sequential outer chunk loop,
+        // so this covers accumulation across chunks inside a parallel band.
+        compare::<u16, _>(rows, cols, 100, |rng| rng.gen_range(0..(1 << 14)));
+    }
+
     #[test]
     fn chunked_split_matches_scalar_for_u8_u16_u32() {
         compare::<u8, _>(41, 4, 16, |rng| rng.gen());
@@ -247,12 +295,21 @@ mod tests {
         let db: Vec<u16> = (0..rows * cols)
             .map(|_| rng.gen_range(0..(1 << 14)))
             .collect();
+        let element_max = db.iter().map(|value| u64::from(*value)).max().unwrap_or(0);
         let query: Vec<_> = (0..rows).map(|_| rng.gen_range(0..rlwe.q)).collect();
         let mut scalar = vec![0u64; cols];
         let mut chunked = vec![rlwe.q - 1; cols];
 
-        ScalarKernel.multiply_query(&rlwe, &db, rows, cols, &query, &mut scalar);
-        ChunkedSplitKernel::new(16).multiply_query(&rlwe, &db, rows, cols, &query, &mut chunked);
+        ScalarKernel.multiply_query(&rlwe, &db, rows, cols, &query, element_max, &mut scalar);
+        ChunkedSplitKernel::new(16).multiply_query(
+            &rlwe,
+            &db,
+            rows,
+            cols,
+            &query,
+            element_max,
+            &mut chunked,
+        );
 
         assert_eq!(chunked, scalar);
     }

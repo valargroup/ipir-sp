@@ -1,0 +1,79 @@
+   Compiling ipir-sp v0.1.0 (/root/ipir-sp-new/ipir-sp)
+    Finished `bench` profile [optimized] target(s) in 12.95s
+     Running benches/end_to_end.rs (target/release/deps/end_to_end-7ffb041a78c67281)
+Gnuplot not found, using plotters backend
+setup: selected profile=ipir_sp_nullifier_27861_458752, rows=27861, item_bits=458752, d=2048
+setup: params ready, outputs=16, db_cols=32768
+setup: generating deterministic fixture material
+setup: deterministic fixture material ready
+setup: generating SimplePIR multiply fixture
+setup: SimplePIR multiply fixture ready
+setup: extracting CRS blocks from hint
+setup: extracted 16 CRS block(s)
+setup: building pack preprocessing cache
+setup: pack preprocessing cache built
+setup: checking deterministic noise
+setup: deterministic noise checked
+ipir-sp target: profile=ipir_sp_nullifier_27861_458752, rows=28672, item_bits=458752, d=2048, outputs=16, db_cols=32768, serialized_packing_keys=84 KiB, measured_packing_keys=84 KiB, measured_offline_query_polys=224 KiB, measured_online_query_packed=147 KiB, measured_fresh_query_upload=455 KiB, cdks_upload=462 KiB, response=80 KiB, ||e_pack||_inf_bits=34, paper_noise_target_bits<=33.4, cdks_online_target=55.6 ms
+ipir-sp measured_upload_bytes: packing_keys=86016 offline_query_polys=229376 online_query_packed=150528 fresh_query_total=465920 current_http_query=150528
+ipir-sp one_shot_server_breakdown_us: deserialize=361 matrix_vector=52009 packing=66803 serialization=3212
+Benchmarking ipir_sp_nullifier_27861_458752/online_deserialize_query_only/1
+Benchmarking ipir_sp_nullifier_27861_458752/online_deserialize_query_only/1: Warming up for 3.0000 s
+Benchmarking ipir_sp_nullifier_27861_458752/online_deserialize_query_only/1: Collecting 10 samples in estimated 5.0101 s (14k iterations)
+Benchmarking ipir_sp_nullifier_27861_458752/online_deserialize_query_only/1: Analyzing
+ipir_sp_nullifier_27861_458752/online_deserialize_query_only/1
+                        time:   [364.28 µs 364.37 µs 364.43 µs]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high severe
+Benchmarking ipir_sp_nullifier_27861_458752/multiply_query_only_scalar/28672x32768
+Benchmarking ipir_sp_nullifier_27861_458752/multiply_query_only_scalar/28672x32768: Warming up for 3.0000 s
+
+Warning: Unable to complete 10 samples in 5.0s. You may wish to increase target time to 57.9s.
+Benchmarking ipir_sp_nullifier_27861_458752/multiply_query_only_scalar/28672x32768: Collecting 10 samples in estimated 57.854 s (10 iterations)
+Benchmarking ipir_sp_nullifier_27861_458752/multiply_query_only_scalar/28672x32768: Analyzing
+ipir_sp_nullifier_27861_458752/multiply_query_only_scalar/28672x32768
+                        time:   [5.7823 s 5.7835 s 5.7848 s]
+Benchmarking ipir_sp_nullifier_27861_458752/multiply_query_only_chunked_split/28672x32768
+Benchmarking ipir_sp_nullifier_27861_458752/multiply_query_only_chunked_split/28672x32768: Warming up for 3.0000 s
+Benchmarking ipir_sp_nullifier_27861_458752/multiply_query_only_chunked_split/28672x32768: Collecting 10 samples in estimated 5.8857 s (110 iterations)
+Benchmarking ipir_sp_nullifier_27861_458752/multiply_query_only_chunked_split/28672x32768: Analyzing
+ipir_sp_nullifier_27861_458752/multiply_query_only_chunked_split/28672x32768
+                        time:   [52.838 ms 53.141 ms 53.410 ms]
+Benchmarking ipir_sp_nullifier_27861_458752/offline_crs_extract_and_preprocess/16
+Benchmarking ipir_sp_nullifier_27861_458752/offline_crs_extract_and_preprocess/16: Warming up for 3.0000 s
+
+Warning: Unable to complete 10 samples in 5.0s. You may wish to increase target time to 78.0s.
+Benchmarking ipir_sp_nullifier_27861_458752/offline_crs_extract_and_preprocess/16: Collecting 10 samples in estimated 77.963 s (10 iterations)
+Benchmarking ipir_sp_nullifier_27861_458752/offline_crs_extract_and_preprocess/16: Analyzing
+ipir_sp_nullifier_27861_458752/offline_crs_extract_and_preprocess/16
+                        time:   [6.6245 s 6.6490 s 6.6780 s]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+Benchmarking ipir_sp_nullifier_27861_458752/online_pack_only/16
+Benchmarking ipir_sp_nullifier_27861_458752/online_pack_only/16: Warming up for 3.0000 s
+Benchmarking ipir_sp_nullifier_27861_458752/online_pack_only/16: Collecting 10 samples in estimated 7.7003 s (110 iterations)
+Benchmarking ipir_sp_nullifier_27861_458752/online_pack_only/16: Analyzing
+ipir_sp_nullifier_27861_458752/online_pack_only/16
+                        time:   [72.847 ms 73.187 ms 73.697 ms]
+Benchmarking ipir_sp_nullifier_27861_458752/online_serialize_only/16
+Benchmarking ipir_sp_nullifier_27861_458752/online_serialize_only/16: Warming up for 3.0000 s
+Benchmarking ipir_sp_nullifier_27861_458752/online_serialize_only/16: Collecting 10 samples in estimated 5.0061 s (1925 iterations)
+Benchmarking ipir_sp_nullifier_27861_458752/online_serialize_only/16: Analyzing
+ipir_sp_nullifier_27861_458752/online_serialize_only/16
+                        time:   [2.5859 ms 2.5965 ms 2.6062 ms]
+Benchmarking ipir_sp_nullifier_27861_458752/online_pack_and_serialize/16
+Benchmarking ipir_sp_nullifier_27861_458752/online_pack_and_serialize/16: Warming up for 3.0000 s
+Benchmarking ipir_sp_nullifier_27861_458752/online_pack_and_serialize/16: Collecting 10 samples in estimated 8.4209 s (110 iterations)
+Benchmarking ipir_sp_nullifier_27861_458752/online_pack_and_serialize/16: Analyzing
+ipir_sp_nullifier_27861_458752/online_pack_and_serialize/16
+                        time:   [76.190 ms 76.334 ms 76.523 ms]
+Found 2 outliers among 10 measurements (20.00%)
+  1 (10.00%) high mild
+  1 (10.00%) high severe
+Benchmarking ipir_sp_nullifier_27861_458752/client_decode_only/16
+Benchmarking ipir_sp_nullifier_27861_458752/client_decode_only/16: Warming up for 3.0000 s
+Benchmarking ipir_sp_nullifier_27861_458752/client_decode_only/16: Collecting 10 samples in estimated 5.0364 s (1540 iterations)
+Benchmarking ipir_sp_nullifier_27861_458752/client_decode_only/16: Analyzing
+ipir_sp_nullifier_27861_458752/client_decode_only/16
+                        time:   [3.2371 ms 3.2412 ms 3.2466 ms]
+

@@ -5,6 +5,7 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use ipir_sp::client::IPIRClient;
+use ipir_sp::modulus_switch::recover_published_c1;
 use ipir_sp::serialize::serialize_packing_keys;
 use nullifier_pir::backend::{Backend, BackendKind, PirBackend};
 use nullifier_pir::encoding::{decode_item_coefficients, extract_nullifier, nullifier_offset};
@@ -23,6 +24,7 @@ use ypir::serialize::ToBytes as YpirToBytes;
 
 const META_ENDPOINT: &str = "/meta";
 const QUERY_ENDPOINT: &str = "/query";
+const PUBLIC_PARAMS_ENDPOINT: &str = "/public-params";
 
 #[derive(Debug, Clone)]
 struct UploadBreakdown {
@@ -301,6 +303,28 @@ fn query_row(
         }
     } else {
         let pir_client = IPIRClient::from_db_sz(pir_item_count, ITEM_SIZE_BITS);
+        // `c1` is constant for the snapshot, so it is fetched once here instead
+        // of riding along with every response.
+        let public_params_url = format!(
+            "{}{}",
+            server_url.trim_end_matches('/'),
+            PUBLIC_PARAMS_ENDPOINT
+        );
+        let published_c1_bytes = client
+            .get(&public_params_url)
+            .send()
+            .with_context(|| format!("GET {public_params_url}"))?
+            .error_for_status()?
+            .bytes()
+            .with_context(|| format!("read {public_params_url} body"))?
+            .to_vec();
+        let blocks = pir_client.params().db_cols / pir_client.rlwe_params().d;
+        let published_c1 = recover_published_c1(
+            &published_c1_bytes,
+            pir_client.rlwe_params().d,
+            blocks,
+            pir_client.rlwe_params().q,
+        );
         let offline_query_polys = pir_client.generate_public_query_setup_simplepir_from_seed(
             nullifier_pir::backend::seed_from_u64(setup_seed),
         );
@@ -308,7 +332,8 @@ fn query_row(
             pir_client.generate_fresh_query_simplepir(&offline_query_polys, row);
         let packing_keys_body = serialize_packing_keys(pir_client.rlwe_params(), &packing_keys)
             .context("serialize local ipir packing keys")?;
-        let online_query_packed = query.to_packed_bytes(pir_client.rlwe_params().q);
+        let online_query_packed =
+            query.to_switched_bytes(pir_client.rlwe_params().q, pir_client.params().query_bits);
         let packing_keys_bytes = packing_keys_body.len();
         let online_query_packed_bytes = online_query_packed.len();
         let mut query_body = Vec::with_capacity(packing_keys_bytes + online_query_packed_bytes);
@@ -325,7 +350,7 @@ fn query_row(
             },
             Box::new(move |response| {
                 let decoded_coeffs =
-                    pir_client.decode_response_simplepir_raw(client_seed, response);
+                    pir_client.decode_response_simplepir_raw(client_seed, &published_c1, response);
                 decode_item_coefficients(&decoded_coeffs)
             }),
         )
