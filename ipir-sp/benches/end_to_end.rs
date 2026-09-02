@@ -20,7 +20,9 @@ use std::time::{Duration, Instant};
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use ipir_sp::client::{ClientSecret, IPIRClient, IPIRSimpleQuery};
-use ipir_sp::modulus_switch::{serialize_rlwe_response, switched_rlwe_response_len};
+use ipir_sp::modulus_switch::{
+    recover_published_c1, response_body_len, serialize_rlwe_response_bodies,
+};
 use ipir_sp::params::{
     params_for_simplepir, PLAINTEXT_MODULUS, Q_PRIME_1, Q_PRIME_2, SINGLE_CRT_Q,
 };
@@ -42,8 +44,12 @@ const ITEM_SIZE_BITS: u64 = 131_072;
 /// Production nullifier shape: 49,925,853 records at 448 per row, four
 /// instances. None of the other profiles has a first dimension anywhere near
 /// this tall, which is why the real matrix-vector hot spot went unbenchmarked.
-const NULLIFIER_NUM_ITEMS: u64 = 111_442;
-const NULLIFIER_ITEM_SIZE_BITS: u64 = 114_688;
+// The deployed nullifier shape. Mirrors `nullifier-pir/src/encoding.rs`:
+// `SIMPLEPIR_INSTANCES_PER_ITEM = 16` gives 32,768 coefficients of 14 bits per
+// row, i.e. 1,792 nullifiers, so 49,925,853 records map to 27,861 items.
+// Keep these in step with that module — nothing enforces it across crates.
+const NULLIFIER_NUM_ITEMS: u64 = 27_861;
+const NULLIFIER_ITEM_SIZE_BITS: u64 = 458_752;
 const SEED: u64 = 0x5950_4952_5350;
 const YPIR_CDKS_UPLOAD_KIB: usize = 462;
 const YPIR_CDKS_ONLINE_MS: f64 = 55.6;
@@ -72,6 +78,7 @@ struct BenchFixture<'a> {
     top_keys: TopKeyImages<'a>,
     intermediate: Vec<u64>,
     first_dim_db: Vec<u16>,
+    first_dim_element_max: u64,
     first_dim_query: Vec<u64>,
     preprocessed: Vec<QueryPackPreprocessed<'a>>,
     noise_bits: u32,
@@ -156,7 +163,7 @@ fn full_spec() -> BenchSpec {
 
 fn nullifier_spec() -> BenchSpec {
     BenchSpec {
-        name: "ipir_sp_nullifier_111442_114688",
+        name: "ipir_sp_nullifier_27861_458752",
         rows: NULLIFIER_NUM_ITEMS as usize,
         item_size_bits: NULLIFIER_ITEM_SIZE_BITS,
         degree: 2048,
@@ -224,6 +231,7 @@ fn params_for_spec(spec: BenchSpec) -> (RlweParams, YpirSchemeParams) {
         q2_bits: (u64::BITS - (spec.q_prime_2 - 1).leading_zeros()) as usize,
         t_exp_left: 3,
         t_exp_right: 2,
+        query_bits: ipir_sp::modulus_switch::query_modulus_bits(spec.q, spec.p, spec.rows),
     };
 
     (rlwe, ypir)
@@ -311,6 +319,11 @@ fn build_fixture() -> BenchFixture<'static> {
     eprintln!("setup: deterministic fixture material ready");
     eprintln!("setup: generating SimplePIR multiply fixture");
     let (first_dim_db, first_dim_query) = simplepir_multiply_fixture(rlwe, &ypir);
+    let first_dim_element_max = first_dim_db
+        .iter()
+        .map(|value| u64::from(*value))
+        .max()
+        .unwrap_or(0);
     eprintln!("setup: SimplePIR multiply fixture ready");
     let preprocessed = build_preprocessed(rlwe, &ypir, hint_0);
     let mut rng = ChaCha20Rng::seed_from_u64(SEED);
@@ -338,6 +351,7 @@ fn build_fixture() -> BenchFixture<'static> {
         top_keys,
         intermediate,
         first_dim_db,
+        first_dim_element_max,
         first_dim_query,
         preprocessed,
         noise_bits: log2_ceil(noise),
@@ -429,7 +443,9 @@ fn measure_uploads(fixture: &BenchFixture<'_>) -> UploadMeasurements {
         .map(|poly| serialize_u64s_le(poly).len())
         .sum();
     let online_query = IPIRSimpleQuery::new(fixture.first_dim_query.clone());
-    let online_query_packed_bytes = online_query.to_packed_bytes(fixture.rlwe.q).len();
+    let online_query_packed_bytes = online_query
+        .to_switched_bytes(fixture.rlwe.q, fixture.ypir.query_bits)
+        .len();
 
     UploadMeasurements {
         packing_keys_bytes,
@@ -444,11 +460,14 @@ fn measure_server_breakdown_once(
     packed_fixture: &[inspiring::RlweCiphertext<'_>],
 ) -> (Duration, Duration, Duration, Duration) {
     let deserialize_started = Instant::now();
-    let first_dim_query =
-        IPIRSimpleQuery::from_packed_bytes(packed_query_body, fixture.ypir.db_rows, fixture.rlwe.q)
-            .expect("packed query deserializes")
-            .as_slice()
-            .to_vec();
+    let first_dim_query = IPIRSimpleQuery::from_switched_bytes(
+        packed_query_body,
+        fixture.ypir.db_rows,
+        fixture.rlwe.q,
+        fixture.ypir.query_bits,
+    )
+    .expect("packed query deserializes")
+    .into_first_dim();
     let deserialize_time = deserialize_started.elapsed();
 
     let multiply_started = Instant::now();
@@ -460,6 +479,7 @@ fn measure_server_breakdown_once(
         fixture.ypir.db_rows,
         fixture.ypir.db_cols,
         &first_dim_query,
+        fixture.first_dim_element_max,
         &mut intermediate,
     );
     let multiply_time = multiply_started.elapsed();
@@ -476,10 +496,9 @@ fn measure_server_breakdown_once(
     let packing_time = packing_started.elapsed();
 
     let serialization_started = Instant::now();
-    black_box(serialize_rlwe_response(
+    black_box(serialize_rlwe_response_bodies(
         packed_fixture,
         fixture.ypir.q_prime_1,
-        fixture.ypir.q_prime_2,
     ));
     let serialization_time = serialization_started.elapsed();
 
@@ -494,12 +513,7 @@ fn measure_server_breakdown_once(
 fn bench_end_to_end(c: &mut Criterion) {
     let fixture = build_fixture();
     let output_count = fixture.preprocessed.len();
-    let response_bytes = output_count
-        * switched_rlwe_response_len(
-            fixture.rlwe.d,
-            fixture.ypir.q_prime_1,
-            fixture.ypir.q_prime_2,
-        );
+    let response_bytes = output_count * response_body_len(fixture.rlwe.d, fixture.ypir.q_prime_1);
     let packed_fixture = pack_intermediate_blocks(
         &fixture.intermediate,
         &fixture.packing_keys,
@@ -508,14 +522,16 @@ fn bench_end_to_end(c: &mut Criterion) {
     )
     .expect("fixture online pack succeeds");
     let upload_measurements = measure_uploads(&fixture);
-    let packed_query_body =
-        IPIRSimpleQuery::new(fixture.first_dim_query.clone()).to_packed_bytes(fixture.rlwe.q);
+    let packed_query_body = IPIRSimpleQuery::new(fixture.first_dim_query.clone())
+        .to_switched_bytes(fixture.rlwe.q, fixture.ypir.query_bits);
     let client = IPIRClient::new(fixture.rlwe, &fixture.ypir);
     let client_seed = seed_from_u64(SEED);
-    let response_fixture = serialize_rlwe_response(
-        &packed_fixture,
-        fixture.ypir.q_prime_1,
-        fixture.ypir.q_prime_2,
+    let response_fixture = serialize_rlwe_response_bodies(&packed_fixture, fixture.ypir.q_prime_1);
+    let published_c1 = recover_published_c1(
+        &ipir_sp::server::published_c1_rows(&fixture.preprocessed, fixture.rlwe.q),
+        fixture.rlwe.d,
+        output_count,
+        fixture.rlwe.q,
     );
     let (deserialize_once, multiply_once, packing_once, serialization_once) =
         measure_server_breakdown_once(&fixture, &packed_query_body, &packed_fixture);
@@ -561,10 +577,11 @@ fn bench_end_to_end(c: &mut Criterion) {
 
     group.bench_function(BenchmarkId::new("online_deserialize_query_only", 1), |b| {
         b.iter(|| {
-            let query = IPIRSimpleQuery::from_packed_bytes(
+            let query = IPIRSimpleQuery::from_switched_bytes(
                 black_box(&packed_query_body),
                 fixture.ypir.db_rows,
                 fixture.rlwe.q,
+                fixture.ypir.query_bits,
             )
             .expect("packed query deserializes");
             black_box(query);
@@ -586,6 +603,7 @@ fn bench_end_to_end(c: &mut Criterion) {
                     fixture.ypir.db_rows,
                     fixture.ypir.db_cols,
                     black_box(&fixture.first_dim_query),
+                    fixture.first_dim_element_max,
                     black_box(&mut out),
                 );
             });
@@ -607,6 +625,7 @@ fn bench_end_to_end(c: &mut Criterion) {
                     fixture.ypir.db_rows,
                     fixture.ypir.db_cols,
                     black_box(&fixture.first_dim_query),
+                    fixture.first_dim_element_max,
                     black_box(&mut out),
                 );
             });
@@ -662,10 +681,9 @@ fn bench_end_to_end(c: &mut Criterion) {
         BenchmarkId::new("online_serialize_only", output_count),
         |b| {
             b.iter(|| {
-                black_box(serialize_rlwe_response(
+                black_box(serialize_rlwe_response_bodies(
                     black_box(&packed_fixture),
                     fixture.ypir.q_prime_1,
-                    fixture.ypir.q_prime_2,
                 ));
             });
         },
@@ -682,10 +700,9 @@ fn bench_end_to_end(c: &mut Criterion) {
                     black_box(&fixture.preprocessed),
                 )
                 .expect("online pack succeeds");
-                black_box(serialize_rlwe_response(
+                black_box(serialize_rlwe_response_bodies(
                     &packed,
                     fixture.ypir.q_prime_1,
-                    fixture.ypir.q_prime_2,
                 ));
                 drop(packed);
             });
@@ -696,6 +713,7 @@ fn bench_end_to_end(c: &mut Criterion) {
         b.iter(|| {
             black_box(client.decode_response_simplepir_raw(
                 black_box(client_seed),
+                black_box(&published_c1),
                 black_box(&response_fixture),
             ));
         });

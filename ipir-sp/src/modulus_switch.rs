@@ -26,6 +26,69 @@ pub fn rescale(value: u64, q_in: u64, q_out: u64) -> u64 {
     ((result + q_out_i128) % q_out_i128) as u64
 }
 
+/// Bit width the first-dimension query is transmitted at.
+///
+/// The query is an LWE body modulo `q`; rounding it to `k` bits before sending
+/// injects a per-row error of at most `q / 2^(k+1)`, which the matrix-vector
+/// product amplifies by the database column it multiplies. Modelling the
+/// rounding as uniform and the plaintexts as uniform in `[0, p)`, the error in
+/// an output coefficient has standard deviation
+/// `(q / 2^k) * p * sqrt(db_rows) / 6`, so a `6σ` bound is
+/// `(q / 2^k) * p * sqrt(db_rows)`.
+///
+/// This picks the smallest `k` keeping that at or below `Δ/64`, i.e. six bits
+/// of headroom under the `Δ/2` decryption threshold — the packing noise already
+/// measured at the production set sits around `2^34` against `Δ/2 = 2^41`, and
+/// this keeps the switch strictly the smaller of the two contributions.
+///
+/// The result is clamped to `modulus_bits(q)`, so a shape whose budget does not
+/// allow any reduction simply transmits at full precision.
+#[must_use]
+pub fn query_modulus_bits(q: u64, p: u64, db_rows: usize) -> usize {
+    let bound = 64.0 * (p as f64) * (p as f64) * (db_rows as f64).sqrt();
+    let bits = bound.log2().ceil() as usize;
+    bits.clamp(1, modulus_bits(q))
+}
+
+/// Round a query coefficient from `q` down to `2^bits`.
+///
+/// A power-of-two target keeps the inverse a shift rather than a division; see
+/// [`query_coeff_up`].
+///
+/// Query privacy is unaffected. The rounding is a deterministic function of the
+/// transmitted body alone — it uses no secret — so it is post-processing of an
+/// already-secure LWE sample: any distinguisher against the rounded query gives
+/// a distinguisher against the unrounded one by applying the same rounding.
+/// What the reduction costs is decryption headroom, not hardness, which is why
+/// the width comes from the noise budget in [`query_modulus_bits`].
+#[must_use]
+pub fn query_coeff_down(coeff: u64, q: u64, bits: usize) -> u64 {
+    debug_assert!(coeff < q);
+    if bits >= modulus_bits(q) {
+        return coeff;
+    }
+    let target = 1_u128 << bits;
+    let scaled = (u128::from(coeff) * target + u128::from(q) / 2) / u128::from(q);
+    (scaled & (target - 1)) as u64
+}
+
+/// Lift a query coefficient from `2^bits` back to `q`.
+#[must_use]
+pub fn query_coeff_up(coeff: u64, q: u64, bits: usize) -> u64 {
+    if bits >= modulus_bits(q) {
+        return coeff;
+    }
+    // `q` is odd and `2^bits` is a power of two, so this rounds with a shift
+    // instead of the 128-bit division `rescale` would need.
+    let numerator = u128::from(coeff) * u128::from(q) + (1_u128 << (bits - 1));
+    let lifted = (numerator >> bits) as u64;
+    if lifted >= q {
+        lifted - q
+    } else {
+        lifted
+    }
+}
+
 /// Bit width required to represent values modulo `modulus`.
 #[must_use]
 pub fn modulus_bits(modulus: u64) -> usize {
@@ -176,6 +239,87 @@ pub fn switch_rlwe_ciphertext(ct: &RlweCiphertext<'_>, q_prime_1: u64, q_prime_2
     )
 }
 
+/// Number of bytes in one serialized response ciphertext body.
+///
+/// Only the `c2` row travels per query. The `c1` row is
+/// `QueryPackPreprocessed::collapse_a_final_ntt`, which depends solely on the
+/// CRS and the fixed reference seeds — not on the query, the client secret, or
+/// the uploaded packing keys — so it is identical for every request against a
+/// given snapshot and is published once instead.
+#[must_use]
+pub fn response_body_len(degree: usize, q_prime_1: u64) -> usize {
+    (degree * modulus_bits(q_prime_1)).div_ceil(8)
+}
+
+/// Number of bytes in one published `c1` row.
+///
+/// Published at full `q` precision: it is sent once per snapshot, so there is
+/// nothing to gain by switching it down, and keeping it exact removes the
+/// rounding term it used to contribute to the client's decryption noise.
+#[must_use]
+pub fn published_c1_len(degree: usize, q: u64) -> usize {
+    (degree * modulus_bits(q)).div_ceil(8)
+}
+
+/// Recover the published `c1` rows produced by [`serialize_published_c1`].
+#[must_use]
+pub fn recover_published_c1(data: &[u8], degree: usize, blocks: usize, q: u64) -> Vec<Vec<u64>> {
+    let row_len = published_c1_len(degree, q);
+    assert_eq!(
+        data.len(),
+        blocks * row_len,
+        "published c1 must be {blocks} rows of {row_len} bytes; got {} bytes. \
+         An empty body usually means the server did not serve /public-params.",
+        data.len()
+    );
+    data.chunks_exact(row_len)
+        .map(|chunk| {
+            let mut row = crate::bits::contiguous_bytes_to_u64s(chunk, modulus_bits(q));
+            row.truncate(degree);
+            row
+        })
+        .collect()
+}
+
+/// Switch and serialize only the `c2` rows of the packed response blocks.
+#[must_use]
+pub fn serialize_rlwe_response_bodies(cts: &[RlweCiphertext<'_>], q_prime_1: u64) -> Vec<u8> {
+    let mut out = Vec::with_capacity(
+        cts.first()
+            .map(|ct| cts.len() * response_body_len(ct.inner.params.poly_len, q_prime_1))
+            .unwrap_or(0),
+    );
+    for ct in cts {
+        assert_eq!(ct.inner.rows, 2, "packed RLWE ciphertext must have 2 rows");
+        assert_eq!(
+            ct.inner.cols, 1,
+            "packed RLWE ciphertext must have 1 column"
+        );
+        let raw = from_ntt_alloc(&ct.inner);
+        let q_in = raw.params.modulus;
+        let switched: Vec<u64> = raw
+            .get_poly(1, 0)
+            .iter()
+            .map(|coeff| rescale(*coeff, q_in, q_prime_1))
+            .collect();
+        out.extend_from_slice(&crate::bits::u64s_to_contiguous_bytes(
+            &switched,
+            modulus_bits(q_prime_1),
+        ));
+    }
+    out
+}
+
+/// Recover one `c2` row from [`serialize_rlwe_response_bodies`], rescaled into `q_out`.
+#[must_use]
+pub fn recover_response_body(data: &[u8], degree: usize, q_prime_1: u64, q_out: u64) -> Vec<u64> {
+    let mut row = crate::bits::contiguous_bytes_to_u64s(data, modulus_bits(q_prime_1));
+    row.truncate(degree);
+    row.iter()
+        .map(|coeff| rescale(*coeff, q_prime_1, q_out))
+        .collect()
+}
+
 /// Serialize a vector of packed RLWE ciphertexts into a single response blob.
 #[must_use]
 pub fn serialize_rlwe_response(
@@ -190,9 +334,69 @@ pub fn serialize_rlwe_response(
 
 #[cfg(test)]
 mod tests {
+    use rand_chacha::rand_core::SeedableRng;
+    use rand_chacha::ChaCha20Rng;
+
     use super::*;
     use inspiring::{GadgetParams, RlweCiphertext, RlweParams};
     use spiral_rs::poly::{to_ntt_alloc, PolyMatrix, PolyMatrixRaw};
+
+    #[test]
+    fn query_coeff_switch_roundtrips_within_the_rounding_bound() {
+        let q = crate::params::SINGLE_CRT_Q;
+        let bits = 41;
+        let tolerance = (u128::from(q) >> bits) + 1;
+        let mut rng = ChaCha20Rng::seed_from_u64(0x5157);
+
+        for _ in 0..20_000 {
+            let coeff = rand::Rng::gen_range(&mut rng, 0..q);
+            let down = query_coeff_down(coeff, q, bits);
+            assert!(
+                down < (1 << bits),
+                "switched coefficient must fit {bits} bits"
+            );
+            let up = query_coeff_up(down, q, bits);
+            // Distance on the circle Z_q, since rounding can wrap past zero.
+            let diff = up.abs_diff(coeff);
+            let circular = u128::from(diff.min(q - diff));
+            assert!(
+                circular <= tolerance,
+                "roundtrip moved {coeff} to {up}, distance {circular} exceeds {tolerance}"
+            );
+        }
+    }
+
+    #[test]
+    fn query_coeff_switch_is_identity_at_full_width() {
+        let q = crate::params::SINGLE_CRT_Q;
+        let bits = modulus_bits(q);
+        for coeff in [0, 1, 12345, q - 1] {
+            assert_eq!(
+                query_coeff_up(query_coeff_down(coeff, q, bits), q, bits),
+                coeff
+            );
+        }
+    }
+
+    #[test]
+    fn query_modulus_bits_tracks_shape_and_never_exceeds_q() {
+        let q = crate::params::SINGLE_CRT_Q;
+        let p = crate::params::PLAINTEXT_MODULUS;
+
+        let wide = query_modulus_bits(q, p, 112_640);
+        let narrow = query_modulus_bits(q, p, 22_528);
+        assert!(
+            wide < modulus_bits(q),
+            "the production shape must save bits"
+        );
+        assert!(
+            narrow <= wide,
+            "fewer rows amplify the rounding less, so they need no more bits"
+        );
+
+        // A shape whose budget allows no reduction transmits at full width.
+        assert_eq!(query_modulus_bits(q, 1 << 27, 1 << 20), modulus_bits(q));
+    }
 
     #[test]
     fn rescale_matches_expected_rounding() {

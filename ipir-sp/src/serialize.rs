@@ -5,12 +5,20 @@
 //! top rows are derived from fixed CRS seeds by the client and server.
 
 use inspiring::{InspiringError, PackingKeys, RlweParams};
+
+use crate::bits::{contiguous_bytes_to_u64s, u64s_to_contiguous_bytes};
+use crate::modulus_switch::modulus_bits;
 use spiral_rs::poly::{PolyMatrix, PolyMatrixNTT};
 
 /// Number of bytes used by uploaded full packing-key bodies.
+///
+/// Coefficients are packed at exactly `ceil(log2 q)` bits. At the production
+/// modulus that is 56 of every 64 bits, so the previous raw-`u64` stream spent
+/// 12.5% of the key upload on zero padding.
 #[must_use]
 pub fn serialized_packing_keys_len(params: &RlweParams) -> usize {
-    2 * packing_key_body_u64_len(params) * std::mem::size_of::<u64>()
+    let bits = modulus_bits(params.q);
+    (2 * packing_key_body_u64_len(params) * bits).div_ceil(8)
 }
 
 /// Serialize uploaded packing-key bodies.
@@ -21,10 +29,10 @@ pub fn serialize_packing_keys(
     validate_packing_key_body(params, &keys.kg_body, "packing key K_g body")?;
     validate_packing_key_body(params, &keys.kh_body, "packing key K_h body")?;
 
-    let mut out = Vec::with_capacity(serialized_packing_keys_len(params));
-    write_u64s_le(&mut out, keys.kg_body.as_slice());
-    write_u64s_le(&mut out, keys.kh_body.as_slice());
-    Ok(out)
+    let mut coeffs = Vec::with_capacity(2 * packing_key_body_u64_len(params));
+    coeffs.extend_from_slice(keys.kg_body.as_slice());
+    coeffs.extend_from_slice(keys.kh_body.as_slice());
+    Ok(u64s_to_contiguous_bytes(&coeffs, modulus_bits(params.q)))
 }
 
 /// Deserialize uploaded full packing-key bodies.
@@ -40,12 +48,22 @@ pub fn deserialize_packing_keys<'a>(
         )));
     }
 
-    let coeffs = deserialize_u64s_le(data)?;
+    let coeffs = contiguous_bytes_to_u64s(data, modulus_bits(params.q));
     let body_len = packing_key_body_u64_len(params);
+    if coeffs.len() < 2 * body_len {
+        return Err(InspiringError::PreprocessMismatch(format!(
+            "serialized packing keys hold {} coefficients, expected {}",
+            coeffs.len(),
+            2 * body_len
+        )));
+    }
     let kg_body =
         packing_key_body_from_coeffs(params, &coeffs[..body_len], "packing key K_g body")?;
-    let kh_body =
-        packing_key_body_from_coeffs(params, &coeffs[body_len..], "packing key K_h body")?;
+    let kh_body = packing_key_body_from_coeffs(
+        params,
+        &coeffs[body_len..2 * body_len],
+        "packing key K_h body",
+    )?;
     Ok(PackingKeys { kg_body, kh_body })
 }
 
@@ -119,6 +137,17 @@ fn validate_packing_key_body(
         )));
     }
 
+    // Key bodies come from the client, and the fused collapse bounds its
+    // accumulator by `(d-1) * ell * (q-1)^2`. Bit-packing at `ceil(log2 q)`
+    // bits still admits values in `[q, 2^ceil(log2 q))`, so the range has to be
+    // checked rather than assumed from the wire width.
+    if let Some(bad) = body.as_slice().iter().find(|coeff| **coeff >= params.q) {
+        return Err(InspiringError::PreprocessMismatch(format!(
+            "{label} contains coefficient {bad} which is not reduced modulo q={}",
+            params.q
+        )));
+    }
+
     Ok(())
 }
 
@@ -158,13 +187,15 @@ mod tests {
     }
 
     #[test]
-    fn serialized_packing_keys_len_matches_two_body_rows() {
+    fn serialized_packing_keys_len_packs_two_body_rows_at_modulus_width() {
         let params = params();
 
         assert_eq!(
             serialized_packing_keys_len(&params),
-            2 * params.gadget.ell * params.d * 8
+            (2 * params.gadget.ell * params.d * modulus_bits(params.q)).div_ceil(8)
         );
+        // The whole point: strictly smaller than the raw `u64` stream.
+        assert!(serialized_packing_keys_len(&params) < 2 * params.gadget.ell * params.d * 8);
     }
 
     #[test]
@@ -175,23 +206,45 @@ mod tests {
         let mut rng = ChaCha20Rng::seed_from_u64(0x5154);
         let keys = PackingKeys::generate_full(&params, &secret_ntt, &mut rng);
         let bytes = serialize_packing_keys(&params, &keys).expect("serialize");
-        let body_len = packing_key_body_u64_len(&params) * 8;
+        let body_len = packing_key_body_u64_len(&params);
+        let unpacked = contiguous_bytes_to_u64s(&bytes, modulus_bits(params.q));
 
         assert_eq!(bytes.len(), serialized_packing_keys_len(&params));
         assert_eq!(
-            &bytes[..8],
-            &keys.kg_body.as_slice()[0].to_le_bytes(),
+            &unpacked[..body_len],
+            keys.kg_body.as_slice(),
             "K_g body is serialized first"
         );
         assert_eq!(
-            &bytes[body_len..body_len + 8],
-            &keys.kh_body.as_slice()[0].to_le_bytes(),
+            &unpacked[body_len..2 * body_len],
+            keys.kh_body.as_slice(),
             "K_h body follows K_g body"
         );
 
         let decoded = deserialize_packing_keys(&params, &bytes).expect("deserialize");
         assert_eq!(decoded.kg_body.as_slice(), keys.kg_body.as_slice());
         assert_eq!(decoded.kh_body.as_slice(), keys.kh_body.as_slice());
+    }
+
+    #[test]
+    fn deserialize_packing_keys_rejects_unreduced_coefficients() {
+        let params = params();
+        let body_len = packing_key_body_u64_len(&params);
+        let bits = modulus_bits(params.q);
+        // `q = 12289` needs 14 bits, so 12289..16384 is representable on the
+        // wire but not a valid reduced coefficient.
+        let mut coeffs = vec![0u64; 2 * body_len];
+        coeffs[3] = params.q;
+        let bytes = u64s_to_contiguous_bytes(&coeffs, bits);
+
+        let err = match deserialize_packing_keys(&params, &bytes) {
+            Ok(_) => panic!("unreduced coefficient must be rejected"),
+            Err(err) => err,
+        };
+        assert!(
+            format!("{err}").contains("not reduced"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

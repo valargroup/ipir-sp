@@ -1,0 +1,70 @@
+##### TREE=base 07:34:21
+### inspiring offline
+table5_param_set_1_d1024_q28_p6: chunks=4, raw_key=256 KiB (paper 60 KiB), ct=16 KiB, observed ||e||_inf=139618, paper_online=16 ms
+table5_param_set_1_d1024_q28_p6/offline_preprocess/4096
+                        time:   [9.0726 s 9.0750 s 9.0775 s]
+table5_param_set_2_d2048_q56_p15: chunks=2, raw_key=192 KiB (paper 84 KiB), ct=32 KiB, observed ||e||_inf=5252084093, paper_online=40 ms
+table5_param_set_2_d2048_q56_p15/offline_preprocess/4096
+                        time:   [17.581 s 17.592 s 17.605 s]
+### first_dim kernel
+threads=1
+first_dim/chunked_split/112640x8192
+                        time:   [236.01 ms 236.81 ms 237.65 ms]
+first_dim/avx512_u16/112640x8192
+                        time:   [224.05 ms 224.95 ms 225.85 ms]
+threads=4
+first_dim/chunked_split/112640x8192
+                        time:   [81.602 ms 82.066 ms 82.563 ms]
+first_dim/avx512_u16/112640x8192
+                        time:   [59.241 ms 59.732 ms 60.290 ms]
+threads=8
+first_dim/chunked_split/112640x8192
+                        time:   [54.678 ms 55.091 ms 55.445 ms]
+first_dim/avx512_u16/112640x8192
+                        time:   [50.751 ms 51.356 ms 51.739 ms]
+### end-to-end nullifier shape
+ipir-sp target: profile=ipir_sp_nullifier_111442_114688, rows=112640, item_bits=114688, d=2048, outputs=4, db_cols=8192, serialized_packing_keys=96 KiB, measured_packing_keys=96 KiB, measured_offline_query_polys=880 KiB, measured_online_query_packed=770 KiB, measured_fresh_query_upload=1746 KiB, cdks_upload=462 KiB, response=48 KiB, ||e_pack||_inf_bits=34, paper_noise_target_bits<=33.4, cdks_online_target=55.6 ms
+ipir-sp measured_upload_bytes: packing_keys=98304 offline_query_polys=901120 online_query_packed=788480 fresh_query_total=1787904 current_http_query=788480
+ipir-sp one_shot_server_breakdown_us: deserialize=1607 matrix_vector=54052 packing=82218 serialization=1052
+ipir_sp_nullifier_111442_114688/online_deserialize_query_only/1
+                        time:   [1.5109 ms 1.5146 ms 1.5199 ms]
+ipir_sp_nullifier_111442_114688/multiply_query_only_scalar/112640x8192
+                        time:   [5.7127 s 5.7678 s 5.8316 s]
+ipir_sp_nullifier_111442_114688/multiply_query_only_chunked_split/112640x8192
+                        time:   [53.301 ms 53.940 ms 54.312 ms]
+ipir_sp_nullifier_111442_114688/offline_crs_extract_and_preprocess/4
+                        time:   [37.558 s 37.574 s 37.590 s]
+ipir_sp_nullifier_111442_114688/online_pack_only/4
+                        time:   [82.402 ms 83.654 ms 85.237 ms]
+ipir_sp_nullifier_111442_114688/online_serialize_only/4
+                        time:   [935.95 µs 937.49 µs 940.17 µs]
+ipir_sp_nullifier_111442_114688/online_pack_and_serialize/4
+                        time:   [70.503 ms 75.768 ms 79.229 ms]
+ipir_sp_nullifier_111442_114688/client_decode_only/4
+                        time:   [1.0722 ms 1.0727 ms 1.0733 ms]
+##### TREE=new 07:52:35
+### inspiring offline
+table5_param_set_1_d1024_q28_p6: chunks=4, raw_key=256 KiB (paper 60 KiB), ct=16 KiB, observed ||e||_inf=139618, paper_online=16 ms
+table5_param_set_1_d1024_q28_p6/offline_preprocess/4096
+                        time:   [2.1676 s 2.1708 s 2.1737 s]
+table5_param_set_2_d2048_q56_p15: chunks=2, raw_key=192 KiB (paper 84 KiB), ct=32 KiB, observed ||e||_inf=5252084093, paper_online=40 ms
+table5_param_set_2_d2048_q56_p15/offline_preprocess/4096
+                        time:   [2.3405 s 2.3452 s 2.3508 s]
+### first_dim kernel
+threads=1
+first_dim/chunked_split/112640x8192
+                        time:   [234.71 ms 235.92 ms 237.08 ms]
+first_dim/avx512_u16/112640x8192
+                        time:   [219.50 ms 220.40 ms 221.28 ms]
+threads=4
+first_dim/chunked_split/112640x8192
+                        time:   [71.483 ms 72.784 ms 74.568 ms]
+first_dim/avx512_u16/112640x8192
+                        time:   [59.655 ms 60.179 ms 60.757 ms]
+threads=8
+first_dim/chunked_split/112640x8192
+                        time:   [55.144 ms 55.346 ms 55.586 ms]
+first_dim/avx512_u16/112640x8192
+                        time:   [50.521 ms 50.690 ms 50.912 ms]
+### end-to-end nullifier shape
+##### DONE 07:56:24

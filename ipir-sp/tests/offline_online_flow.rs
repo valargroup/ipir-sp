@@ -1,7 +1,9 @@
 use inspiring::{GadgetParams, PackingKeys, RlweParams, TopKeyImages};
 use ipir_sp::client::{ClientSecret, IPIRClient, IPIRSimpleQuery};
-use ipir_sp::modulus_switch::{recover_rlwe_rows, switched_rlwe_response_len};
-use ipir_sp::server::{build_pack_preprocessed_blocks, offline_precompute_from_hint, YServer};
+use ipir_sp::modulus_switch::{recover_published_c1, recover_response_body, response_body_len};
+use ipir_sp::server::{
+    build_pack_preprocessed_blocks, offline_precompute_from_hint, published_c1_rows, YServer,
+};
 use ipir_sp::YpirSchemeParams;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -50,6 +52,9 @@ fn tiny_ypir() -> YpirSchemeParams {
         q2_bits: 8,
         t_exp_left: 3,
         t_exp_right: 2,
+        // Tiny fixtures exercise exact arithmetic, so they transmit the
+        // query at full precision.
+        query_bits: 14,
     }
 }
 
@@ -69,6 +74,9 @@ fn tiny_ypir_two_outputs() -> YpirSchemeParams {
         q2_bits: 8,
         t_exp_left: 3,
         t_exp_right: 2,
+        // Tiny fixtures exercise exact arithmetic, so they transmit the
+        // query at full precision.
+        query_bits: 14,
     }
 }
 
@@ -179,13 +187,9 @@ fn client_keys_drive_server_online_response_serialization() {
     let query = [1, 0, 0, 0];
     let response = answer_with_packing_keys(&server, &rlwe, &query, &keys, &top_keys, &pre);
 
-    assert_eq!(
-        response.len(),
-        switched_rlwe_response_len(rlwe.d, ypir.q_prime_1, ypir.q_prime_2)
-    );
+    assert_eq!(response.len(), response_body_len(rlwe.d, ypir.q_prime_1));
 
-    let (_row_0, row_1) =
-        recover_rlwe_rows(&response, rlwe.d, ypir.q_prime_1, ypir.q_prime_2, rlwe.q);
+    let row_1 = recover_response_body(&response, rlwe.d, ypir.q_prime_1, rlwe.q);
     let expected_intermediate = server.multiply_query(&rlwe, &query);
     let expected_row_1: Vec<_> = expected_intermediate
         .iter()
@@ -219,7 +223,7 @@ fn online_response_uses_one_uploaded_packing_key_for_all_outputs() {
 
     assert_eq!(
         response.len(),
-        2 * switched_rlwe_response_len(rlwe.d, ypir.q_prime_1, ypir.q_prime_2)
+        2 * response_body_len(rlwe.d, ypir.q_prime_1)
     );
 }
 
@@ -254,7 +258,7 @@ fn generated_offline_hint_feeds_preprocessing_and_online_response() {
 
     assert_eq!(
         response.len(),
-        2 * switched_rlwe_response_len(rlwe.d, ypir.q_prime_1, ypir.q_prime_2)
+        2 * response_body_len(rlwe.d, ypir.q_prime_1)
     );
 }
 
@@ -290,12 +294,17 @@ fn mocked_db_query_decodes_exact_expected_row_bytes() {
     query[target_row] = 1;
     let response = answer_with_packing_keys(&server, &rlwe, &query, &keys, &top_keys, &pre);
 
-    let response_len = switched_rlwe_response_len(rlwe.d, ypir.q_prime_1, ypir.q_prime_2);
+    let response_len = response_body_len(rlwe.d, ypir.q_prime_1);
+    let published_c1 = recover_published_c1(
+        &published_c1_rows(&pre, rlwe.q),
+        rlwe.d,
+        ypir.db_cols / rlwe.d,
+        rlwe.q,
+    );
     let mut decoded = Vec::with_capacity(ypir.db_cols);
-    for chunk in response.chunks_exact(response_len) {
-        let (row_0, row_1) =
-            recover_rlwe_rows(chunk, rlwe.d, ypir.q_prime_1, ypir.q_prime_2, rlwe.q);
-        decoded.extend(decode_rows(&rlwe, &row_0, &row_1, &zero_secret.coeffs));
+    for (chunk, row_0) in response.chunks_exact(response_len).zip(&published_c1) {
+        let row_1 = recover_response_body(chunk, rlwe.d, ypir.q_prime_1, rlwe.q);
+        decoded.extend(decode_rows(&rlwe, row_0, &row_1, &zero_secret.coeffs));
     }
 
     let expected = db_bytes[target_row * ypir.db_cols..(target_row + 1) * ypir.db_cols].to_vec();
@@ -339,12 +348,17 @@ fn encrypted_pir_query_decodes_exact_expected_row_bytes() {
     );
     let response = answer_with_packing_keys(&server, &rlwe, &query, &keys, &top_keys, &pre);
 
-    let response_len = switched_rlwe_response_len(rlwe.d, ypir.q_prime_1, ypir.q_prime_2);
+    let response_len = response_body_len(rlwe.d, ypir.q_prime_1);
+    let published_c1 = recover_published_c1(
+        &published_c1_rows(&pre, rlwe.q),
+        rlwe.d,
+        ypir.db_cols / rlwe.d,
+        rlwe.q,
+    );
     let mut decoded = Vec::with_capacity(ypir.db_cols);
-    for chunk in response.chunks_exact(response_len) {
-        let (row_0, row_1) =
-            recover_rlwe_rows(chunk, rlwe.d, ypir.q_prime_1, ypir.q_prime_2, rlwe.q);
-        decoded.extend(decode_rows(&rlwe, &row_0, &row_1, &secret.coeffs));
+    for (chunk, row_0) in response.chunks_exact(response_len).zip(&published_c1) {
+        let row_1 = recover_response_body(chunk, rlwe.d, ypir.q_prime_1, rlwe.q);
+        decoded.extend(decode_rows(&rlwe, row_0, &row_1, &secret.coeffs));
     }
 
     let expected = db_bytes[target_row * ypir.db_cols..(target_row + 1) * ypir.db_cols].to_vec();
@@ -382,7 +396,13 @@ fn ipir_client_facade_matches_server_full_online_shape() {
             &pre,
         )
         .expect("full online response");
-    let decoded = client.decode_response_simplepir_raw(client_seed, &response);
+    let published_c1 = recover_published_c1(
+        &published_c1_rows(&pre, rlwe.q),
+        rlwe.d,
+        ypir.db_cols / rlwe.d,
+        rlwe.q,
+    );
+    let decoded = client.decode_response_simplepir_raw(client_seed, &published_c1, &response);
     let expected = db_values[6 * ypir.db_cols..7 * ypir.db_cols].to_vec();
 
     assert_eq!(query.as_slice().len(), ypir.db_rows);

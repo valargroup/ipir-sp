@@ -51,6 +51,13 @@ async fn meta(data: web::Data<AppState>) -> impl Responder {
     })
 }
 
+#[get("/public-params")]
+async fn public_params(data: web::Data<AppState>) -> impl Responder {
+    HttpResponse::Ok()
+        .content_type("application/octet-stream")
+        .body(data.backend.public_params())
+}
+
 #[post("/query")]
 async fn query(body: web::Bytes, data: web::Data<AppState>) -> actix_web::Result<HttpResponse> {
     let started = Instant::now();
@@ -103,6 +110,7 @@ pub async fn serve(
             .app_data(web::PayloadConfig::new(1usize << 32))
             .service(health)
             .service(meta)
+            .service(public_params)
             .service(query)
     })
     .workers(1)

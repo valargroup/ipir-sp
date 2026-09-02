@@ -17,7 +17,7 @@ use spiral_rs::poly::{
 use std::time::Duration;
 
 use crate::client::IPIRSimpleQuery;
-use crate::modulus_switch::serialize_rlwe_response;
+use crate::modulus_switch::serialize_rlwe_response_bodies;
 use crate::params::YpirSchemeParams;
 
 /// A YPIR-formatted server database.
@@ -350,8 +350,9 @@ where
         let packing = packing_started.elapsed();
 
         let serialization_started = std::time::Instant::now();
-        let response =
-            serialize_rlwe_response(&packed, self.params.q_prime_1, self.params.q_prime_2);
+        // Only `c2` goes back; `c1` is the snapshot-constant row served from
+        // `published_c1_rows`.
+        let response = serialize_rlwe_response_bodies(&packed, self.params.q_prime_1);
         let serialization = serialization_started.elapsed();
 
         Ok((
@@ -371,9 +372,9 @@ where
         query: &[u8],
     ) -> Result<Vec<u64>, InspiringError> {
         let rows = self.db_rows_padded();
-        let first_dim_query = IPIRSimpleQuery::from_packed_bytes(query, rows, rlwe.q)?
-            .as_slice()
-            .to_vec();
+        let first_dim_query =
+            IPIRSimpleQuery::from_switched_bytes(query, rows, rlwe.q, self.params.query_bits)?
+                .into_first_dim();
 
         if first_dim_query.len() != self.db_rows_padded() {
             return Err(InspiringError::LweShape(format!(
@@ -540,6 +541,28 @@ pub fn build_pack_preprocessed_blocks<'a>(
         .collect()
 }
 
+/// Serialize the snapshot-constant `c1` row of every output block.
+///
+/// `QueryPackPreprocessed::collapse_a_final_ntt` is derived from the CRS and
+/// the fixed reference seeds alone, so it is the same for every client and
+/// every query against a snapshot. Publishing it once with the server metadata
+/// removes it from every response — at the production shape that is 28,672 of
+/// the 49,152 response bytes — and lets it be sent at full precision, which
+/// also drops the rounding term it used to add to the client's noise.
+#[must_use]
+pub fn published_c1_rows(preprocessed: &[QueryPackPreprocessed<'_>], q: u64) -> Vec<u8> {
+    let bits = crate::modulus_switch::modulus_bits(q);
+    let mut out = Vec::new();
+    for pre in preprocessed {
+        let raw = from_ntt_alloc(&pre.collapse_a_final_ntt);
+        out.extend_from_slice(&crate::bits::u64s_to_contiguous_bytes(
+            raw.get_poly(0, 0),
+            bits,
+        ));
+    }
+    out
+}
+
 /// Pack online SimplePIR intermediate values using uploaded packing-key bodies.
 pub fn pack_intermediate_blocks<'a>(
     intermediate: &[u64],
@@ -632,7 +655,7 @@ mod tests {
     use spiral_rs::poly::{from_ntt_alloc, to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw};
 
     use crate::client::IPIRSimpleQuery;
-    use crate::modulus_switch::{recover_rlwe_rows, switched_rlwe_response_len};
+    use crate::modulus_switch::{recover_response_body, response_body_len};
 
     use super::*;
 
@@ -666,6 +689,9 @@ mod tests {
             q2_bits: 8,
             t_exp_left: 3,
             t_exp_right: 2,
+            // Tiny fixtures exercise exact arithmetic, so they transmit the
+            // query at full precision.
+            query_bits: 14,
         }
     }
 
@@ -973,13 +999,9 @@ mod tests {
             )
             .expect("online response");
 
-        assert_eq!(
-            response.len(),
-            switched_rlwe_response_len(rlwe.d, ypir.q_prime_1, ypir.q_prime_2)
-        );
+        assert_eq!(response.len(), response_body_len(rlwe.d, ypir.q_prime_1));
 
-        let (_row_0, row_1) =
-            recover_rlwe_rows(&response, rlwe.d, ypir.q_prime_1, ypir.q_prime_2, rlwe.q);
+        let row_1 = recover_response_body(&response, rlwe.d, ypir.q_prime_1, rlwe.q);
         let expected_intermediate = server.multiply_query(&rlwe, &[1, 0, 0, 0]);
         let expected_row_1: Vec<_> = expected_intermediate
             .iter()

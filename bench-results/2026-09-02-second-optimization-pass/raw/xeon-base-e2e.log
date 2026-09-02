@@ -1,0 +1,19 @@
+ipir-sp target: profile=ipir_sp_nullifier_111442_114688, rows=112640, item_bits=114688, d=2048, outputs=4, db_cols=8192, serialized_packing_keys=96 KiB, measured_packing_keys=96 KiB, measured_offline_query_polys=880 KiB, measured_online_query_packed=770 KiB, measured_fresh_query_upload=1746 KiB, cdks_upload=462 KiB, response=48 KiB, ||e_pack||_inf_bits=34, paper_noise_target_bits<=33.4, cdks_online_target=55.6 ms
+ipir-sp measured_upload_bytes: packing_keys=98304 offline_query_polys=901120 online_query_packed=788480 fresh_query_total=1787904 current_http_query=788480
+ipir-sp one_shot_server_breakdown_us: deserialize=1607 matrix_vector=54052 packing=82218 serialization=1052
+ipir_sp_nullifier_111442_114688/online_deserialize_query_only/1
+                        time:   [1.5109 ms 1.5146 ms 1.5199 ms]
+ipir_sp_nullifier_111442_114688/multiply_query_only_scalar/112640x8192
+                        time:   [5.7127 s 5.7678 s 5.8316 s]
+ipir_sp_nullifier_111442_114688/multiply_query_only_chunked_split/112640x8192
+                        time:   [53.301 ms 53.940 ms 54.312 ms]
+ipir_sp_nullifier_111442_114688/offline_crs_extract_and_preprocess/4
+                        time:   [37.558 s 37.574 s 37.590 s]
+ipir_sp_nullifier_111442_114688/online_pack_only/4
+                        time:   [82.402 ms 83.654 ms 85.237 ms]
+ipir_sp_nullifier_111442_114688/online_serialize_only/4
+                        time:   [935.95 µs 937.49 µs 940.17 µs]
+ipir_sp_nullifier_111442_114688/online_pack_and_serialize/4
+                        time:   [70.503 ms 75.768 ms 79.229 ms]
+ipir_sp_nullifier_111442_114688/client_decode_only/4
+                        time:   [1.0722 ms 1.0727 ms 1.0733 ms]

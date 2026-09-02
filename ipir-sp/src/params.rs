@@ -68,6 +68,12 @@ pub struct YpirSchemeParams {
     pub t_exp_left: usize,
     /// Right expansion gadget width retained for wire compatibility notes.
     pub t_exp_right: usize,
+    /// Bit width the first-dimension query is transmitted at.
+    ///
+    /// Derived from `(q, p, db_rows)` by
+    /// [`crate::modulus_switch::query_modulus_bits`]; it must be recomputed
+    /// whenever the shape changes, never copied across parameter sets.
+    pub query_bits: usize,
 }
 
 /// Return `(inspiring::RlweParams, YpirSchemeParams)` for YPIR's SimplePIR scenario.
@@ -122,6 +128,11 @@ pub fn params_for_simplepir(
         q2_bits: Q2_BITS,
         t_exp_left: T_EXP_LEFT,
         t_exp_right: T_EXP_RIGHT,
+        query_bits: crate::modulus_switch::query_modulus_bits(
+            SINGLE_CRT_Q,
+            PLAINTEXT_MODULUS,
+            db_rows as usize,
+        ),
     };
 
     Ok((rlwe, ypir))
