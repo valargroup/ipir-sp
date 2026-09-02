@@ -1,4 +1,5 @@
 use crate::FirstDimKernel;
+use rayon::prelude::*;
 use spiral_rs::arith::barrett_reduction_u128;
 
 /// AVX512 first-dimension kernel specialized for `u16` database columns.
@@ -62,12 +63,30 @@ impl FirstDimKernel<u16> for U16Avx512Kernel {
         );
 
         let chunk_rows = self.chunk_rows.min(rows_padded).max(8);
+        let band_cols = crate::band_cols::<u16>(rows_padded, cols);
 
-        // SAFETY: CPU support is checked above, and all slices/shapes have been
-        // validated. The implementation uses unaligned vector loads/stores.
-        unsafe {
-            multiply_query_avx512_u16(rlwe, db, rows_padded, cols, query, out, chunk_rows);
-        }
+        // Column bands are disjoint and contiguous in a column-major database,
+        // so each task owns its own database stripe and output slice outright.
+        out[..cols]
+            .par_chunks_mut(band_cols)
+            .zip(db[..cols * rows_padded].par_chunks(band_cols * rows_padded))
+            .for_each(|(out_band, db_band)| {
+                // SAFETY: CPU support is checked above, and every slice/shape
+                // has been validated; each band is `out_band.len()` whole
+                // columns of `rows_padded` elements. The implementation uses
+                // unaligned vector loads/stores.
+                unsafe {
+                    multiply_query_avx512_u16(
+                        rlwe,
+                        db_band,
+                        rows_padded,
+                        out_band.len(),
+                        query,
+                        out_band,
+                        chunk_rows,
+                    );
+                }
+            });
     }
 }
 

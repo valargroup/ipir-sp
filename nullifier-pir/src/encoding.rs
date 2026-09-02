@@ -2,7 +2,20 @@
 
 pub const NULLIFIER_BYTES: usize = 32;
 pub const SIMPLEPIR_COEFF_BITS: usize = 14;
-pub const SIMPLEPIR_COEFFS_PER_ITEM: usize = 2048;
+
+/// RLWE output blocks per PIR row, i.e. YPIR's `instances`.
+///
+/// Upload scales with the row count and download with the column count, while
+/// their product — the plaintext coefficient count — is fixed by the dataset.
+/// One instance per row leaves the 49.9M-nullifier snapshot at 524288x2048, a
+/// 256:1 upload skew that put 3.5 MB of first-dimension query on the wire. Four
+/// instances rebalance that to 112640x8192: 770 KB up, 48 KB down, same
+/// database size and (slightly less) matrix-vector work. It also gives
+/// `pack_intermediate_blocks` four blocks to spread across cores instead of one.
+pub const SIMPLEPIR_INSTANCES_PER_ITEM: usize = 4;
+
+/// Plaintext coefficients per PIR row: `instances * poly_len`.
+pub const SIMPLEPIR_COEFFS_PER_ITEM: usize = SIMPLEPIR_INSTANCES_PER_ITEM * 2048;
 pub const ITEM_BYTES: usize = SIMPLEPIR_COEFF_BITS * SIMPLEPIR_COEFFS_PER_ITEM / 8;
 pub const NULLIFIERS_PER_ITEM: usize = ITEM_BYTES / NULLIFIER_BYTES;
 pub const ITEM_SIZE_BITS: u64 = (ITEM_BYTES * 8) as u64;
@@ -105,9 +118,13 @@ mod tests {
 
     #[test]
     fn constants_pack_exactly_one_simplepir_item() {
-        assert_eq!(ITEM_BYTES, 3584);
-        assert_eq!(NULLIFIERS_PER_ITEM, 112);
-        assert_eq!(ITEM_SIZE_BITS, 28_672);
+        assert_eq!(SIMPLEPIR_COEFFS_PER_ITEM, 8192);
+        assert_eq!(ITEM_BYTES, 14_336);
+        assert_eq!(NULLIFIERS_PER_ITEM, 448);
+        assert_eq!(ITEM_SIZE_BITS, 114_688);
+        // The row must fill whole plaintext coefficients exactly, otherwise the
+        // tail coefficient is partially populated and `instances` is wrong.
+        assert_eq!(SIMPLEPIR_COEFF_BITS * SIMPLEPIR_COEFFS_PER_ITEM % 8, 0);
     }
 
     #[test]
@@ -134,8 +151,15 @@ mod tests {
 
     #[test]
     fn extracts_nullifier_by_global_index_mapping() {
-        let (row, offset) = nullifier_offset(113);
+        // Expressed in terms of the packing constant so the mapping stays
+        // pinned when the instance count is re-tuned.
+        let (row, offset) = nullifier_offset(NULLIFIERS_PER_ITEM + 1);
         assert_eq!((row, offset), (1, 1));
+        assert_eq!(
+            nullifier_offset(NULLIFIERS_PER_ITEM - 1),
+            (0, NULLIFIERS_PER_ITEM - 1)
+        );
+        assert_eq!(nullifier_offset(NULLIFIERS_PER_ITEM), (1, 0));
 
         let mut item = vec![0u8; ITEM_BYTES];
         item[32..64].copy_from_slice(&[7u8; 32]);

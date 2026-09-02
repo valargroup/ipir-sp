@@ -765,23 +765,48 @@ fn a_tilde_coeffs(params: &RlweParams, a: &[u64]) -> Vec<u64> {
     out
 }
 
+/// Accumulate `X^shift * tau_exponent(poly)` into `out`, modulo `q`.
+///
+/// This is the innermost loop of [`build_a_agg`] and runs `d^3` times per CRS
+/// block, so it avoids hardware division entirely:
+///
+/// - `poly` is an `a_tilde`, and [`a_tilde_coeffs`] already reduces every
+///   coefficient modulo `q`, so no input reduction is needed.
+/// - `2d` is a power of two, so the exponent wrap is a mask rather than a `%`.
+/// - both addends are already below `q`, so the accumulation is a conditional
+///   subtract rather than a 128-bit modulo.
+///
+/// # Panics
+///
+/// Panics in debug builds if `out.len()` is not a power of two, or if any
+/// coefficient of `poly` is not already reduced modulo `q`.
 fn add_shifted_tau(out: &mut [u64], poly: &[u64], exponent: u64, shift: usize, q: u64) {
     let d = out.len();
-    let two_d = 2 * d as u64;
+    debug_assert!(
+        d.is_power_of_two(),
+        "add_shifted_tau requires power-of-two d"
+    );
+    debug_assert!(
+        poly.iter().all(|coeff| *coeff < q),
+        "add_shifted_tau expects a_tilde coefficients already reduced mod q"
+    );
+
+    let d_u64 = d as u64;
+    let two_d_mask = 2 * d_u64 - 1;
 
     for (source_idx, coeff) in poly.iter().enumerate() {
-        let reduced = *coeff % q;
+        let reduced = *coeff;
         if reduced == 0 {
             continue;
         }
 
-        let exp = (source_idx as u64 * exponent) % two_d;
-        let mut idx = if exp < d as u64 {
+        let exp = (source_idx as u64 * exponent) & two_d_mask;
+        let mut idx = if exp < d_u64 {
             exp as usize
         } else {
-            (exp - d as u64) as usize
+            (exp - d_u64) as usize
         };
-        let mut negate = exp >= d as u64;
+        let mut negate = exp >= d_u64;
 
         idx += shift;
         if idx >= d {
@@ -790,7 +815,8 @@ fn add_shifted_tau(out: &mut [u64], poly: &[u64], exponent: u64, shift: usize, q
         }
 
         let term = if negate { q - reduced } else { reduced };
-        out[idx] = ((u128::from(out[idx]) + u128::from(term)) % u128::from(q)) as u64;
+        let sum = out[idx] + term;
+        out[idx] = if sum >= q { sum - q } else { sum };
     }
 }
 

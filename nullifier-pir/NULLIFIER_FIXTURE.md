@@ -29,7 +29,10 @@ Known existing nullifier from the middle of the 100 MiB fixture:
 ```
 
 It is record `1,638,400` in both files, byte offset `52,428,800` in the
-snapshot prefix. It maps to PIR row `14,628`, offset `64`.
+snapshot prefix. At `448` nullifiers per PIR row it maps to PIR row `3,657`,
+offset `64`. (It was row `14,628`, offset `64` under the old 112-per-row
+packing; the offset is unchanged only because `1,638,400` is a multiple of
+`64`.)
 
 Known absent nullifier checked against both the 100 MiB fixture and the full
 snapshot:

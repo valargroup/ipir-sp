@@ -8,8 +8,10 @@
 //!
 //! By default the fixture uses a smaller `d = 64` shape that runs on ordinary
 //! development machines. Set `IPIR_SP_BENCH_MID=1` for a `d = 1024` profile,
-//! or `IPIR_SP_BENCH_FULL=1` to attempt the headline YPIR command shape:
-//! `cargo run --release -- 32768 131072`.
+//! `IPIR_SP_BENCH_FULL=1` to attempt the headline YPIR command shape
+//! (`cargo run --release -- 32768 131072`), or `IPIR_SP_BENCH_NULLIFIER=1` for
+//! the production nullifier shape (112,640 x 8,192), which is the only profile
+//! that exercises a first dimension as tall as the deployed server's.
 //!
 //! The SimplePIR first-dimension multiply is benchmarked separately from the
 //! InspiRING packing boundary so changes to the DB/query kernel are visible.
@@ -36,6 +38,12 @@ use inspiring::{GadgetParams, PackingKeys, QueryPackPreprocessed, RlweParams, To
 
 const NUM_ITEMS: u64 = 32_768;
 const ITEM_SIZE_BITS: u64 = 131_072;
+
+/// Production nullifier shape: 49,925,853 records at 448 per row, four
+/// instances. None of the other profiles has a first dimension anywhere near
+/// this tall, which is why the real matrix-vector hot spot went unbenchmarked.
+const NULLIFIER_NUM_ITEMS: u64 = 111_442;
+const NULLIFIER_ITEM_SIZE_BITS: u64 = 114_688;
 const SEED: u64 = 0x5950_4952_5350;
 const YPIR_CDKS_UPLOAD_KIB: usize = 462;
 const YPIR_CDKS_ONLINE_MS: f64 = 55.6;
@@ -146,8 +154,28 @@ fn full_spec() -> BenchSpec {
     }
 }
 
+fn nullifier_spec() -> BenchSpec {
+    BenchSpec {
+        name: "ipir_sp_nullifier_111442_114688",
+        rows: NULLIFIER_NUM_ITEMS as usize,
+        item_size_bits: NULLIFIER_ITEM_SIZE_BITS,
+        degree: 2048,
+        q: SINGLE_CRT_Q,
+        p: PLAINTEXT_MODULUS,
+        sigma: 6.4,
+        gadget: GadgetParams {
+            bits_per: 19,
+            ell: 3,
+        },
+        q_prime_1: Q_PRIME_1,
+        q_prime_2: Q_PRIME_2,
+    }
+}
+
 fn selected_spec() -> BenchSpec {
-    if std::env::var_os("IPIR_SP_BENCH_FULL").is_some() {
+    if std::env::var_os("IPIR_SP_BENCH_NULLIFIER").is_some() {
+        nullifier_spec()
+    } else if std::env::var_os("IPIR_SP_BENCH_FULL").is_some() {
         full_spec()
     } else if std::env::var_os("IPIR_SP_BENCH_MID").is_some() {
         MID_SPEC
@@ -166,6 +194,14 @@ fn params_for_spec(spec: BenchSpec) -> (RlweParams, YpirSchemeParams) {
     if spec.degree == 2048 && spec.rows as u64 == NUM_ITEMS && spec.item_size_bits == ITEM_SIZE_BITS
     {
         return params_for_simplepir(NUM_ITEMS, ITEM_SIZE_BITS).expect("target params are valid");
+    }
+
+    if spec.degree == 2048
+        && spec.rows as u64 == NULLIFIER_NUM_ITEMS
+        && spec.item_size_bits == NULLIFIER_ITEM_SIZE_BITS
+    {
+        return params_for_simplepir(NULLIFIER_NUM_ITEMS, NULLIFIER_ITEM_SIZE_BITS)
+            .expect("nullifier params are valid");
     }
 
     let rlwe = RlweParams::new(spec.degree, spec.q, spec.p, spec.sigma, spec.gadget)

@@ -7,6 +7,7 @@
 use inspiring::{PackingKeys, RlweParams};
 use rand::{Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
+use spiral_rs::discrete_gaussian::DiscreteGaussian;
 use spiral_rs::poly::{
     from_ntt_alloc, multiply, to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw,
 };
@@ -202,6 +203,7 @@ impl IPIRClient {
             &secret.coeffs,
             target_row,
             self.ypir.db_rows,
+            &mut rng,
         );
 
         (IPIRSimpleQuery::new(first_dim), packing_keys, client_seed)
@@ -252,15 +254,26 @@ impl IPIRClient {
     }
 }
 
+/// Encrypt the one-hot row selector as `db_rows` scalar RLWE bodies.
+///
+/// Each entry is `b[row] = delta * [row == target_row] + e[row] - <a * X^j, s>`.
+/// The mask side `a` is public — both peers derive it from the shared setup
+/// seed — so the error term `e` is what makes the query hiding. Without it the
+/// server recovers `s` by linear algebra from any block that does not contain
+/// the target, and then reads `target_row` straight off the remaining block.
 fn encrypted_selection_query(
     params: &RlweParams,
     offline_query: &[Vec<u64>],
     secret: &[u64],
     target_row: usize,
     db_rows: usize,
+    rng: &mut ChaCha20Rng,
 ) -> Vec<u64> {
     assert_eq!(db_rows % params.d, 0);
     assert_eq!(offline_query.len(), db_rows / params.d);
+
+    // spiral-rs parameterizes the sampler by width, not by standard deviation.
+    let dg = DiscreteGaussian::init(params.sigma_chi * std::f64::consts::TAU.sqrt());
 
     let mut query = vec![0u64; db_rows];
     let secret_ntt = polynomial_to_ntt(params, secret);
@@ -269,11 +282,35 @@ fn encrypted_selection_query(
         for (coeff_idx, inner) in inner_products.iter().enumerate() {
             let row = block_idx * params.d + coeff_idx;
             let encoded_selection = if row == target_row { params.delta } else { 0 };
-            query[row] = sub_mod(encoded_selection, *inner, params.q);
+            let noised = add_mod(
+                encoded_selection,
+                sample_error(&dg, rng, params.q),
+                params.q,
+            );
+            query[row] = sub_mod(noised, *inner, params.q);
         }
     }
 
     query
+}
+
+/// Sample one centred discrete-Gaussian error, reduced into `[0, modulus)`.
+fn sample_error(dg: &DiscreteGaussian, rng: &mut ChaCha20Rng, modulus: u64) -> u64 {
+    let sample = dg.sample(modulus, rng);
+    debug_assert!(sample < modulus);
+    sample
+}
+
+/// Return `lhs + rhs mod modulus` for already-reduced inputs.
+fn add_mod(lhs: u64, rhs: u64, modulus: u64) -> u64 {
+    debug_assert!(lhs < modulus);
+    debug_assert!(rhs < modulus);
+    let sum = lhs + rhs;
+    if sum >= modulus {
+        sum - modulus
+    } else {
+        sum
+    }
 }
 
 /// Convert one coefficient-form polynomial into the RLWE NTT domain.
@@ -652,11 +689,59 @@ mod tests {
         let target_row = 11;
         let db_rows = offline_query.len() * params.d;
 
-        let query =
-            encrypted_selection_query(&params, &offline_query, &secret, target_row, db_rows);
+        let mut rng = ChaCha20Rng::from_seed([3u8; 32]);
+        let query = encrypted_selection_query(
+            &params,
+            &offline_query,
+            &secret,
+            target_row,
+            db_rows,
+            &mut rng,
+        );
         let expected =
             scalar_encrypted_selection_query(&params, &offline_query, &secret, target_row, db_rows);
 
-        assert_eq!(query, expected);
+        // The NTT path must reproduce the scalar mask arithmetic exactly; the
+        // only permitted difference is the freshly sampled error term, which is
+        // bounded by `NUM_WIDTHS * sigma_chi * sqrt(2*pi)` (~32 at sigma 3.2).
+        assert_eq!(query.len(), expected.len());
+        for (row, (actual, want)) in query.iter().zip(expected.iter()).enumerate() {
+            let centered = centered_difference(*actual, *want, params.q);
+            assert!(
+                centered.abs() <= 64,
+                "row {row}: error {centered} exceeds the discrete-Gaussian bound"
+            );
+        }
+    }
+
+    /// Return `lhs - rhs mod q` mapped into `(-q/2, q/2]`.
+    fn centered_difference(lhs: u64, rhs: u64, q: u64) -> i64 {
+        let diff = sub_mod(lhs, rhs, q);
+        if diff > q / 2 {
+            -((q - diff) as i64)
+        } else {
+            diff as i64
+        }
+    }
+
+    #[test]
+    fn encrypted_selection_query_is_randomized() {
+        let params = params();
+        let offline_query = vec![
+            vec![5, 9, 0, 12280, 17, 42, 100, 2],
+            vec![3, 1, 4, 1, 5, 9, 2, 6],
+        ];
+        let secret = vec![3, 1, 7, 11, 13, 19, 23, 29];
+        let db_rows = offline_query.len() * params.d;
+
+        // Same public setup, same secret, same target row: without an error term
+        // the query is a deterministic function of those inputs, and the server
+        // can solve for the secret and recover the target row.
+        let build = |seed: [u8; 32]| {
+            let mut rng = ChaCha20Rng::from_seed(seed);
+            encrypted_selection_query(&params, &offline_query, &secret, 11, db_rows, &mut rng)
+        };
+
+        assert_ne!(build([1u8; 32]), build([2u8; 32]));
     }
 }

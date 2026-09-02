@@ -1,5 +1,13 @@
 use crate::{FirstDimKernel, ToU64};
+use rayon::prelude::*;
 use spiral_rs::arith::barrett_reduction_u128;
+
+/// Minimum database bytes handed to one rayon task.
+///
+/// Column bands are sized so each task streams a contiguous multi-megabyte
+/// stripe. Splitting finer would trade DRAM bandwidth — the actual ceiling for
+/// this kernel — for scheduling overhead.
+pub const MIN_BAND_BYTES: usize = 1 << 21;
 
 /// Default delayed-reduction window for the portable split kernel.
 ///
@@ -16,11 +24,13 @@ pub const DEFAULT_CHUNK_ROWS: usize = 1 << 16;
 /// accumulate products in `u64` over a bounded row window, and perform one
 /// Barrett reduction per window instead of per database element.
 ///
-/// The implementation is safe Rust and does not use rayon or architecture
-/// intrinsics. For `u8`, `u16`, and `u32` databases it uses the chunked
-/// split-accumulation path. For element types whose maximum value would make
-/// one limb product overflow `u64` (currently `u64`), it conservatively falls
-/// back to the scalar reference algorithm.
+/// The implementation is safe Rust and uses no architecture intrinsics. Column
+/// bands are evaluated in parallel with rayon: the database is column-major, so
+/// a band is a contiguous, disjoint slice writing a disjoint output slice, and
+/// no reduction or synchronization is needed. For `u8`, `u16`, and `u32`
+/// databases it uses the chunked split-accumulation path. For element types
+/// whose maximum value would make one limb product overflow `u64` (currently
+/// `u64`), it conservatively falls back to the scalar reference algorithm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkedSplitKernel {
     /// Rows per delayed-reduction window.
@@ -82,26 +92,36 @@ where
 
         out.fill(0);
 
+        let band_cols = crate::band_cols::<T>(rows_padded, cols);
+
+        // Row chunks stay the outer, sequential loop: the query window for one
+        // chunk is small enough to stay resident while every column streams past
+        // it. Inverting the nest would re-read the whole query once per column.
         let mut row_start = 0;
         while row_start < rows_padded {
             let row_end = (row_start + chunk_rows).min(rows_padded);
 
-            for (col, out_col) in out.iter_mut().enumerate().take(cols) {
-                let col_offset = col * rows_padded;
-                let mut total_lo = 0u64;
-                let mut total_hi = 0u64;
+            out[..cols]
+                .par_chunks_mut(band_cols)
+                .zip(db[..cols * rows_padded].par_chunks(band_cols * rows_padded))
+                .for_each(|(out_band, db_band)| {
+                    for (band_col, out_col) in out_band.iter_mut().enumerate() {
+                        let col_offset = band_col * rows_padded;
+                        let mut total_lo = 0u64;
+                        let mut total_hi = 0u64;
 
-                for row in row_start..row_end {
-                    let query_val = query[row];
-                    let db_val = db[col_offset + row].to_u64();
-                    total_lo += ((query_val as u32) as u64) * db_val;
-                    total_hi += (query_val >> 32) * db_val;
-                }
+                        for row in row_start..row_end {
+                            let query_val = query[row];
+                            let db_val = db_band[col_offset + row].to_u64();
+                            total_lo += ((query_val as u32) as u64) * db_val;
+                            total_hi += (query_val >> 32) * db_val;
+                        }
 
-                let chunk_sum = (total_lo as u128) + ((total_hi as u128) << 32);
-                let chunk_reduced = barrett_reduction_u128(&rlwe.spiral, chunk_sum);
-                *out_col = add_mod(*out_col, chunk_reduced, rlwe.q);
-            }
+                        let chunk_sum = (total_lo as u128) + ((total_hi as u128) << 32);
+                        let chunk_reduced = barrett_reduction_u128(&rlwe.spiral, chunk_sum);
+                        *out_col = add_mod(*out_col, chunk_reduced, rlwe.q);
+                    }
+                });
 
             row_start = row_end;
         }
@@ -229,6 +249,23 @@ mod tests {
         for rows in [15, 16, 17, 31, 32, 33] {
             compare::<u16, _>(rows, 3, 16, |rng| rng.gen_range(0..(1 << 14)));
         }
+    }
+
+    /// The column loop is split across rayon tasks, so the shapes above (which
+    /// all fit in a single band) do not exercise the parallel path. This one
+    /// forces many bands and several row chunks at once.
+    #[test]
+    fn chunked_split_matches_scalar_across_many_parallel_bands() {
+        let rows = 512;
+        let cols = 257;
+        assert!(
+            crate::band_cols::<u16>(rows, cols) < cols,
+            "shape must split into more than one column band"
+        );
+
+        // chunk_rows below `rows` also forces the sequential outer chunk loop,
+        // so this covers accumulation across chunks inside a parallel band.
+        compare::<u16, _>(rows, cols, 100, |rng| rng.gen_range(0..(1 << 14)));
     }
 
     #[test]

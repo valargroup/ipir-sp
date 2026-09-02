@@ -87,8 +87,13 @@ pub fn params_for_simplepir(
         "YPIR SimplePIR expects at least poly_len rows"
     );
 
-    let db_rows = num_items.next_power_of_two();
-    let db_dim_1 = db_rows.trailing_zeros() as usize - 11;
+    // The first dimension only needs a whole number of RLWE blocks; YPIR's
+    // power-of-two padding costs up to 2x of both the database and the upload
+    // for no benefit here. At the production nullifier shape it was 15%.
+    let db_rows = num_items.div_ceil(POLY_LEN as u64) * POLY_LEN as u64;
+    // Retained for YPIR wire-compatibility reporting only; nothing on the IPIR
+    // path consumes it, so it is derived from the padded power of two.
+    let db_dim_1 = db_rows.next_power_of_two().trailing_zeros() as usize - 11;
     let instances = item_size_bits.div_ceil(POLY_LEN as u64 * 14) as usize;
 
     let rlwe = RlweParams::new(
@@ -142,6 +147,7 @@ mod tests {
         assert_eq!(ypir.instances, 5);
         assert_eq!(ypir.db_rows, 1 << 14);
         assert_eq!(ypir.db_cols, 5 * 2048);
+        assert_eq!(ypir.db_rows % rlwe.d, 0);
         assert_eq!(ypir.q_prime_1, 1 << 20);
         assert_eq!(ypir.q_prime_2, 268_369_921);
     }

@@ -6,7 +6,10 @@ use inspiring::RlweParams;
 /// element through [`ToU64::to_u64`] before multiplying it by a `u64` query
 /// coefficient. [`ToU64::MAX_VALUE`] lets optimized kernels choose safe
 /// accumulation windows without inspecting the database contents.
-pub trait ToU64 {
+///
+/// `Send + Sync` is required because kernels evaluate column bands in parallel;
+/// the database itself is only ever read.
+pub trait ToU64: Copy + Send + Sync {
     /// Largest representable value for the database scalar type.
     ///
     /// Implementations should report the type-level maximum, not the maximum of
