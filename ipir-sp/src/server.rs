@@ -12,7 +12,8 @@ use rayon::prelude::*;
 pub use simplepir_kernel::ToU64;
 use simplepir_kernel::{ChunkedSplitKernel, FirstDimKernel, U16Avx512Kernel};
 use spiral_rs::poly::{
-    add_into, from_ntt_alloc, multiply, to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw,
+    add_into, from_ntt, from_ntt_alloc, multiply, to_ntt, to_ntt_alloc, PolyMatrix, PolyMatrixNTT,
+    PolyMatrixRaw,
 };
 use std::time::Duration;
 
@@ -232,14 +233,45 @@ where
     /// `Z_q[X]/(X^d+1)`, and output the transposed `poly_len x db_cols`
     /// layout consumed by [`offline_precompute_from_hint`].
     #[must_use]
-    pub fn generate_hint_from_query_polys(
+    /// Produce every hint column in coefficient form.
+    ///
+    /// Column `col` holds `hint_0[coeff * db_cols + col]` for each `coeff`,
+    /// which is both what the row-major `hint_0` layout is transposed from and
+    /// what a CRS block row is. Callers that only need the CRS blocks should use
+    /// this and skip `hint_0` entirely.
+    pub fn generate_hint_columns(
         &self,
         rlwe: &RlweParams,
         query_polys: &[Vec<u64>],
-    ) -> Vec<u64>
+    ) -> Vec<Vec<u64>>
     where
         T: Sync,
     {
+        self.validate_query_polys(rlwe, query_polys);
+        let rows = self.db_rows_padded();
+        let query_ntts: Vec<_> = query_polys
+            .iter()
+            .map(|query| polynomial_to_ntt(rlwe, query))
+            .collect();
+
+        (0..self.db_cols())
+            .into_par_iter()
+            .map(|col| self.generate_hint_column_from_query_ntts(rlwe, rows, col, &query_ntts))
+            .collect()
+    }
+
+    fn validate_query_polys(&self, rlwe: &RlweParams, query_polys: &[Vec<u64>]) {
+        // Hint generation feeds database elements straight into the NTT without
+        // reducing them, which is only sound because SimplePIR plaintexts are
+        // below `p <= q`. `element_max` was measured over the whole database at
+        // load, so this restores that guarantee for one comparison rather than
+        // the 9.4e8 divisions the old per-element `% q` cost.
+        assert!(
+            self.element_max < rlwe.q,
+            "database elements must be reduced modulo q: max {} is not below q {}",
+            self.element_max,
+            rlwe.q
+        );
         assert_eq!(
             self.db_rows() % rlwe.d,
             0,
@@ -253,6 +285,17 @@ where
         for query in query_polys {
             assert_eq!(query.len(), rlwe.d, "query polynomial must have degree d");
         }
+    }
+
+    pub fn generate_hint_from_query_polys(
+        &self,
+        rlwe: &RlweParams,
+        query_polys: &[Vec<u64>],
+    ) -> Vec<u64>
+    where
+        T: Sync,
+    {
+        self.validate_query_polys(rlwe, query_polys);
 
         let cols = self.db_cols();
         let rows = self.db_rows_padded();
@@ -264,7 +307,8 @@ where
             .collect();
 
         // Columns are independent. Each worker returns one coefficient-form
-        // column so the final scatter can preserve YPIR's row-major hint layout.
+        // column so the final transpose can preserve YPIR's row-major hint
+        // layout.
         let columns: Vec<_> = (0..cols)
             .into_par_iter()
             .map(|col| self.generate_hint_column_from_query_ntts(rlwe, rows, col, &query_ntts))
@@ -272,9 +316,21 @@ where
 
         let mut hint_0 = vec![0u64; rlwe.d * cols];
 
-        for (col, column) in columns.iter().enumerate() {
-            for coeff in 0..rlwe.d {
-                hint_0[coeff * cols + col] = column[coeff];
+        // `hint_0[coeff * cols + col]` walked column-first is a scatter with one
+        // live stream per column — the same shape that dominated snapshot
+        // ingestion. Tiling both indices keeps the reads inside a
+        // `HINT_TILE^2 * 8` byte working set and makes each write run of
+        // `HINT_TILE` coefficients contiguous.
+        for col_base in (0..cols).step_by(HINT_TILE) {
+            let col_end = (col_base + HINT_TILE).min(cols);
+            for coeff_base in (0..rlwe.d).step_by(HINT_TILE) {
+                let coeff_end = (coeff_base + HINT_TILE).min(rlwe.d);
+                for coeff in coeff_base..coeff_end {
+                    let dst = &mut hint_0[coeff * cols + col_base..coeff * cols + col_end];
+                    for (offset, slot) in dst.iter_mut().enumerate() {
+                        *slot = columns[col_base + offset][coeff];
+                    }
+                }
             }
         }
 
@@ -293,29 +349,37 @@ where
         col: usize,
         query_ntts: &[PolyMatrixNTT<'a>],
     ) -> Vec<u64> {
+        // Three allocations per (column, block) is 1.4 M allocations at the
+        // deployed shape. Hoist them: the buffers are overwritten every block.
         let mut acc = PolyMatrixNTT::zero(&rlwe.spiral, 1, 1);
+        let mut db_raw = PolyMatrixRaw::zero(&rlwe.spiral, 1, 1);
+        let mut db_ntt = PolyMatrixNTT::zero(&rlwe.spiral, 1, 1);
+        let mut prod = PolyMatrixNTT::zero(&rlwe.spiral, 1, 1);
 
         for (block_idx, query_ntt) in query_ntts.iter().enumerate() {
             let row_start = block_idx * rlwe.d;
-            let mut db_raw = PolyMatrixRaw::zero(&rlwe.spiral, 1, 1);
             {
                 let db_poly = db_raw.get_poly_mut(0, 0);
-                for (coeff_idx, coeff) in db_poly.iter_mut().enumerate() {
-                    *coeff = self.db[col * rows + row_start + coeff_idx].to_u64() % rlwe.q;
+                let src = &self.db[col * rows + row_start..][..rlwe.d];
+                // Database entries are plaintexts below `p <= q`, so the
+                // reduction the old code applied here was a no-op — and a
+                // 64-bit division per element, 9.4e8 of them per snapshot.
+                for (slot, value) in db_poly.iter_mut().zip(src) {
+                    let value = value.to_u64();
+                    debug_assert!(value < rlwe.q);
+                    *slot = value;
                 }
             }
 
-            let db_ntt = to_ntt_alloc(&db_raw);
-            let mut prod = PolyMatrixNTT::zero(&rlwe.spiral, 1, 1);
+            to_ntt(&mut db_ntt, &db_raw);
             multiply(&mut prod, query_ntt, &db_ntt);
             add_into(&mut acc, &prod);
         }
 
-        from_ntt_alloc(&acc)
-            .get_poly(0, 0)
-            .iter()
-            .map(|coeff| coeff % rlwe.q)
-            .collect()
+        // `from_ntt` reduces into `[0, q)`, so no further reduction is needed.
+        let mut raw = PolyMatrixRaw::zero(&rlwe.spiral, 1, 1);
+        from_ntt(&mut raw, &acc);
+        raw.get_poly(0, 0).to_vec()
     }
 
     /// Generate `hint_0` and split it into InspiRING CRS blocks.
@@ -328,8 +392,29 @@ where
     where
         T: Sync,
     {
-        let hint_0 = self.generate_hint_from_query_polys(rlwe, query_polys);
-        offline_precompute_from_hint(rlwe, &self.params, hint_0)
+        assert_eq!(
+            self.db_cols() % rlwe.d,
+            0,
+            "db_cols must split into RLWE blocks"
+        );
+        let blocks = self.db_cols() / rlwe.d;
+        // `hint_0` is never read in production: `extract_crs_block` maps
+        // `hint_0[coeff * db_cols + block * d + row]` back to hint column
+        // `block * d + row`, coefficient `coeff` — which is exactly what
+        // `generate_hint_column_from_query_ntts` already produces. Building the
+        // 537 MiB buffer, transposing into it, and slicing it back out is an
+        // identity re-layout. Assemble the CRS blocks from the columns instead.
+        let columns = self.generate_hint_columns(rlwe, query_polys);
+        // Move the column vectors into the blocks; cloning them here would deep
+        // copy every coefficient back out again.
+        let mut columns = columns.into_iter();
+        let crs_blocks = (0..blocks)
+            .map(|_| CrsBlock {
+                rows: columns.by_ref().take(rlwe.d).collect(),
+            })
+            .collect();
+
+        OfflinePrecomputedValues { crs_blocks }
     }
 
     /// Parse a raw `/query` body and use uploaded packing-key bodies.
@@ -467,9 +552,14 @@ fn negacyclic_mul_mod(left: &[u64], right: &[u64], modulus: u64) -> Vec<u64> {
 /// Offline values that are independent of the user's online query.
 #[derive(Debug, Clone)]
 pub struct OfflinePrecomputedValues {
-    /// YPIR's `hint_0`, laid out as `poly_len x db_cols` in row-major order.
-    pub hint_0: Vec<u64>,
-    /// CRS blocks extracted from `hint_0`; one block per RLWE output.
+    /// CRS blocks, one per RLWE output block.
+    ///
+    /// YPIR's `hint_0` used to be carried here alongside them. It is gone:
+    /// nothing outside tests ever read it, and materializing the full
+    /// `poly_len x db_cols` buffer (537 MiB at the deployed shape) only to
+    /// transpose into it and slice it straight back out was an identity
+    /// re-layout. `YServer::generate_hint_from_query_polys` still builds it for
+    /// callers that want that layout.
     pub crs_blocks: Vec<CrsBlock>,
 }
 
@@ -526,7 +616,7 @@ pub fn offline_precompute_from_hint(
         .map(|block| extract_crs_block(rlwe, ypir, &hint_0, block))
         .collect();
 
-    OfflinePrecomputedValues { hint_0, crs_blocks }
+    OfflinePrecomputedValues { crs_blocks }
 }
 
 /// Build CRS/public preprocessing for uploaded packing-key queries.
@@ -545,6 +635,11 @@ pub fn build_pack_preprocessed_blocks<'a>(
         })
         .collect()
 }
+
+/// Tile edge for the hint transpose, in both coefficients and columns.
+///
+/// `HINT_TILE * HINT_TILE * 8` bytes (512 KiB) is the read working set.
+const HINT_TILE: usize = 256;
 
 /// Rows of input staged before being scattered into column-major storage.
 ///
@@ -1021,6 +1116,40 @@ mod tests {
         assert_eq!(hint_0, expected);
     }
 
+    /// The direct column-to-CRS path must produce exactly the blocks the old
+    /// `hint_0` materialize-then-extract route did. This is the pin for
+    /// dropping the 537 MiB intermediate.
+    #[test]
+    fn crs_blocks_match_the_hint_materialize_and_extract_route() {
+        for (rows, cols) in [(8usize, 8usize), (16, 16), (24, 32)] {
+            let rlwe = tiny_rlwe();
+            let ypir = tiny_ypir(rows, cols);
+            let server = YServer::new(
+                ypir.clone(),
+                (0..rows * cols).map(|i| (i % 4) as u16),
+                false,
+                true,
+            );
+            let query: Vec<Vec<u64>> = (0..rows / rlwe.d)
+                .map(|b| {
+                    (0..rlwe.d)
+                        .map(|i| ((i * 7 + b * 13 + 1) as u64) % rlwe.q)
+                        .collect()
+                })
+                .collect();
+
+            let direct = server.perform_offline_precomputation_simplepir(&rlwe, &query);
+            let hint_0 = server.generate_hint_from_query_polys(&rlwe, &query);
+            let viahint = offline_precompute_from_hint(&rlwe, &ypir, hint_0);
+
+            assert_eq!(
+                direct.crs_blocks, viahint.crs_blocks,
+                "CRS blocks differ at {rows}x{cols}"
+            );
+            assert_eq!(direct.crs_blocks.len(), cols / rlwe.d);
+        }
+    }
+
     #[test]
     fn perform_offline_precomputation_simplepir_generates_blocks_from_db() {
         let rlwe = tiny_rlwe();
@@ -1030,7 +1159,6 @@ mod tests {
 
         let offline = server.perform_offline_precomputation_simplepir(&rlwe, &query);
 
-        assert_eq!(offline.hint_0.len(), rlwe.d * ypir.db_cols);
         assert_eq!(offline.crs_blocks.len(), 2);
         assert_eq!(
             offline.crs_blocks[1].rows[0],
@@ -1058,9 +1186,8 @@ mod tests {
         let ypir = tiny_ypir(4, 16);
         let hint_0 = vec![1u64; rlwe.d * ypir.db_cols];
 
-        let offline = offline_precompute_from_hint(&rlwe, &ypir, hint_0.clone());
+        let offline = offline_precompute_from_hint(&rlwe, &ypir, hint_0);
 
-        assert_eq!(offline.hint_0, hint_0);
         assert_eq!(offline.crs_blocks.len(), 2);
         assert_eq!(offline.crs_blocks[0].rows.len(), rlwe.d);
         assert_eq!(offline.crs_blocks[0].rows[0].len(), rlwe.d);

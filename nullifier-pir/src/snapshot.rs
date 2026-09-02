@@ -301,6 +301,63 @@ mod tests {
         assert!(validate_snapshot_len(0).is_err());
     }
 
+    /// A short final row that *follows* a full row is the production case: the
+    /// deployed snapshot's last row holds 733 of 1,792 records. The iterator
+    /// reuses one read buffer across rows, so the bytes past the short read are
+    /// the previous row's. Only slicing the buffer to the bytes actually read
+    /// keeps them out; reading the whole buffer would silently emit the
+    /// previous row's nullifiers as the tail of the last row.
+    #[test]
+    fn short_final_row_after_a_full_row_is_zero_padded() {
+        let mut file = NamedTempFile::new().expect("temp file");
+        // A full row of distinct, non-zero records...
+        for idx in 0..NULLIFIERS_PER_ITEM {
+            let mut record = [0u8; NULLIFIER_BYTES];
+            record[0] = 0xAA;
+            record[1..3].copy_from_slice(&(idx as u16).to_le_bytes());
+            file.write_all(&record).expect("write full row");
+        }
+        // ...then a short row with just three.
+        let tail: Vec<[u8; NULLIFIER_BYTES]> = (0..3)
+            .map(|i| {
+                let mut r = [0u8; NULLIFIER_BYTES];
+                r[0] = 0x11 + i as u8;
+                r
+            })
+            .collect();
+        for record in &tail {
+            file.write_all(record).expect("write tail");
+        }
+        file.flush().expect("flush");
+
+        let snapshot = NullifierSnapshot::open(file.path()).expect("open snapshot");
+        assert_eq!(snapshot.record_count(), NULLIFIERS_PER_ITEM + 3);
+        assert_eq!(snapshot.pir_row_count(), 2);
+
+        let coeffs: Vec<u64> = snapshot
+            .coeff_iter(2)
+            .expect("iterator")
+            .map(u64::from)
+            .collect();
+        let last_row = decode_item_coefficients(&coeffs[SIMPLEPIR_COEFFS_PER_ITEM..]);
+
+        for (offset, expected) in tail.iter().enumerate() {
+            assert_eq!(
+                extract_nullifier(&last_row, offset),
+                Some(*expected),
+                "record {offset} of the short row"
+            );
+        }
+        // Everything past the three real records must be zero, not the
+        // preceding row's 0xAA-tagged data.
+        assert!(
+            last_row[tail.len() * NULLIFIER_BYTES..]
+                .iter()
+                .all(|byte| *byte == 0),
+            "short final row leaked bytes from the previous row"
+        );
+    }
+
     #[test]
     fn coeff_iterator_pads_partial_and_extra_rows() {
         let mut file = NamedTempFile::new().expect("temp file");
