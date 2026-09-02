@@ -75,7 +75,8 @@ per-block number.
 end-to-end query 440 ms vs 447 ms, upload 3.77 MB vs 4.73 MB, packing public
 parameters 98 KB vs 541 KB (**5.5×** — InsPIRe's two-matrix `(K_g, K_h)`
 replacing CDKS's `log d` expansion matrices). Server time was 31% worse and
-offline preprocessing ~10× worse; that was the trade InsPIRe opts into.
+offline preprocessing ~10× worse; that was the trade InsPIRe opts into. Both of
+those have since reversed — see [Against YPIR+SP](#against-ypirsp).
 
 **First pass.** Mostly not cryptographic. The database was a 256:1 skew between
 a 3.5 MB query and a 12 KB response; rebalancing it to four instances per row
@@ -101,12 +102,47 @@ bounds-checked (an out-of-range row used to encrypt the all-zero selector,
 which decodes as "absent"), the selector and modular helpers are branch-free,
 and the gadget carry-out term is pinned under budget by a test.
 
-### Not yet re-baselined
+### Against YPIR+SP
 
-The YPIR+SP comparison is still the 2026-05-10 numbers. YPIR+SP has not been
-re-run at the new shape, so no current claim is made about relative server
-time or end-to-end latency against it — only against this workspace's own
-earlier commits.
+Re-baselined on the same Xeon, upstream YPIR+SP pinned at the same revision the
+2026-05-10 report used, both backends driven through the same HTTP harness over
+the same 49.9M-record snapshot. Full report and raw logs:
+[`bench-results/2026-09-02-ypir-comparison/REPORT.md`](bench-results/2026-09-02-ypir-comparison/REPORT.md).
+
+| system | shape | server time | total wire | cold start |
+|---|---|---:|---:|---:|
+| **IPIR+SP** | `28,672 × 32,768` | **120 ms** | **318,464 B** | **175 s** |
+| YPIR+SP | `32,768 × 32,768` | 1,208 ms | 999,424 B | 291 s |
+| **IPIR+SP** | `112,640 × 8,192` | **73 ms** | **711,936 B** | **40 s** |
+| YPIR+SP | `131,072 × 8,192` | 656 ms | 1,638,400 B | 109 s |
+
+Both shapes are reported because the wide one is IPIR+SP's tuned configuration.
+YPIR+SP's own best are the narrow shape for latency and the wide one for wire —
+it trades between them, since CDKS packing scales with the block count while its
+fixed 540 KB public parameters push the optimum wide. IPIR+SP at `28,672 ×
+32,768` beats both on both axes at once: **5.1× less wire and 5.5× less server
+time** than YPIR+SP's latency-optimal shape, 3.1× and 10.1× against its
+wire-optimal one.
+
+**What is scheme and what is implementation.** Packing is the scheme —
+InsPIRing's linear cascade against CDKS's recursive one — and it is **11.1× per
+output block at both shapes**, a ratio that holds across a 4× change in block
+count. The ~9× first-dimension gap is *not* the scheme: both systems compute the
+same SimplePIR product, and the difference is this workspace's rayon-parallel
+AVX-512 kernel against upstream's effectively serial first pass. Give YPIR+SP an
+equivalent kernel and it lands near 247 ms at the narrow shape against 73 ms
+here — still 3.4×, but a third of the headline rather than all of it.
+
+**The offline trade has inverted.** InsPIRe buys its small upload by moving work
+offline, costed at roughly 3× in the paper and measured ~10× worse in the
+initial port. After the `Θ(d³) → Θ(d² log d)` reformulation, IPIR+SP's cold
+start is **2.7× faster** than YPIR+SP's at the narrow shape and 1.7× at the
+wide one. That price is no longer being paid.
+
+Caveats: the snapshot contents are synthetic at production dimensions; only two
+shapes per system were measured, so neither optimum was found by a full sweep;
+and upstream YPIR is pinned at `4f7ef3d` without re-tuning, for continuity with
+the original comparison.
 
 ### What the parameters assume
 

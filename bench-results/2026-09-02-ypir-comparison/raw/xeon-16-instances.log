@@ -1,0 +1,61 @@
+##### BACKEND=local-ipir PORT=8101 08:33:21
+prepare_seconds=175
+meta_backend=local-ipir
+shape db_rows=28672 db_cols=32768 item_bits=458752
+server_rss_kb=6037228
+timing_us total_query=167475 client_query_gen=41383 http_post_round_trip=122188 server=120617 client_decode=3799
+server_breakdown_us setup_deserialize=256 pack_preprocess=0 online_deserialize=495 matrix_vector=50096 packing=66771 serialization=2988
+wire_bytes upload=236544 download=81920
+upload_breakdown backend=local-ipir total=236544 packing_keys=86016 online_query=150528
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 13950, offset 1600 and verified through PIR
+timing_us total_query=165916 client_query_gen=41496 http_post_round_trip=120486 server=119506 client_decode=3834
+server_breakdown_us setup_deserialize=206 pack_preprocess=0 online_deserialize=422 matrix_vector=49137 packing=66900 serialization=2831
+wire_bytes upload=236544 download=81920
+upload_breakdown backend=local-ipir total=236544 packing_keys=86016 online_query=150528
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 13950, offset 1600 and verified through PIR
+timing_us total_query=167636 client_query_gen=41417 http_post_round_trip=122295 server=121507 client_decode=3815
+server_breakdown_us setup_deserialize=204 pack_preprocess=0 online_deserialize=442 matrix_vector=49614 packing=68441 serialization=2795
+wire_bytes upload=236544 download=81920
+upload_breakdown backend=local-ipir total=236544 packing_keys=86016 online_query=150528
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 13950, offset 1600 and verified through PIR
+timing_us total_query=170689 client_query_gen=41595 http_post_round_trip=125184 server=123942 client_decode=3810
+server_breakdown_us setup_deserialize=206 pack_preprocess=0 online_deserialize=419 matrix_vector=53577 packing=66973 serialization=2754
+wire_bytes upload=236544 download=81920
+upload_breakdown backend=local-ipir total=236544 packing_keys=86016 online_query=150528
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 13950, offset 1600 and verified through PIR
+timing_us total_query=167345 client_query_gen=41535 http_post_round_trip=121823 server=120653 client_decode=3889
+server_breakdown_us setup_deserialize=203 pack_preprocess=0 online_deserialize=425 matrix_vector=50341 packing=66802 serialization=2870
+wire_bytes upload=236544 download=81920
+upload_breakdown backend=local-ipir total=236544 packing_keys=86016 online_query=150528
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 13950, offset 1600 and verified through PIR
+##### BACKEND=ypir-artifact PORT=8102 08:36:24
+prepare_seconds=291
+meta_backend=ypir-artifact
+shape db_rows=32768 db_cols=32768 item_bits=458752
+server_rss_kb=8296572
+timing_us total_query=1325718 client_query_gen=86875 http_post_round_trip=1224295 server=1222351 client_decode=14154
+server_breakdown_us setup_deserialize=0 pack_preprocess=0 online_deserialize=421 matrix_vector=460000 packing=757000 serialization=4869
+wire_bytes upload=802816 download=196608
+upload_breakdown backend=ypir-artifact total=802816 simplepir_query=262144 pack_pub_params=540672
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 13950, offset 1600 and verified through PIR
+timing_us total_query=1319527 client_query_gen=86692 http_post_round_trip=1218284 server=1216523 client_decode=14078
+server_breakdown_us setup_deserialize=0 pack_preprocess=0 online_deserialize=98 matrix_vector=461000 packing=750000 serialization=5420
+wire_bytes upload=802816 download=196608
+upload_breakdown backend=ypir-artifact total=802816 simplepir_query=262144 pack_pub_params=540672
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 13950, offset 1600 and verified through PIR
+timing_us total_query=1311605 client_query_gen=87143 http_post_round_trip=1209944 server=1208374 client_decode=14064
+server_breakdown_us setup_deserialize=0 pack_preprocess=0 online_deserialize=100 matrix_vector=460000 packing=743000 serialization=5270
+wire_bytes upload=802816 download=196608
+upload_breakdown backend=ypir-artifact total=802816 simplepir_query=262144 pack_pub_params=540672
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 13950, offset 1600 and verified through PIR
+timing_us total_query=1309693 client_query_gen=87400 http_post_round_trip=1207665 server=1206506 client_decode=14084
+server_breakdown_us setup_deserialize=0 pack_preprocess=0 online_deserialize=108 matrix_vector=459000 packing=742000 serialization=5395
+wire_bytes upload=802816 download=196608
+upload_breakdown backend=ypir-artifact total=802816 simplepir_query=262144 pack_pub_params=540672
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 13950, offset 1600 and verified through PIR
+timing_us total_query=1309539 client_query_gen=87264 http_post_round_trip=1207732 server=1205814 client_decode=14100
+server_breakdown_us setup_deserialize=0 pack_preprocess=0 online_deserialize=102 matrix_vector=459000 packing=742000 serialization=4707
+wire_bytes upload=802816 download=196608
+upload_breakdown backend=ypir-artifact total=802816 simplepir_query=262144 pack_pub_params=540672
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 13950, offset 1600 and verified through PIR
+##### VS-DONE 08:41:30

@@ -1,0 +1,38 @@
+25:pub const SIMPLEPIR_INSTANCES_PER_ITEM: usize = 4;
+   Compiling nullifier-pir v0.1.0 (/root/vs-ypir/nullifier-pir)
+    Finished `release` profile [optimized] target(s) in 20.47s
+##### BACKEND=ypir-artifact INSTANCES=4 08:43:33
+prepare_seconds=109
+meta_backend=ypir-artifact
+shape db_rows=131072 db_cols=8192 item_bits=114688
+server_rss_kb=3767640
+server_breakdown_us setup_deserialize=0 pack_preprocess=0 online_deserialize=999 matrix_vector=459000 packing=203000 serialization=2003
+wire_bytes upload=1589248 download=49152
+upload_breakdown backend=ypir-artifact total=1589248 simplepir_query=1048576 pack_pub_params=540672
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 55803, offset 256 and verified through PIR
+server_breakdown_us setup_deserialize=0 pack_preprocess=0 online_deserialize=228 matrix_vector=461000 packing=190000 serialization=2410
+wire_bytes upload=1589248 download=49152
+upload_breakdown backend=ypir-artifact total=1589248 simplepir_query=1048576 pack_pub_params=540672
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 55803, offset 256 and verified through PIR
+server_breakdown_us setup_deserialize=0 pack_preprocess=0 online_deserialize=243 matrix_vector=461000 packing=193000 serialization=2000
+wire_bytes upload=1589248 download=49152
+upload_breakdown backend=ypir-artifact total=1589248 simplepir_query=1048576 pack_pub_params=540672
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 55803, offset 256 and verified through PIR
+##### BACKEND=local-ipir INSTANCES=4 08:45:31
+prepare_seconds=40
+meta_backend=local-ipir
+shape db_rows=112640 db_cols=8192 item_bits=114688
+server_rss_kb=3310912
+server_breakdown_us setup_deserialize=518 pack_preprocess=0 online_deserialize=2018 matrix_vector=51990 packing=18530 serialization=792
+wire_bytes upload=691456 download=20480
+upload_breakdown backend=local-ipir total=691456 packing_keys=86016 online_query=605440
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 55803, offset 256 and verified through PIR
+server_breakdown_us setup_deserialize=502 pack_preprocess=0 online_deserialize=1946 matrix_vector=52084 packing=17043 serialization=706
+wire_bytes upload=691456 download=20480
+upload_breakdown backend=local-ipir total=691456 packing_keys=86016 online_query=605440
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 55803, offset 256 and verified through PIR
+server_breakdown_us setup_deserialize=507 pack_preprocess=0 online_deserialize=2026 matrix_vector=54076 packing=17335 serialization=776
+wire_bytes upload=691456 download=20480
+upload_breakdown backend=local-ipir total=691456 packing_keys=86016 online_query=605440
+existing nullifier 1a86ddf450cb5f26d148cb17bedcef9d9738e7b0086cbe3615423fcf374cad69 found at global index 25000000, row 55803, offset 256 and verified through PIR
+##### 4INST-DONE 08:46:19
