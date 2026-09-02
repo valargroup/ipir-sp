@@ -245,6 +245,14 @@ impl IPIRClient {
         offline_query_polys: &[Vec<u64>],
         target_row: usize,
     ) -> (IPIRSimpleQuery, PackingKeys<'_>, IPIRSeed) {
+        // An out-of-range row would silently encrypt the all-zero selector, and
+        // the decoded row would read as "absent". That is the failure a server
+        // mis-reporting the row count would induce, so fail loudly instead.
+        assert!(
+            target_row < self.ypir.db_rows,
+            "target_row {target_row} is out of range for {} db rows",
+            self.ypir.db_rows
+        );
         let mut client_seed = [0u8; 32];
         rand::rngs::OsRng.fill_bytes(&mut client_seed);
         let mut rng = ChaCha20Rng::from_seed(client_seed);
@@ -371,6 +379,10 @@ fn encrypted_selection_query(
 ) -> Vec<u64> {
     assert_eq!(db_rows % params.d, 0);
     assert_eq!(offline_query.len(), db_rows / params.d);
+    assert!(
+        target_row < db_rows,
+        "target_row {target_row} is out of range for {db_rows} db rows"
+    );
 
     // spiral-rs parameterizes the sampler by width, not by standard deviation.
     let dg = DiscreteGaussian::init(params.sigma_chi * std::f64::consts::TAU.sqrt());
@@ -381,7 +393,7 @@ fn encrypted_selection_query(
         let inner_products = query_inner_products_from_ntt(params, query_poly, &secret_ntt);
         for (coeff_idx, inner) in inner_products.iter().enumerate() {
             let row = block_idx * params.d + coeff_idx;
-            let encoded_selection = if row == target_row { params.delta } else { 0 };
+            let encoded_selection = select_u64(row == target_row, params.delta, 0);
             let noised = add_mod(
                 encoded_selection,
                 sample_error(&dg, rng, params.q),
@@ -401,16 +413,26 @@ fn sample_error(dg: &DiscreteGaussian, rng: &mut ChaCha20Rng, modulus: u64) -> u
     sample
 }
 
+/// Return `value` if `condition` holds, else `other`, without a branch.
+///
+/// Query generation selects `delta` for the target row and `0` everywhere
+/// else; a data-dependent branch there would let a local timing observer
+/// pick out the target row. Both operands are computed and a mask chooses.
+fn select_u64(condition: bool, value: u64, other: u64) -> u64 {
+    let mask = 0u64.wrapping_sub(u64::from(condition));
+    (value & mask) | (other & !mask)
+}
+
 /// Return `lhs + rhs mod modulus` for already-reduced inputs.
+///
+/// Branch-free for the same reason as [`select_u64`]: `lhs` is `delta` or `0`
+/// depending on the target row, so whether the sum wraps is secret-dependent.
 fn add_mod(lhs: u64, rhs: u64, modulus: u64) -> u64 {
     debug_assert!(lhs < modulus);
     debug_assert!(rhs < modulus);
     let sum = lhs + rhs;
-    if sum >= modulus {
-        sum - modulus
-    } else {
-        sum
-    }
+    let (reduced, borrow) = sum.overflowing_sub(modulus);
+    select_u64(borrow, sum, reduced)
 }
 
 /// Convert one coefficient-form polynomial into the RLWE NTT domain.
@@ -480,11 +502,8 @@ fn query_inner_products_from_ntt<'a>(
 fn sub_mod(lhs: u64, rhs: u64, modulus: u64) -> u64 {
     debug_assert!(lhs < modulus);
     debug_assert!(rhs < modulus);
-    if lhs >= rhs {
-        lhs - rhs
-    } else {
-        modulus - (rhs - lhs)
-    }
+    let (diff, borrow) = lhs.overflowing_sub(rhs);
+    diff.wrapping_add(modulus & 0u64.wrapping_sub(u64::from(borrow)))
 }
 
 /// Compute `<poly * X^shift, rhs>` in `Z_modulus[X] / (X^d + 1)`.
@@ -661,6 +680,8 @@ mod tests {
                 let inner =
                     negacyclic_monomial_inner_product_mod(query_poly, coeff_idx, secret, params.q);
                 let row = block_idx * params.d + coeff_idx;
+                // Plain branch here on purpose: the reference must stay
+                // independent of the branch-free production selector.
                 let encoded_selection = if row == target_row { params.delta } else { 0 };
                 query[row] = sub_mod(encoded_selection, inner, params.q);
             }
@@ -835,6 +856,37 @@ mod tests {
         } else {
             diff as i64
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "out of range")]
+    fn encrypted_selection_query_rejects_out_of_range_target_row() {
+        let params = params();
+        let offline_query = vec![vec![1u64; params.d], vec![2u64; params.d]];
+        let secret = vec![1u64; params.d];
+        let db_rows = offline_query.len() * params.d;
+        let mut rng = ChaCha20Rng::from_seed([3u8; 32]);
+        let _ =
+            encrypted_selection_query(&params, &offline_query, &secret, db_rows, db_rows, &mut rng);
+    }
+
+    #[test]
+    fn branch_free_modular_helpers_match_reference() {
+        let q = params().q;
+        let samples = [0, 1, 2, q / 2 - 1, q / 2, q / 2 + 1, q - 2, q - 1];
+        for &lhs in &samples {
+            for &rhs in &samples {
+                let want_add = ((u128::from(lhs) + u128::from(rhs)) % u128::from(q)) as u64;
+                let want_sub =
+                    ((u128::from(lhs) + u128::from(q) - u128::from(rhs)) % u128::from(q)) as u64;
+                assert_eq!(add_mod(lhs, rhs, q), want_add, "add {lhs} {rhs}");
+                assert_eq!(sub_mod(lhs, rhs, q), want_sub, "sub {lhs} {rhs}");
+            }
+        }
+        assert_eq!(select_u64(true, 7, 9), 7);
+        assert_eq!(select_u64(false, 7, 9), 9);
+        assert_eq!(select_u64(true, u64::MAX, 0), u64::MAX);
+        assert_eq!(select_u64(false, u64::MAX, 0), 0);
     }
 
     #[test]

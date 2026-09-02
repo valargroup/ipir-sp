@@ -3,6 +3,8 @@ use clap::Parser;
 #[cfg(feature = "http_client")]
 use ipir_sp::client::IPIRClient;
 #[cfg(feature = "http_client")]
+use ipir_sp::modulus_switch::recover_published_c1;
+#[cfg(feature = "http_client")]
 use ipir_sp::serialize::serialize_packing_keys;
 
 #[cfg(feature = "http_client")]
@@ -45,18 +47,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (query, packing_keys, client_seed) =
         client.generate_fresh_query_simplepir(&setup, args.target_row);
     let packing_keys_body = serialize_packing_keys(client.rlwe_params(), &packing_keys)?;
-    let online_query = query.to_packed_bytes(client.rlwe_params().q);
+    let online_query = query.to_switched_bytes(client.rlwe_params().q, client.params().query_bits);
     let mut body = Vec::with_capacity(packing_keys_body.len() + online_query.len());
     body.extend_from_slice(&packing_keys_body);
     body.extend_from_slice(&online_query);
-    let response = reqwest::blocking::Client::new()
+    let http = reqwest::blocking::Client::new();
+    // `c1` is constant for the database, so it is fetched once rather than
+    // returned with every response.
+    let published_c1_bytes = http
+        .get(format!("http://127.0.0.1:{}/public-params", args.port))
+        .send()?
+        .error_for_status()?
+        .bytes()?;
+    let published_c1 = recover_published_c1(
+        &published_c1_bytes,
+        client.rlwe_params().d,
+        client.params().db_cols / client.rlwe_params().d,
+        client.rlwe_params().q,
+    );
+    let response = http
         .post(format!("http://127.0.0.1:{}/query", args.port))
         .body(body)
         .send()?
         .error_for_status()?
         .bytes()?;
 
-    let decoded = client.decode_response_simplepir(client_seed, &response);
+    let decoded = client.decode_response_simplepir(client_seed, &published_c1, &response);
     let preview_len = decoded.len().min(32);
     println!("Result: {:?}", &decoded[..preview_len]);
     Ok(())

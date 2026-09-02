@@ -20,7 +20,8 @@ use ipir_sp::server::{build_pack_preprocessed_blocks, published_c1_rows, YServer
 /// it controls are exactly production's. Only the column count is reduced, and
 /// the rounding error does not depend on it.
 const ROWS: u64 = 28_672;
-const TARGET_ROW: usize = 19_001;
+/// First, last, a block boundary, and a few interior rows.
+const TARGET_ROWS: [usize; 8] = [0, 2_047, 2_048, 7_777, 13_000, 19_001, 25_555, 28_671];
 const SETUP_SEED: [u8; 32] = [0x5A; 32];
 
 #[test]
@@ -40,12 +41,7 @@ fn production_params_round_trip_recovers_the_target_row() {
             (0..ypir.db_cols).map(move |col| ((row * 31 + col * 17 + 5) % ypir.p as usize) as u16)
         })
         .collect();
-    let expected: Vec<u64> = db[TARGET_ROW * ypir.db_cols..(TARGET_ROW + 1) * ypir.db_cols]
-        .iter()
-        .map(|value| u64::from(*value))
-        .collect();
-
-    let server = YServer::new(ypir.clone(), db.into_iter(), false, true);
+    let server = YServer::new(ypir.clone(), db.iter().copied(), false, true);
     let client = IPIRClient::new(&rlwe, &ypir);
 
     let offline_query_polys = client.generate_public_query_setup_simplepir_from_seed(SETUP_SEED);
@@ -62,33 +58,6 @@ fn production_params_round_trip_recovers_the_target_row() {
     );
 
     let top_keys = TopKeyImages::build(&rlwe);
-    let (query, packing_keys, client_seed) =
-        client.generate_fresh_query_simplepir(&offline_query_polys, TARGET_ROW);
-    let query_bytes = query.to_switched_bytes(rlwe.q, ypir.query_bits);
-    assert_eq!(
-        query_bytes.len(),
-        (ypir.db_rows * ypir.query_bits).div_ceil(8),
-        "query is transmitted at the derived width"
-    );
-
-    let (response, _timing) = server
-        .perform_full_online_computation_simplepir_measured(
-            &rlwe,
-            &query_bytes,
-            &packing_keys,
-            &top_keys,
-            &preprocessed,
-        )
-        .expect("online response");
-
-    let (decoded, max_error) =
-        client.decode_response_simplepir_with_margin(client_seed, &published_c1, &response);
-    assert_eq!(decoded, expected, "decoded row must match the database row");
-
-    // The real regression signal: decoding is correct exactly while the worst
-    // phase error stays under Δ/2. Assert real headroom, not bare correctness,
-    // so that shrinking the query width or widening the database cannot quietly
-    // consume the budget and still pass.
     let threshold = rlwe.delta / 2;
     let bits = |value: u64| {
         if value == 0 {
@@ -97,16 +66,59 @@ fn production_params_round_trip_recovers_the_target_row() {
             64 - value.leading_zeros()
         }
     };
+
+    // One query is one draw from the noise distribution. Every query samples a
+    // fresh secret, fresh packing keys, and fresh errors, so several draws over
+    // spread-out rows give the margin assertion something to bite on.
+    let mut worst_error = 0_u64;
+    for target_row in TARGET_ROWS {
+        let expected: Vec<u64> = db[target_row * ypir.db_cols..(target_row + 1) * ypir.db_cols]
+            .iter()
+            .map(|value| u64::from(*value))
+            .collect();
+        let (query, packing_keys, client_seed) =
+            client.generate_fresh_query_simplepir(&offline_query_polys, target_row);
+        let query_bytes = query.to_switched_bytes(rlwe.q, ypir.query_bits);
+        assert_eq!(
+            query_bytes.len(),
+            (ypir.db_rows * ypir.query_bits).div_ceil(8),
+            "query is transmitted at the derived width"
+        );
+
+        let (response, _timing) = server
+            .perform_full_online_computation_simplepir_measured(
+                &rlwe,
+                &query_bytes,
+                &packing_keys,
+                &top_keys,
+                &preprocessed,
+            )
+            .expect("online response");
+
+        let (decoded, max_error) =
+            client.decode_response_simplepir_with_margin(client_seed, &published_c1, &response);
+        assert_eq!(
+            decoded, expected,
+            "decoded row {target_row} must match the database row"
+        );
+        worst_error = worst_error.max(max_error);
+    }
+
+    // The real regression signal: decoding is correct exactly while the worst
+    // phase error stays under Δ/2. Assert real headroom, not bare correctness,
+    // so that shrinking the query width or widening the database cannot quietly
+    // consume the budget and still pass.
     eprintln!(
-        "production flow: ||e||_inf = 2^{} against delta/2 = 2^{} (query at {} bits)",
-        bits(max_error),
+        "production flow: ||e||_inf = 2^{} over {} queries against delta/2 = 2^{} (query at {} bits)",
+        bits(worst_error),
+        TARGET_ROWS.len(),
         bits(threshold),
         ypir.query_bits
     );
     assert!(
-        max_error < threshold / 4,
+        worst_error < threshold / 4,
         "decryption margin too thin: error 2^{} against delta/2 = 2^{}",
-        bits(max_error),
+        bits(worst_error),
         bits(threshold)
     );
 }
