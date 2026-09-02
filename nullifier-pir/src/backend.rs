@@ -309,6 +309,9 @@ mod ypir_artifact {
                 db_cols: self.params.db_cols_simplepir(),
                 item_size_bits: ITEM_SIZE_BITS,
                 setup_seed: self.setup_seed,
+                // YPIR+SP inlines `c1` in every response, so there are no
+                // snapshot-constant public parameters to fetch separately.
+                published_c1_len: 0,
             }
         }
 
