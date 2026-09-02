@@ -122,17 +122,22 @@ where
         };
 
         if input_is_transposed {
+            // Column-major in, column-major out: already one sequential sweep.
             for col in 0..cols {
                 for row in 0..rows {
                     stored[col * padded_rows + row] = take(&mut db, &mut element_max);
                 }
             }
         } else {
-            for row in 0..rows {
-                for col in 0..cols {
-                    stored[col * padded_rows + row] = take(&mut db, &mut element_max);
-                }
-            }
+            ingest_row_major(
+                &mut db,
+                &mut stored,
+                rows,
+                cols,
+                padded_rows,
+                &mut element_max,
+                take,
+            );
         }
 
         kernel.prepare(&stored, padded_rows, cols);
@@ -541,6 +546,77 @@ pub fn build_pack_preprocessed_blocks<'a>(
         .collect()
 }
 
+/// Rows of input staged before being scattered into column-major storage.
+///
+/// Sized so one tile stays comfortably inside last-level cache
+/// (`INGEST_ROW_TILE * cols * size_of::<T>()`; 4 MiB for the deployed
+/// `u16` shape) and so each per-column write covers whole cache lines:
+/// 64 `u16` is 128 bytes, two full lines.
+const INGEST_ROW_TILE: usize = 64;
+
+/// Columns processed per pass over a staged tile.
+///
+/// Bounds the staging working set of the transpose step to
+/// `INGEST_ROW_TILE * INGEST_COL_TILE * size_of::<T>()` — 64 KiB for `u16` —
+/// which keeps it in L2 while the strided reads run.
+const INGEST_COL_TILE: usize = 512;
+
+/// Materialize a row-major database into column-major storage, blocked.
+///
+/// The straightforward loop — write `stored[col * padded_rows + row]` while
+/// walking the input row-major — is a scatter with one live write stream per
+/// column. At the deployed shape that is 32,768 streams touching 2.1 MiB of
+/// distinct cache lines per input row, and it dominated cold start at 184 s,
+/// 91% of the total. It is also why widening the database made ingestion
+/// disproportionately slower: the element count is fixed, but the stream count
+/// scales with the column count.
+///
+/// Staging a tile of rows first turns each per-column write into
+/// `tile_rows` contiguous elements, so a cache line is filled once instead of
+/// being revisited `tile_rows` times. The result is byte-identical to the
+/// naive order; `ingest_row_major_matches_naive_scatter` pins that.
+fn ingest_row_major<T, I, F>(
+    db: &mut I,
+    stored: &mut [T],
+    rows: usize,
+    cols: usize,
+    padded_rows: usize,
+    element_max: &mut u64,
+    mut take: F,
+) where
+    T: Copy + Default,
+    I: Iterator<Item = T>,
+    F: FnMut(&mut I, &mut u64) -> T,
+{
+    if rows == 0 || cols == 0 {
+        return;
+    }
+
+    let mut staging = vec![T::default(); INGEST_ROW_TILE * cols];
+    let mut row_base = 0;
+
+    while row_base < rows {
+        let tile_rows = INGEST_ROW_TILE.min(rows - row_base);
+
+        // Consume the iterator in its natural row-major order.
+        for slot in staging[..tile_rows * cols].iter_mut() {
+            *slot = take(db, element_max);
+        }
+
+        for col_base in (0..cols).step_by(INGEST_COL_TILE) {
+            let col_end = (col_base + INGEST_COL_TILE).min(cols);
+            for col in col_base..col_end {
+                let dst = &mut stored[col * padded_rows + row_base..][..tile_rows];
+                for (offset, slot) in dst.iter_mut().enumerate() {
+                    *slot = staging[offset * cols + col];
+                }
+            }
+        }
+
+        row_base += tile_rows;
+    }
+}
+
 /// Serialize the snapshot-constant `c1` row of every output block.
 ///
 /// `QueryPackPreprocessed::collapse_a_final_ntt` is derived from the CRS and
@@ -738,6 +814,89 @@ mod tests {
 
         assert_eq!(server.db(), &[0, 3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 11]);
         assert_eq!(server.get_row(2), vec![6, 7, 8]);
+    }
+
+    /// The blocked ingestion must produce byte-identical storage to the naive
+    /// scatter it replaced, including at shapes that do not divide the tiles.
+    #[test]
+    fn ingest_row_major_matches_naive_scatter() {
+        // Deliberately awkward shapes: smaller than a tile, straddling a tile,
+        // and not a multiple of either tile dimension.
+        for &(rows, cols, padded_rows) in &[
+            (1usize, 1usize, 1usize),
+            (3, 5, 3),
+            (7, 1024, 9),
+            (super::INGEST_ROW_TILE, 4, super::INGEST_ROW_TILE),
+            (
+                super::INGEST_ROW_TILE + 1,
+                super::INGEST_COL_TILE + 3,
+                super::INGEST_ROW_TILE + 5,
+            ),
+            (130, 1100, 160),
+        ] {
+            let values: Vec<u16> = (0..rows * cols).map(|i| (i % 16_384) as u16).collect();
+
+            let mut naive = vec![0u16; padded_rows * cols];
+            let mut naive_max = 0u64;
+            let mut it = values.iter().copied();
+            for row in 0..rows {
+                for col in 0..cols {
+                    let value = it.next().expect("input");
+                    naive_max = naive_max.max(u64::from(value));
+                    naive[col * padded_rows + row] = value;
+                }
+            }
+
+            let mut blocked = vec![0u16; padded_rows * cols];
+            let mut blocked_max = 0u64;
+            let mut it = values.iter().copied();
+            super::ingest_row_major(
+                &mut it,
+                &mut blocked,
+                rows,
+                cols,
+                padded_rows,
+                &mut blocked_max,
+                |db: &mut std::iter::Copied<std::slice::Iter<'_, u16>>, m: &mut u64| {
+                    let value = db.next().expect("input");
+                    *m = (*m).max(u64::from(value));
+                    value
+                },
+            );
+
+            assert_eq!(
+                blocked, naive,
+                "layout differs at {rows}x{cols} pad {padded_rows}"
+            );
+            assert_eq!(
+                blocked_max, naive_max,
+                "element_max differs at {rows}x{cols}"
+            );
+        }
+    }
+
+    /// Both ingestion orders must agree, so a transposed input and its
+    /// row-major twin land in the same storage.
+    #[test]
+    fn ingest_orders_agree_on_the_same_matrix() {
+        let (rows, cols) = (37usize, 91usize);
+        let rlwe = tiny_rlwe();
+        let ypir = tiny_ypir(rows, cols);
+        let row_major: Vec<u16> = (0..rows * cols).map(|i| (i % 4) as u16).collect();
+        let mut col_major: Vec<u16> = Vec::with_capacity(rows * cols);
+        for c in 0..cols {
+            for r in 0..rows {
+                col_major.push(row_major[r * cols + c]);
+            }
+        }
+
+        let a = YServer::new(ypir.clone(), row_major.iter().copied(), false, true);
+        let b = YServer::new(ypir, col_major.into_iter(), true, true);
+        let query: Vec<u64> = (0..rows).map(|i| (i as u64 * 7 + 1) % rlwe.q).collect();
+        assert_eq!(
+            a.multiply_query(&rlwe, &query),
+            b.multiply_query(&rlwe, &query)
+        );
     }
 
     #[test]

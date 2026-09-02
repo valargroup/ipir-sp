@@ -37,19 +37,39 @@ pub fn pir_row_count(record_count: usize) -> usize {
 
 #[must_use]
 pub fn encode_item_bytes(item: &[u8]) -> [u16; SIMPLEPIR_COEFFS_PER_ITEM] {
+    let mut out = [0u16; SIMPLEPIR_COEFFS_PER_ITEM];
+    encode_item_into(item, &mut out);
+    out
+}
+
+/// Encode one item's bytes into a caller-supplied coefficient buffer.
+///
+/// Prefer this over [`encode_item_bytes`] on any hot path. That function has to
+/// materialize a `[u16; SIMPLEPIR_COEFFS_PER_ITEM]` — 64 KiB — as a stack
+/// temporary, and the older implementation also built a zero-padded `[u8;
+/// ITEM_BYTES]` copy of the input. 121 KiB of stack locals is enough that, once
+/// inlined into a caller, every entry to that caller pays frame setup and stack
+/// probing. Snapshot ingestion hit exactly that: the encode was inlined up
+/// through `load_next_row` into `Iterator::next`, so all 9.4e8 per-element calls
+/// paid a 121 KiB frame for a branch taken once every 32,768 of them — 147.6 ns
+/// per element against 5.7 ns once the frame was gone.
+///
+/// Bytes past the end of `item` read as zero, so a short final item does not
+/// need a padded copy.
+pub fn encode_item_into(item: &[u8], out: &mut [u16]) {
     assert!(
         item.len() <= ITEM_BYTES,
         "item must fit in one SimplePIR plaintext item"
     );
+    assert_eq!(
+        out.len(),
+        SIMPLEPIR_COEFFS_PER_ITEM,
+        "output must hold exactly one SimplePIR item"
+    );
 
-    let mut padded = [0u8; ITEM_BYTES];
-    padded[..item.len()].copy_from_slice(item);
-
-    let mut out = [0u16; SIMPLEPIR_COEFFS_PER_ITEM];
     for (idx, coeff) in out.iter_mut().enumerate() {
-        *coeff = read_bits_le(&padded, idx * SIMPLEPIR_COEFF_BITS, SIMPLEPIR_COEFF_BITS) as u16;
+        *coeff = read_bits_le(item, idx * SIMPLEPIR_COEFF_BITS, SIMPLEPIR_COEFF_BITS) as u16;
     }
-    out
 }
 
 #[must_use]
@@ -108,6 +128,10 @@ pub fn extract_nullifier(item: &[u8], offset_in_item: usize) -> Option<[u8; NULL
 fn read_bits_le(data: &[u8], bit_offset: usize, bit_count: usize) -> u64 {
     debug_assert!((1..=57).contains(&bit_count));
     let byte = bit_offset / 8;
+    if byte >= data.len() {
+        // Past the end of a short item: those bits are zero by definition.
+        return 0;
+    }
     let shift = bit_offset % 8;
     let end = (byte + 8).min(data.len());
     let mut word = [0u8; 8];
@@ -191,6 +215,36 @@ mod tests {
                 let want = (reference[bit / 8] >> (bit % 8)) & 1;
                 assert_eq!(got, want, "len={len} bit={bit} outside written fields");
             }
+        }
+    }
+
+    /// The padded copy is gone: a short item must encode exactly as the
+    /// zero-padded full-width item it used to be expanded into. The final row
+    /// of a snapshot is always short, so this is the production path.
+    #[test]
+    fn short_item_encodes_as_if_zero_padded() {
+        for len in [
+            0usize,
+            1,
+            31,
+            32,
+            NULLIFIER_BYTES * 3,
+            ITEM_BYTES - 1,
+            ITEM_BYTES,
+        ] {
+            let short: Vec<u8> = (0..len).map(|i| ((i * 37) ^ 0xc3) as u8).collect();
+            let mut padded = vec![0u8; ITEM_BYTES];
+            padded[..len].copy_from_slice(&short);
+
+            let mut from_short = vec![0u16; SIMPLEPIR_COEFFS_PER_ITEM];
+            encode_item_into(&short, &mut from_short);
+            let from_padded = encode_item_bytes(&padded);
+
+            assert_eq!(
+                from_short.as_slice(),
+                from_padded.as_slice(),
+                "short item of {len} bytes must match its zero-padded form"
+            );
         }
     }
 

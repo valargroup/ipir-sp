@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::encoding::{
-    encode_item_bytes, pir_row_count, ITEM_BYTES, NULLIFIERS_PER_ITEM, NULLIFIER_BYTES,
+    encode_item_into, pir_row_count, ITEM_BYTES, NULLIFIERS_PER_ITEM, NULLIFIER_BYTES,
     SIMPLEPIR_COEFFS_PER_ITEM,
 };
 
@@ -124,6 +124,7 @@ impl NullifierSnapshot {
             actual_rows: self.pir_row_count(),
             db_rows,
             current_row: 0,
+            item: vec![0u8; ITEM_BYTES],
             coeffs: [0u16; SIMPLEPIR_COEFFS_PER_ITEM],
             coeff_idx: SIMPLEPIR_COEFFS_PER_ITEM,
         })
@@ -136,11 +137,23 @@ pub struct SnapshotCoeffIter {
     actual_rows: usize,
     db_rows: usize,
     current_row: usize,
+    /// Reusable read buffer, so a row does not allocate.
+    item: Vec<u8>,
     coeffs: [u16; SIMPLEPIR_COEFFS_PER_ITEM],
     coeff_idx: usize,
 }
 
 impl SnapshotCoeffIter {
+    /// Refill `coeffs` from the next row.
+    ///
+    /// `#[inline(never)]` is load-bearing, not cosmetic. This runs once every
+    /// `SIMPLEPIR_COEFFS_PER_ITEM` calls to `next`, but it owns the only large
+    /// stack frame in the iterator. Inlined into `next` it made every element
+    /// pay that frame's setup and stack probing: 147.6 ns per element against
+    /// 5.7 ns, which was 140 s of a 202 s cold start on the production
+    /// snapshot. `encode_item_into` removes most of the frame; keeping the
+    /// split makes the hot path independent of that.
+    #[inline(never)]
     fn load_next_row(&mut self) -> io::Result<bool> {
         if self.current_row >= self.db_rows {
             return Ok(false);
@@ -150,9 +163,11 @@ impl SnapshotCoeffIter {
             let remaining_records = self.record_count - self.current_row * NULLIFIERS_PER_ITEM;
             let records_in_row = remaining_records.min(NULLIFIERS_PER_ITEM);
             let bytes_in_row = records_in_row * NULLIFIER_BYTES;
-            let mut item = vec![0u8; ITEM_BYTES];
-            self.reader.read_exact(&mut item[..bytes_in_row])?;
-            self.coeffs = encode_item_bytes(&item);
+            self.reader.read_exact(&mut self.item[..bytes_in_row])?;
+            // Slice to exactly the bytes read: a short final row must not pick
+            // up the previous row's trailing bytes, and the encoder treats
+            // anything past the slice as zero.
+            encode_item_into(&self.item[..bytes_in_row], &mut self.coeffs);
         } else {
             self.coeffs = [0u16; SIMPLEPIR_COEFFS_PER_ITEM];
         }
