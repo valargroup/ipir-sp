@@ -68,11 +68,16 @@ impl FirstDimKernel<u16> for U16Avx512Kernel {
         // respect the plaintext bound exactly as the portable kernel does. This
         // clamp was previously missing here and the kernel was correct only
         // because production plaintexts happen to be 14-bit.
-        let chunk_rows = self
-            .chunk_rows
-            .min(crate::chunked::max_safe_chunk_rows_for(element_max))
-            .min(rows_padded)
-            .max(8);
+        let safe_rows = crate::chunked::max_safe_chunk_rows_for(element_max);
+        // The vector body needs at least one eight-row step, and `.max(8)`
+        // below would override the overflow clamp if the safe window were ever
+        // narrower than that. It cannot be for `u16` elements (the bound is
+        // 65,536 at `u16::MAX`), but that is what this assertion pins.
+        assert!(
+            safe_rows >= 8,
+            "delayed-reduction window {safe_rows} is narrower than one vector step"
+        );
+        let chunk_rows = self.chunk_rows.min(safe_rows).min(rows_padded).max(8);
         let band_cols = crate::band_cols::<u16>(rows_padded, cols);
 
         // Column bands are disjoint and contiguous in a column-major database,

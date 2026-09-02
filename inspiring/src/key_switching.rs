@@ -230,6 +230,14 @@ fn signed_gadget_invert_alloc<'a>(
         half <= params.q,
         "signed digits must be representable modulo q"
     );
+    // Balanced digits can carry out of the top digit: when they do, the digits
+    // reconstruct `x - z^ell` rather than `x`, so the switch picks up an extra
+    // `(z^ell mod q) * s_from` term. That is reachable (`x` in the top `2^38`
+    // window at the production set, plus a carry from the digit below), and it
+    // is harmless only because `z^ell mod q` is small there: `2^57 mod q` is
+    // ~2^19 against `Δ/2 = 2^41`. `ipir-sp` pins that budget in
+    // `params::tests::gadget_carry_out_stays_under_noise_budget`; a `q` or `ell`
+    // change that makes `z^ell mod q` large must be caught there, not here.
 
     for coeff_idx in 0..params.d {
         let mut x = input.get_poly(0, 0)[coeff_idx];

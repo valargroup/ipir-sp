@@ -163,6 +163,26 @@ mod tests {
         assert_eq!(ypir.q_prime_2, 268_369_921);
     }
 
+    /// `signed_gadget_invert_alloc` drops the carry out of the top digit, which
+    /// perturbs a key switch by `(z^ell mod q) * s_from`. With a ternary
+    /// `s_from` that is at most `d * (z^ell mod q)` per coefficient. Keep it
+    /// several bits under the switch's own noise so it never becomes the
+    /// dominant term.
+    #[test]
+    fn gadget_carry_out_stays_under_noise_budget() {
+        let (rlwe, _) = params_for_simplepir(1 << 14, 16_384 * 8).expect("valid params");
+        let z_pow_ell = (1u128 << rlwe.gadget.bits_per).pow(rlwe.gadget.ell as u32);
+        let wrap = (z_pow_ell % u128::from(rlwe.q)) as u64;
+        let worst_case = u128::from(wrap) * rlwe.d as u128;
+
+        assert_eq!(wrap, 573_438);
+        assert!(
+            worst_case < u128::from(rlwe.delta) / (1 << 8),
+            "gadget carry-out term 2^{} exceeds delta/2^8",
+            128 - worst_case.leading_zeros()
+        );
+    }
+
     #[test]
     fn ypir_params_serialize_stably() {
         let (_, ypir) = params_for_simplepir(1 << 15, 32_768 * 8).expect("valid params");

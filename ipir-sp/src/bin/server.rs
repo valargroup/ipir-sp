@@ -9,13 +9,11 @@ use inspiring::{QueryPackPreprocessed, RlweParams, TopKeyImages};
 #[cfg(feature = "http_server")]
 use ipir_sp::client::IPIRClient;
 #[cfg(feature = "http_server")]
-use ipir_sp::modulus_switch::modulus_bits;
-#[cfg(feature = "http_server")]
 use ipir_sp::params_for_simplepir;
 #[cfg(feature = "http_server")]
 use ipir_sp::serialize::{deserialize_packing_keys, serialized_packing_keys_len};
 #[cfg(feature = "http_server")]
-use ipir_sp::server::{build_pack_preprocessed_blocks, IPIRServer};
+use ipir_sp::server::{build_pack_preprocessed_blocks, published_c1_rows, IPIRServer};
 
 #[cfg(feature = "http_server")]
 #[derive(Parser, Debug)]
@@ -37,7 +35,10 @@ struct Args {
 struct ServerState {
     rlwe: &'static RlweParams,
     ypir_rows: usize,
+    query_bits: usize,
     server: IPIRServer<u16>,
+    /// Snapshot-constant `c1` rows, served once from `/public-params`.
+    published_c1: Vec<u8>,
     preprocessed: Vec<QueryPackPreprocessed<'static>>,
     top_keys: TopKeyImages<'static>,
 }
@@ -49,7 +50,7 @@ async fn query(
     data: web::Data<ServerState>,
 ) -> Result<Vec<u8>, actix_web::error::Error> {
     let packing_keys_len = serialized_packing_keys_len(data.rlwe);
-    let online_query_len = (data.ypir_rows * modulus_bits(data.rlwe.q)).div_ceil(8);
+    let online_query_len = (data.ypir_rows * data.query_bits).div_ceil(8);
     if body.len() != packing_keys_len + online_query_len {
         return Err(actix_web::error::ErrorBadRequest(format!(
             "query must be {} bytes, got {}",
@@ -76,6 +77,12 @@ async fn query(
 #[get("/")]
 async fn index(data: web::Data<ServerState>) -> String {
     format!("Hello {}!", data.rlwe.d)
+}
+
+#[cfg(feature = "http_server")]
+#[get("/public-params")]
+async fn public_params(data: web::Data<ServerState>) -> Vec<u8> {
+    data.published_c1.clone()
 }
 
 #[cfg(feature = "http_server")]
@@ -114,10 +121,13 @@ async fn main() -> std::io::Result<()> {
         .expect("preprocessing builds");
     let top_keys = TopKeyImages::build(client.rlwe_params());
 
+    let published_c1 = published_c1_rows(&preprocessed, client.rlwe_params().q);
     let app_data = web::Data::new(ServerState {
         rlwe: client.rlwe_params(),
         ypir_rows: ypir.db_rows,
+        query_bits: ypir.query_bits,
         server,
+        published_c1,
         preprocessed,
         top_keys,
     });
@@ -130,6 +140,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::PayloadConfig::new(1usize << 32))
             .service(index)
             .service(query)
+            .service(public_params)
             .service(info)
     })
     .workers(1)

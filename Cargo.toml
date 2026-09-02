@@ -13,3 +13,10 @@ codegen-units = 1
 [profile.release-with-debug]
 inherits = "release"
 debug = true
+
+# spiral-rs's 128-bit Barrett reduction is ported from SEAL and relies on
+# wrapping `u64` arithmetic (only the low 64 bits of the intermediate product
+# are used). Rust's debug overflow checks turn that into a panic, which is why
+# `production_params_flow` failed under `cargo test` while passing in release.
+[profile.dev.package.valar-spiral-rs]
+overflow-checks = false
