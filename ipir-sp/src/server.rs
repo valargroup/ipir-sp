@@ -427,7 +427,7 @@ where
         preprocessed: &'a [QueryPackPreprocessed<'a>],
     ) -> Result<(Vec<u8>, OnlineServerTiming), InspiringError> {
         let deserialize_started = std::time::Instant::now();
-        let first_dim_query = self.deserialize_first_dim_query(rlwe, query)?;
+        let first_dim_query = deserialize_first_dim_query(rlwe, &self.params, query)?;
         let deserialize = deserialize_started.elapsed();
 
         let matrix_started = std::time::Instant::now();
@@ -455,27 +455,31 @@ where
             },
         ))
     }
+}
 
-    fn deserialize_first_dim_query(
-        &self,
-        rlwe: &RlweParams,
-        query: &[u8],
-    ) -> Result<Vec<u64>, InspiringError> {
-        let rows = self.db_rows_padded();
-        let first_dim_query =
-            IPIRSimpleQuery::from_switched_bytes(query, rows, rlwe.q, self.params.query_bits)?
-                .into_first_dim();
+/// Parse the switched first-dimension query for a declared global database.
+///
+/// A distributed coordinator uses this once, then gives every row shard the
+/// matching coefficient slice. Workers never need packing keys or a target
+/// index, and the concatenation of all slices is exactly the monolithic query.
+pub fn deserialize_first_dim_query(
+    rlwe: &RlweParams,
+    ypir: &YpirSchemeParams,
+    query: &[u8],
+) -> Result<Vec<u64>, InspiringError> {
+    let first_dim_query =
+        IPIRSimpleQuery::from_switched_bytes(query, ypir.db_rows, rlwe.q, ypir.query_bits)?
+            .into_first_dim();
 
-        if first_dim_query.len() != self.db_rows_padded() {
-            return Err(InspiringError::LweShape(format!(
-                "expected {} first-dimension query values, got {}",
-                self.db_rows_padded(),
-                first_dim_query.len()
-            )));
-        }
-
-        Ok(first_dim_query)
+    if first_dim_query.len() != ypir.db_rows {
+        return Err(InspiringError::LweShape(format!(
+            "expected {} first-dimension query values, got {}",
+            ypir.db_rows,
+            first_dim_query.len()
+        )));
     }
+
+    Ok(first_dim_query)
 }
 
 impl YServer<u16> {
@@ -587,6 +591,85 @@ impl CrsBlock {
 
         to_ntt_alloc(&raw)
     }
+
+    fn validate_shape(&self, params: &RlweParams) -> Result<(), InspiringError> {
+        if self.rows.len() != params.d || self.rows.iter().any(|row| row.len() != params.d) {
+            return Err(InspiringError::PreprocessMismatch(format!(
+                "CRS block must be {}x{}",
+                params.d, params.d
+            )));
+        }
+
+        Ok(())
+    }
+}
+
+/// Add a worker's SimplePIR intermediate into a coordinator accumulator.
+///
+/// The first-dimension operation is linear over `Z_q`: if row shards partition
+/// a database, summing their fixed-width outputs produces the exact monolithic
+/// matrix-vector product. Inputs are required to be canonical residues so a
+/// corrupt worker cannot smuggle an overflow or a second representation of the
+/// same value across the protocol boundary.
+pub fn add_intermediate_assign_mod(
+    accumulator: &mut [u64],
+    contribution: &[u64],
+    modulus: u64,
+) -> Result<(), InspiringError> {
+    if modulus < 2 {
+        return Err(InspiringError::PreprocessMismatch(
+            "intermediate modulus must be at least two".to_string(),
+        ));
+    }
+    if accumulator.len() != contribution.len() {
+        return Err(InspiringError::LweShape(format!(
+            "intermediate widths differ: {} and {}",
+            accumulator.len(),
+            contribution.len()
+        )));
+    }
+
+    for (left, right) in accumulator.iter_mut().zip(contribution) {
+        if *left >= modulus || *right >= modulus {
+            return Err(InspiringError::PreprocessMismatch(
+                "intermediate coefficient is not reduced modulo q".to_string(),
+            ));
+        }
+        let sum = u128::from(*left) + u128::from(*right);
+        *left = (sum % u128::from(modulus)) as u64;
+    }
+
+    Ok(())
+}
+
+/// Add one shard's partial CRS/hint contribution into the global CRS.
+///
+/// Each contribution must have the complete output-block shape. This function
+/// is deliberately shape-strict because the resulting public `c1` is bound to
+/// the snapshot and a missing coefficient would silently make clients decode
+/// garbage.
+pub fn add_crs_blocks_assign_mod(
+    accumulator: &mut [CrsBlock],
+    contribution: &[CrsBlock],
+    params: &RlweParams,
+) -> Result<(), InspiringError> {
+    if accumulator.len() != contribution.len() {
+        return Err(InspiringError::PreprocessMismatch(format!(
+            "CRS block counts differ: {} and {}",
+            accumulator.len(),
+            contribution.len()
+        )));
+    }
+
+    for (left_block, right_block) in accumulator.iter_mut().zip(contribution) {
+        left_block.validate_shape(params)?;
+        right_block.validate_shape(params)?;
+        for (left_row, right_row) in left_block.rows.iter_mut().zip(&right_block.rows) {
+            add_intermediate_assign_mod(left_row, right_row, params.q)?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Produce offline values from a supplied `hint_0`.
@@ -1011,6 +1094,80 @@ mod tests {
                 2 * 2 + 3 * 5 + 5 * 8 + 7 * 11
             ]
         );
+    }
+
+    #[test]
+    fn row_shard_intermediates_sum_to_monolithic_result() {
+        let rlwe = tiny_rlwe();
+        let global_params = tiny_ypir(16, 8);
+        let shard_params = tiny_ypir(8, 8);
+        let db: Vec<u16> = (0..128).map(|value| (value % 4) as u16).collect();
+        let query: Vec<u64> = (0..16).map(|value| (value * 17 + 3) as u64).collect();
+
+        let global = YServer::new(global_params, db.iter().copied(), false, true);
+        let first = YServer::new(shard_params.clone(), db[..64].iter().copied(), false, true);
+        let second = YServer::new(shard_params, db[64..].iter().copied(), false, true);
+
+        let mut combined = first.multiply_query(&rlwe, &query[..8]);
+        add_intermediate_assign_mod(
+            &mut combined,
+            &second.multiply_query(&rlwe, &query[8..]),
+            rlwe.q,
+        )
+        .expect("matching shard output");
+
+        assert_eq!(combined, global.multiply_query(&rlwe, &query));
+    }
+
+    #[test]
+    fn row_shard_crs_contributions_sum_to_monolithic_crs() {
+        let rlwe = tiny_rlwe();
+        let global_params = tiny_ypir(16, 8);
+        let shard_params = tiny_ypir(8, 8);
+        let db: Vec<u16> = (0..128).map(|value| (value % 4) as u16).collect();
+        let setup = vec![
+            vec![1, 3, 5, 7, 9, 11, 13, 15],
+            vec![2, 4, 6, 8, 10, 12, 14, 16],
+        ];
+
+        let global = YServer::new(global_params, db.iter().copied(), false, true);
+        let first = YServer::new(shard_params.clone(), db[..64].iter().copied(), false, true);
+        let second = YServer::new(shard_params, db[64..].iter().copied(), false, true);
+        let expected = global.perform_offline_precomputation_simplepir(&rlwe, &setup);
+        let mut combined = first
+            .perform_offline_precomputation_simplepir(&rlwe, &setup[..1])
+            .crs_blocks;
+        let second = second
+            .perform_offline_precomputation_simplepir(&rlwe, &setup[1..])
+            .crs_blocks;
+
+        add_crs_blocks_assign_mod(&mut combined, &second, &rlwe)
+            .expect("matching CRS contribution");
+
+        assert_eq!(combined, expected.crs_blocks);
+    }
+
+    #[test]
+    fn distributed_combiners_reject_malformed_contributions() {
+        let rlwe = tiny_rlwe();
+        let mut intermediate = vec![0; 8];
+        assert!(add_intermediate_assign_mod(&mut intermediate, &[0; 7], rlwe.q).is_err());
+        let mut malformed = vec![CrsBlock { rows: vec![] }];
+        assert!(
+            add_crs_blocks_assign_mod(&mut malformed, &[CrsBlock { rows: vec![] }], &rlwe).is_err()
+        );
+        assert!(add_intermediate_assign_mod(&mut intermediate, &[rlwe.q; 8], rlwe.q).is_err());
+    }
+
+    #[test]
+    fn public_setup_is_prefix_stable_when_global_capacity_grows() {
+        let seed = [42; 32];
+        let small = crate::IPIRClient::from_db_sz(8_192, 4_896 * 8);
+        let large = crate::IPIRClient::from_db_sz(32_768, 4_896 * 8);
+        let small_setup = small.generate_public_query_setup_simplepir_from_seed(seed);
+        let large_setup = large.generate_public_query_setup_simplepir_from_seed(seed);
+
+        assert_eq!(small_setup, large_setup[..small_setup.len()]);
     }
 
     #[test]
