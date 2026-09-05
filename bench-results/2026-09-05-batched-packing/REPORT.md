@@ -202,6 +202,37 @@ to 460 ms at c=4 on baseline. That is the expected behaviour, now measured
 rather than assumed, and it is why the A.3 coalescing idea targeted this layer
 in the first place.
 
+## A note on the matvec number
+
+The A/B table shows matvec at 55.4 ms (baseline) and 53.7 ms (new), against 49.6 ms
+in the 2026-09-02 comparison report. That is not a regression, and the difference
+is not noise. Measured directly with `cargo bench -p simplepir-kernel --bench
+first_dim` at the deployed `28,672 x 32,768` shape on this host:
+
+| kernel | time |
+|---|---:|
+| `avx512_u16` | **50.13 ms** |
+| `chunked_split` (portable) | **55.01 ms** |
+
+**The end-to-end benchmark hardcodes `ChunkedSplitKernel`**
+(`ipir-sp/benches/end_to_end.rs:474`), while the server selects at runtime via
+`new_auto_kernel` (`nullifier-pir/src/backend.rs:108`) and therefore uses AVX-512
+on this host. So the e2e figures come from the portable kernel and the published
+49.6 ms from the vectorized one — two different kernels, ~10% apart.
+
+Three consequences worth stating:
+
+- **The A/B is unaffected.** Both sides used the same portable kernel, and the
+  matvec moved 55.36 -> 53.66 ms, i.e. slightly *down*, as expected for a change
+  that touches only `accumulate_collapse_term`.
+- **The e2e bench's total server time is ~5 ms pessimistic** relative to
+  production. The live HTTP mean of 100.6 ms, not the bench's 103.3 ms, is the
+  production-representative number. The ratio is essentially unchanged either way
+  (121.9 -> 98.4 ms, 1.24x, if both sides are adjusted to the AVX-512 kernel).
+- **The e2e bench does not exercise the kernel the server runs.** That is a real
+  coverage gap, separate from this change, and worth closing so benchmark and
+  production agree by construction rather than by accounting.
+
 ## Cross-check: Apple M4 Max
 
 Run first, and useful only as contrast (`raw/m4max-d2048.txt`; 12P+4E cores,
