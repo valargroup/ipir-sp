@@ -19,6 +19,10 @@ use crate::modulus_switch::{
 };
 use crate::params::{params_for_simplepir, YpirSchemeParams};
 
+#[cfg(feature = "experimental-key-reuse")]
+#[path = "reusable.rs"]
+pub mod reusable;
+
 /// Seed used to regenerate IPIR client secret material with the current sampler.
 /// Seeds are not versioned: finish outstanding responses with the client version
 /// that generated them. See `MIGRATION.md` for the Gaussian-secret transition.
