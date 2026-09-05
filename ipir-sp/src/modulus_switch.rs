@@ -261,7 +261,7 @@ pub fn published_c1_len(degree: usize, q: u64) -> usize {
     (degree * modulus_bits(q)).div_ceil(8)
 }
 
-/// Recover the published `c1` rows produced by [`serialize_published_c1`].
+/// Recover the published `c1` rows produced by [`crate::server::published_c1_rows`].
 #[must_use]
 pub fn recover_published_c1(data: &[u8], degree: usize, blocks: usize, q: u64) -> Vec<Vec<u64>> {
     let row_len = published_c1_len(degree, q);

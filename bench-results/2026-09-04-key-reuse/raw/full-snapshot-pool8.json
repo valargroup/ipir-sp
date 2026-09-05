@@ -1,0 +1,82 @@
+{
+  "batches": 3,
+  "cols": 32768,
+  "database_build_ms": 4284.272042,
+  "decryption_threshold": 2199023255543,
+  "degree": 2048,
+  "key_bytes": 86016,
+  "metrics": [
+    {
+      "client_decode_ms": {
+        "max": 5.571958,
+        "mean": 3.3934669166666662,
+        "median": 3.389041,
+        "min": 2.302709
+      },
+      "client_generation_ms_per_query": {
+        "max": 41.779760249999995,
+        "mean": 32.91950679166667,
+        "median": 32.320338375000006,
+        "min": 24.65842175
+      },
+      "cold_first_batch_bytes_per_query": 347136,
+      "max_decryption_error": 58887077215,
+      "mode": "fresh",
+      "response_bytes_per_query": 81920,
+      "server_answer_ms": {
+        "max": 136.22475,
+        "mean": 65.19511283333334,
+        "median": 61.876208000000005,
+        "min": 45.771834
+      },
+      "server_key_parse_ms_total": 2.9232069999999997,
+      "upload_bytes_per_query": 236544,
+      "warm_total_bytes_per_query": 318464
+    },
+    {
+      "client_decode_ms": {
+        "max": 3.800291,
+        "mean": 3.354251833333333,
+        "median": 3.391917,
+        "min": 2.8727090000000004
+      },
+      "client_generation_ms_per_query": {
+        "max": 26.333724000000004,
+        "mean": 24.407725625,
+        "median": 23.534135375,
+        "min": 23.355317499999998
+      },
+      "cold_first_batch_bytes_per_query": 472576,
+      "max_decryption_error": 62118097131,
+      "mode": "reused",
+      "response_bytes_per_query": 81920,
+      "server_answer_ms": {
+        "max": 313.315917,
+        "mean": 115.745206625,
+        "median": 72.019791,
+        "min": 60.922542
+      },
+      "server_key_parse_ms_total": 0.45295799999999997,
+      "upload_bytes_per_query": 161280,
+      "warm_total_bytes_per_query": 243200
+    }
+  ],
+  "offline_ms_per_set": [
+    14321.5945,
+    14651.321208000001,
+    14109.081916,
+    14066.973708000001,
+    13796.322834,
+    14119.226083,
+    12922.979041,
+    8308.224417
+  ],
+  "packing_cache_payload_bytes": 12880707584,
+  "pool_size": 8,
+  "public_c1_bytes_per_set": 229376,
+  "queries_per_mode": 24,
+  "query_bits": 42,
+  "rayon_threads": 16,
+  "rows": 28672,
+  "synthetic_database": true
+}

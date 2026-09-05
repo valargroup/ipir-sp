@@ -1,0 +1,78 @@
+{
+  "batches": 5,
+  "cols": 4096,
+  "database_build_ms": 31.406583,
+  "decryption_threshold": 2199023255543,
+  "degree": 2048,
+  "key_bytes": 86016,
+  "metrics": [
+    {
+      "client_decode_ms": {
+        "max": 0.429292,
+        "mean": 0.3217228,
+        "median": 0.318625,
+        "min": 0.294833
+      },
+      "client_generation_ms_per_query": {
+        "max": 7.54077075,
+        "mean": 7.40024165,
+        "median": 7.47619825,
+        "min": 7.1514370000000005
+      },
+      "cold_first_batch_bytes_per_query": 113664,
+      "max_decryption_error": 56608034293,
+      "mode": "fresh",
+      "response_bytes_per_query": 10240,
+      "server_answer_ms": {
+        "max": 32.485208,
+        "mean": 12.8539084,
+        "median": 10.530625,
+        "min": 4.866083000000001
+      },
+      "server_key_parse_ms_total": 1.5052100000000002,
+      "upload_bytes_per_query": 96256,
+      "warm_total_bytes_per_query": 106496
+    },
+    {
+      "client_decode_ms": {
+        "max": 0.414125,
+        "mean": 0.3347895000000001,
+        "median": 0.318625,
+        "min": 0.31525
+      },
+      "client_generation_ms_per_query": {
+        "max": 2.6421872499999997,
+        "mean": 2.5759312499999996,
+        "median": 2.61338525,
+        "min": 2.404552
+      },
+      "cold_first_batch_bytes_per_query": 70656,
+      "max_decryption_error": 63157022398,
+      "mode": "reused",
+      "response_bytes_per_query": 10240,
+      "server_answer_ms": {
+        "max": 21.482708,
+        "mean": 10.4727752,
+        "median": 7.451334,
+        "min": 4.165542
+      },
+      "server_key_parse_ms_total": 0.38133399999999995,
+      "upload_bytes_per_query": 31744,
+      "warm_total_bytes_per_query": 41984
+    }
+  ],
+  "offline_ms_per_set": [
+    2023.4947499999998,
+    1834.660541,
+    1802.720167,
+    1790.936416
+  ],
+  "packing_cache_payload_bytes": 805044224,
+  "pool_size": 4,
+  "public_c1_bytes_per_set": 28672,
+  "queries_per_mode": 20,
+  "query_bits": 40,
+  "rayon_threads": 16,
+  "rows": 2048,
+  "synthetic_database": true
+}
