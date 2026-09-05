@@ -93,6 +93,14 @@ cargo run -p ipir-sp --features http_client --bin client -- 0 16384 131072
 Use the same `--setup-seed` on both commands so the client query matches the
 server's precomputed setup.
 
+## Client secret distribution
+
+High-level query generation and decoding use centred discrete-Gaussian secrets
+at standard deviation `sigma_chi` (6.4 in the production profile), matching
+YPIR's Gaussian convention. The pinned sampler receives width
+`sigma_chi * sqrt(2*pi)`. See [migration notes](MIGRATION.md) for the changed
+interpretation of old client seeds.
+
 ## Tests And Benchmarks
 
 Run the crate tests with:

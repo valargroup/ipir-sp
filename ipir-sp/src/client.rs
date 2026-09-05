@@ -19,7 +19,9 @@ use crate::modulus_switch::{
 };
 use crate::params::{params_for_simplepir, YpirSchemeParams};
 
-/// Seed used to regenerate IPIR client secret material.
+/// Seed used to regenerate IPIR client secret material with the current sampler.
+/// Seeds are not versioned: finish outstanding responses with the client version
+/// that generated them. See `MIGRATION.md` for the Gaussian-secret transition.
 pub type IPIRSeed = [u8; 32];
 
 /// A client secret in coefficient form.
@@ -45,7 +47,21 @@ impl ClientSecret {
         }
     }
 
-    /// Sample a ternary secret with coefficients in `{0, 1, -1 mod q}`.
+    /// Sample a centred discrete-Gaussian secret, reduced modulo `q`.
+    ///
+    /// Uses the same standard deviation `sigma_chi` as the encryption errors
+    /// (6.4 for the production profile). The pinned backend takes Gaussian
+    /// width, so convert with `sqrt(2*pi)` and use its constant-time CDF sampler.
+    /// The RNG must be private and cryptographically seeded. Deterministic
+    /// regeneration requires the same parameters, RNG state and sampler version.
+    pub fn sample_gaussian(params: &RlweParams, rng: &mut ChaCha20Rng) -> Self {
+        let dg = DiscreteGaussian::init(params.sigma_chi * std::f64::consts::TAU.sqrt());
+        let coeffs = (0..params.d).map(|_| dg.sample(params.q, rng)).collect();
+        Self { coeffs }
+    }
+
+    /// Low-level ternary sampler retained for explicit research fixtures.
+    /// High-level query generation and seed-based decoding use `sample_gaussian`.
     pub fn sample_ternary(params: &RlweParams, rng: &mut ChaCha20Rng) -> Self {
         let coeffs = (0..params.d)
             .map(|_| match rng.gen_range(0..3) {
@@ -256,7 +272,7 @@ impl IPIRClient {
         let mut client_seed = [0u8; 32];
         rand::rngs::OsRng.fill_bytes(&mut client_seed);
         let mut rng = ChaCha20Rng::from_seed(client_seed);
-        let secret = ClientSecret::sample_ternary(&self.rlwe, &mut rng);
+        let secret = ClientSecret::sample_gaussian(&self.rlwe, &mut rng);
         let secret_ntt = secret.to_ntt(&self.rlwe);
         let packing_keys = PackingKeys::generate_full(&self.rlwe, &secret_ntt, &mut rng);
         let first_dim = encrypted_selection_query(
@@ -358,7 +374,7 @@ impl IPIRClient {
 
     fn secret_from_seed(&self, client_seed: IPIRSeed) -> ClientSecret {
         let mut rng = ChaCha20Rng::from_seed(client_seed);
-        ClientSecret::sample_ternary(&self.rlwe, &mut rng)
+        ClientSecret::sample_gaussian(&self.rlwe, &mut rng)
     }
 }
 
@@ -712,6 +728,81 @@ mod tests {
             (query.as_slice().len() * modulus_bits(params.q)).div_ceil(8)
         );
         assert_eq!(decoded, query);
+    }
+
+    #[test]
+    fn gaussian_secret_matches_backend_sampler_and_expected_scale() {
+        let (r, _) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        // Public, test-only seed: never used for real client requests.
+        let seed = [0x47; 32];
+        let mut rng = ChaCha20Rng::from_seed(seed);
+        let secret = ClientSecret::sample_gaussian(&r, &mut rng);
+        let mut reference_rng = ChaCha20Rng::from_seed(seed);
+        let dg = DiscreteGaussian::init(r.spiral.noise_width);
+        let mut reference = PolyMatrixRaw::zero(&r.spiral, 1, 1);
+        dg.sample_matrix(&mut reference, &mut reference_rng);
+        assert_eq!(secret.coeffs, reference.get_poly(0, 0));
+        assert_eq!(rng.next_u64(), reference_rng.next_u64());
+
+        let centered = |v: u64| {
+            if v > r.q / 2 {
+                -((r.q - v) as i64)
+            } else {
+                v as i64
+            }
+        };
+        let prefix: Vec<_> = secret.coeffs[..16].iter().copied().map(centered).collect();
+        assert_eq!(
+            prefix,
+            vec![2, -2, 7, -2, 0, 14, 4, 11, -3, -6, 2, 1, -4, -16, 3, -5]
+        );
+        assert!(secret.coeffs.iter().all(|v| *v < r.q));
+        assert!(secret.coeffs.iter().any(|v| centered(*v) < -1));
+        assert!(secret.coeffs.iter().any(|v| centered(*v) > 1));
+
+        // Pin the *standard deviation*, catching a missing sqrt(2*pi)
+        // conversion as well as an accidental return to ternary sampling.
+        let mut values = Vec::new();
+        for _ in 0..16 {
+            values.extend(
+                ClientSecret::sample_gaussian(&r, &mut rng)
+                    .coeffs
+                    .into_iter()
+                    .map(centered),
+            );
+        }
+        let mean = values.iter().map(|v| *v as f64).sum::<f64>() / values.len() as f64;
+        let variance = values
+            .iter()
+            .map(|v| (*v as f64 - mean).powi(2))
+            .sum::<f64>()
+            / values.len() as f64;
+        assert!(mean.abs() < 0.2);
+        assert!((variance - r.sigma_chi.powi(2)).abs() < 2.0);
+    }
+
+    #[test]
+    fn fresh_query_seed_replays_gaussian_secret_keys_and_query() {
+        let (r, y) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        let client = IPIRClient::new(&r, &y);
+        let setup = client.generate_public_query_setup_simplepir_from_seed([0x42; 32]);
+        let (query, keys, seed) = client.generate_fresh_query_simplepir(&setup, 2047);
+        let mut rng = ChaCha20Rng::from_seed(seed);
+        let secret = ClientSecret::sample_gaussian(&r, &mut rng);
+        assert_eq!(client.secret_from_seed(seed), secret);
+        let expected_keys = PackingKeys::generate_full(&r, &secret.to_ntt(&r), &mut rng);
+        assert_eq!(keys.kg_body.as_slice(), expected_keys.kg_body.as_slice());
+        assert_eq!(keys.kh_body.as_slice(), expected_keys.kh_body.as_slice());
+        assert_eq!(
+            query.as_slice(),
+            encrypted_selection_query(&r, &setup, &secret.coeffs, 2047, y.db_rows, &mut rng)
+        );
+        // There is no automatic migration of an old unversioned client seed.
+        let mut old_rng = ChaCha20Rng::from_seed(seed);
+        assert_ne!(
+            client.secret_from_seed(seed),
+            ClientSecret::sample_ternary(&r, &mut old_rng)
+        );
     }
 
     #[test]
