@@ -1,0 +1,26 @@
+prepared slot 0 in 14321.6 ms
+prepared slot 1 in 14651.3 ms
+prepared slot 2 in 14109.1 ms
+prepared slot 3 in 14067.0 ms
+prepared slot 4 in 13796.3 ms
+prepared slot 5 in 14119.2 ms
+prepared slot 6 in 12923.0 ms
+prepared slot 7 in 8308.2 ms
+      117.50 real       544.40 user        27.73 sys
+         21122465792  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             2647336  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   2  voluntary context switches
+             1873155  involuntary context switches
+       7685004623218  instructions retired
+       1243259121332  cycles elapsed
+         21139308144  peak memory footprint

@@ -26,6 +26,7 @@ reqwest = { version = "0.12", features = ["blocking"], optional = true }
 
 [features]
 default = []
+experimental-key-reuse = []
 http_server = ["dep:actix-cors", "dep:actix-web"]
 http_client = ["dep:reqwest"]
 
@@ -39,3 +40,7 @@ harness = false
 [[bench]]
 name = "client_decode"
 harness = false
+
+[[example]]
+name = "key_reuse_bench"
+required-features = ["experimental-key-reuse"]
