@@ -236,7 +236,7 @@ fn signed_gadget_invert_alloc<'a>(
     // window at the production set, plus a carry from the digit below), and it
     // is harmless only because `z^ell mod q` is small there: `2^57 mod q` is
     // ~2^19 against `Δ/2 = 2^41`. `ipir-sp` pins that budget in
-    // `ipir-sp::params::tests::gaussian_gadget_carry_out_per_switch_bound`; a `q` or `ell`
+    // `params::tests::gadget_carry_out_stays_under_noise_budget`; a `q` or `ell`
     // change that makes `z^ell mod q` large must be caught there, not here.
 
     for coeff_idx in 0..params.d {
