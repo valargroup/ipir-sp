@@ -19,6 +19,10 @@ use crate::modulus_switch::{
 };
 use crate::params::{params_for_simplepir, YpirSchemeParams};
 
+#[cfg(feature = "experimental-key-reuse")]
+#[path = "reusable.rs"]
+pub mod reusable;
+
 /// Seed used to regenerate IPIR client secret material.
 pub type IPIRSeed = [u8; 32];
 

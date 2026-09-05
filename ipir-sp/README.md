@@ -95,6 +95,12 @@ server's precomputed setup.
 
 ## Tests And Benchmarks
 
+The opt-in `experimental-key-reuse` feature provides an in-process prototype
+that amortizes evaluation keys across independent public query-matrix sets.
+See [the experiment design and commands](KEY_REUSE_EXPERIMENT.md) and
+[measured bandwidth and runtime results](../bench-results/2026-09-04-key-reuse/REPORT.md).
+It is not enabled in the HTTP path and has not established production security.
+
 Run the crate tests with:
 
 ```bash
