@@ -48,7 +48,7 @@ impl QueryPool {
         let mut client_seed = [0; 32];
         rand::rngs::OsRng.fill_bytes(&mut client_seed);
         let mut rng = ChaCha20Rng::from_seed(client_seed);
-        let secret = ClientSecret::sample_ternary(&self.client.rlwe, &mut rng);
+        let secret = ClientSecret::sample_gaussian(&self.client.rlwe, &mut rng);
         let keys = PackingKeys::generate_full(
             &self.client.rlwe,
             &secret.to_ntt(&self.client.rlwe),
@@ -182,7 +182,7 @@ mod tests {
         let client = IPIRClient::new(&r, &y);
         let a = client.generate_public_query_setup_simplepir_from_seed([9; 32]);
         let mut rng = ChaCha20Rng::from_seed([11; 32]);
-        let secret = ClientSecret::sample_ternary(&r, &mut rng);
+        let secret = ClientSecret::sample_gaussian(&r, &mut rng);
         let x = encrypted_selection_query(&r, &a, &secret.coeffs, 0, y.db_rows, &mut rng);
         let z = encrypted_selection_query(&r, &a, &secret.coeffs, 2047, y.db_rows, &mut rng);
         // Attack the actual switched wire representation, including rounding.
