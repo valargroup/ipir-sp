@@ -163,24 +163,30 @@ mod tests {
         assert_eq!(ypir.q_prime_2, 268_369_921);
     }
 
-    /// `signed_gadget_invert_alloc` drops the carry out of the top digit, which
-    /// perturbs a key switch by `(z^ell mod q) * s_from`. With a ternary
-    /// `s_from` that is at most `d * (z^ell mod q)` per coefficient. Keep it
-    /// several bits under the switch's own noise so it never becomes the
-    /// dominant term.
+    /// Dropping the top balanced-digit carry perturbs one key switch by
+    /// `wrap * (carry_polynomial * s_from)`. Bound its coefficient norm by
+    /// `wrap * d * max_secret`, using the pinned Gaussian sampler's actual
+    /// finite support, not the obsolete ternary bound of one.
+    ///
+    /// At the production profile the bound is 76,336,066,560, below delta/32
+    /// (one sixteenth of the decryption threshold). This is a *per-switch*
+    /// bound, not a bound on the full cascade. Full-pipeline tests separately
+    /// retain their stricter error < delta/8 acceptance criterion; a composed
+    /// tail analysis is still needed to establish a failure probability.
     #[test]
-    fn gadget_carry_out_stays_under_noise_budget() {
+    fn gaussian_gadget_carry_out_per_switch_bound() {
         let (rlwe, _) = params_for_simplepir(1 << 14, 16_384 * 8).expect("valid params");
         let z_pow_ell = (1u128 << rlwe.gadget.bits_per).pow(rlwe.gadget.ell as u32);
-        let wrap = (z_pow_ell % u128::from(rlwe.q)) as u64;
-        let worst_case = u128::from(wrap) * rlwe.d as u128;
+        let wrap = z_pow_ell % u128::from(rlwe.q);
+        let sampler = spiral_rs::discrete_gaussian::DiscreteGaussian::init(
+            rlwe.sigma_chi * std::f64::consts::TAU.sqrt(),
+        );
+        assert_eq!(sampler.max_val, 65);
+        let worst_case = wrap * rlwe.d as u128 * sampler.max_val as u128;
 
         assert_eq!(wrap, 573_438);
-        assert!(
-            worst_case < u128::from(rlwe.delta) / (1 << 8),
-            "gadget carry-out term 2^{} exceeds delta/2^8",
-            128 - worst_case.leading_zeros()
-        );
+        assert_eq!(worst_case, 76_336_066_560);
+        assert!(worst_case < u128::from(rlwe.delta) / 32);
     }
 
     #[test]

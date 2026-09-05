@@ -146,14 +146,17 @@ the original comparison.
 
 ### What the parameters assume
 
-`d = 2048`, `q ≈ 2^56`, `σ = 6.4`, uniform ternary secret — Table 5 row 2 of
-ePrint 2024/270. That sits on the HE-standard 128-bit line for `n = 2048`
-rather than above it; a lattice-estimator run has not been recorded in this
-repository. Every query samples a fresh secret and fresh `(K_g, K_h)`, which
-is load-bearing: the server controls every byte the client decrypts, and a
-reused secret would turn the client's observable behaviour into a decryption
-oracle. PIR gives privacy, not integrity — the snapshot's SHA-256 is recorded
-but not verified against anything, and a server can lie about content.
+`d = 2048`, `q ≈ 2^56`, with centred discrete-Gaussian secrets and
+errors at standard deviation `σ = 6.4`. The sampler uses the pinned backend's
+constant-time CDF scan at width `6.4 * sqrt(2π)`, matching the Gaussian convention
+in YPIR's parameter discussion. The backend approximates a finite discrete
+Gaussian; this alignment does not itself establish 128-bit security for our
+single-CRT InspiRING construction.
+
+The default HTTP path samples a fresh secret and fresh `(K_g, K_h)` per query.
+PIR provides query privacy, not authenticated database contents. See
+[`ipir-sp/MIGRATION.md`](ipir-sp/MIGRATION.md) before upgrading a client with
+outstanding responses or saved client seeds.
 
 ## Workspace layout
 
@@ -285,7 +288,7 @@ For a single SimplePIR query:
    digit schedule), and `published_c1_rows` serializes the snapshot-constant
    `c1` rows once for `GET /public-params`.
 3. **Client query.** `IPIRClient::generate_fresh_query_simplepir` samples a
-   fresh ternary secret, the `(K_g, K_h)` packing-key bodies under it, and the
+   fresh Gaussian secret, the `(K_g, K_h)` packing-key bodies under it, and the
    encrypted one-hot selector; the selector goes on the wire via
    `to_switched_bytes` at the derived width.
 4. **Server online.** `YServer::perform_full_online_computation_simplepir_measured`
