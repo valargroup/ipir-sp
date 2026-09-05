@@ -10,8 +10,8 @@
 //! development machines. Set `IPIR_SP_BENCH_MID=1` for a `d = 1024` profile,
 //! `IPIR_SP_BENCH_FULL=1` to attempt the headline YPIR command shape
 //! (`cargo run --release -- 32768 131072`), or `IPIR_SP_BENCH_NULLIFIER=1` for
-//! the production nullifier shape (112,640 x 8,192), which is the only profile
-//! that exercises a first dimension as tall as the deployed server's.
+//! the deployed nullifier shape (28,672 x 32,768), the only profile that
+//! matches the served configuration.
 //!
 //! The SimplePIR first-dimension multiply is benchmarked separately from the
 //! InspiRING packing boundary so changes to the DB/query kernel are visible.

@@ -1,0 +1,6 @@
+Triad  57.9 GB/s  (8 threads)
+Copy   50.2 GB/s
+(sink 40.000)
+Triad  14.4 GB/s  (1 threads)
+Copy   12.3 GB/s
+(sink 40.000)

@@ -325,6 +325,72 @@ impl<'a> QueryPackPreprocessed<'a> {
             inner: stack_ntt(&self.collapse_a_final_ntt, &b_final),
         })
     }
+
+    /// Pack `k` independent queries against this block in one pass.
+    ///
+    /// Equivalent to calling [`Self::pack_b_prevalidated`] once per query, and
+    /// pinned to that by `batched_pack_matches_sequential`. The difference is
+    /// only in memory traffic: the shared `digits_ntt` stream is read once for
+    /// the whole batch instead of once per query.
+    ///
+    /// The queries are independent — different secrets, different key bodies,
+    /// possibly different clients. Batching them shares no secret state and
+    /// changes no ciphertext, so it carries no cryptographic assumption; it is
+    /// server-side request coalescing, not batch PIR.
+    ///
+    /// Callers must validate `keys` and `top_images` beforehand, exactly as for
+    /// [`Self::pack_b_prevalidated`].
+    pub fn pack_b_batched_prevalidated(
+        &self,
+        b_scalars: &[&[u64]],
+        keys: &[&PackingKeys<'a>],
+        top_images: &TopKeyImages<'a>,
+    ) -> Result<Vec<RlweCiphertext<'a>>, InspiringError> {
+        if b_scalars.len() != keys.len() {
+            return Err(InspiringError::LweShape(format!(
+                "expected one key set per query, got {} b blocks and {} key sets",
+                b_scalars.len(),
+                keys.len()
+            )));
+        }
+        if b_scalars.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut b_tildes = Vec::with_capacity(b_scalars.len());
+        for block in b_scalars {
+            if block.len() != self.params.d {
+                return Err(InspiringError::LweShape(format!(
+                    "expected {} LWE b scalars, got {}",
+                    self.params.d,
+                    block.len()
+                )));
+            }
+            let mut b_tilde = PolyMatrixRaw::zero(&self.params.spiral, 1, 1);
+            for (idx, b) in block.iter().copied().enumerate() {
+                b_tilde.get_poly_mut(0, 0)[idx] = b % self.params.q;
+            }
+            b_tildes.push(to_ntt_alloc(&b_tilde));
+        }
+
+        let bodies: Vec<(&PolyMatrixNTT<'a>, &PolyMatrixNTT<'a>)> =
+            keys.iter().map(|k| (&k.kg_body, &k.kh_body)).collect();
+
+        let finals = collapse_uploaded_body_b_batched(
+            self.params,
+            b_tildes,
+            &bodies,
+            top_images,
+            &self.digits_ntt,
+        );
+
+        Ok(finals
+            .iter()
+            .map(|b_final| RlweCiphertext {
+                inner: stack_ntt(&self.collapse_a_final_ntt, b_final),
+            })
+            .collect())
+    }
 }
 
 impl<'a> TopKeyImages<'a> {
@@ -638,6 +704,154 @@ fn collapse_uploaded_body_b<'a>(
     out
 }
 
+/// Collapse `k` queries against one shared digit stream.
+///
+/// This is the batched counterpart of [`collapse_uploaded_body_b`], and it
+/// exists because of an asymmetry in the inner loop: for every product, the
+/// gadget-digit operand comes from `digits_ntt` — 100.6 MB per block at
+/// `d = 2048, ell = 3`, derived from the CRS alone and therefore identical for
+/// every client — while the key-body operand is 48 KB and private to one query.
+/// Packing one query streams the whole digit block to perform exactly one
+/// multiply-accumulate per 8 bytes read, which is why it is memory-bound rather
+/// than arithmetic-bound.
+///
+/// Batching `k` queries reads that stream once and performs `k` products per 8
+/// bytes. The queries are otherwise unrelated: separate secrets, separate key
+/// bodies, separate clients. Nothing is shared between them except the public
+/// preprocessing they would each have streamed anyway.
+///
+/// Returns one `b_final` per query, in the order the bodies were given.
+fn collapse_uploaded_body_b_batched<'a>(
+    params: &'a RlweParams,
+    b: Vec<PolyMatrixNTT<'a>>,
+    bodies: &[(&PolyMatrixNTT<'a>, &PolyMatrixNTT<'a>)],
+    top_images: &TopKeyImages<'a>,
+    digits_ntt: &[PolyMatrixNTT<'a>],
+) -> Vec<PolyMatrixNTT<'a>> {
+    assert_eq!(
+        digits_ntt.len(),
+        params.d - 1,
+        "preprocess::collapse_uploaded_body_b_batched expects d - 1 digit blocks"
+    );
+    assert_eq!(b.len(), bodies.len(), "one b per key-body pair");
+
+    // The accumulator bound is per accumulator, so it does not depend on `k`;
+    // a batch is `k` independent sums, not one longer one. If any query would
+    // overflow, every query would, so fall back for the whole batch.
+    let fits = bodies
+        .iter()
+        .all(|(kg, _)| fused_accumulator_fits(params, kg.cols));
+    if !fits {
+        return b
+            .into_iter()
+            .zip(bodies.iter())
+            .map(|(b_one, (kg, kh))| {
+                collapse_uploaded_body_b_stepwise(params, b_one, kg, kh, top_images, digits_ntt)
+            })
+            .collect();
+    }
+
+    let left = &top_images.kg_body_left_tables;
+    let right = &top_images.kg_body_right_tables;
+    assert_eq!(left.len(), params.d / 2 - 1);
+    assert_eq!(right.len(), params.d / 2 - 1);
+
+    // The schedule is shared across the batch: only the body operand varies per
+    // query, so a term names its table and digits plus which of the two bodies
+    // to use. Execution order matches `collapse_uploaded_body_b` exactly, which
+    // is the order `digits_ntt` was recorded in.
+    struct BatchedTerm<'t, 'a> {
+        table: Option<&'t NttAutomorphTable>,
+        digits: &'t PolyMatrixNTT<'a>,
+        use_kh: bool,
+    }
+
+    let mut schedule: Vec<BatchedTerm<'_, 'a>> = Vec::with_capacity(params.d - 1);
+    for (digit_idx, image_idx) in (0..left.len()).rev().enumerate() {
+        schedule.push(BatchedTerm {
+            table: Some(&left[image_idx]),
+            digits: &digits_ntt[digit_idx],
+            use_kh: false,
+        });
+    }
+    let right_base = left.len();
+    for (digit_idx, image_idx) in (0..right.len()).rev().enumerate() {
+        schedule.push(BatchedTerm {
+            table: Some(&right[image_idx]),
+            digits: &digits_ntt[right_base + digit_idx],
+            use_kh: false,
+        });
+    }
+    schedule.push(BatchedTerm {
+        table: None,
+        digits: &digits_ntt[params.d - 2],
+        use_kh: true,
+    });
+    debug_assert_eq!(schedule.len(), params.d - 1);
+
+    let spiral = &params.spiral;
+    let d = spiral.poly_len;
+    let lanes = d * spiral.crt_count;
+    let k = bodies.len();
+
+    // One contiguous `k * lanes` accumulator per task. At the production shape
+    // (`crt_count == 1`, `lanes == 2048`) that is 32 KiB per query, so a batch
+    // of eight is 256 KiB per task and stays in L2 on the deployed host.
+    let partials = schedule
+        .par_chunks(collapse_steps_per_task(schedule.len()))
+        .map(|chunk| {
+            let mut acc = vec![0_u128; k * lanes];
+            for term in chunk {
+                for (query_idx, (kg, kh)) in bodies.iter().enumerate() {
+                    let body = if term.use_kh { *kh } else { *kg };
+                    let slot = &mut acc[query_idx * lanes..(query_idx + 1) * lanes];
+                    accumulate_collapse_term(
+                        spiral,
+                        &CollapseTerm {
+                            body,
+                            table: term.table,
+                            digits: term.digits,
+                        },
+                        slot,
+                    );
+                }
+            }
+            acc
+        })
+        .reduce(
+            || vec![0_u128; k * lanes],
+            |mut lhs, rhs| {
+                for (slot, add) in lhs.iter_mut().zip(rhs.iter()) {
+                    *slot += *add;
+                }
+                lhs
+            },
+        );
+
+    b.into_iter()
+        .enumerate()
+        .map(|(query_idx, mut out)| {
+            let acc = &partials[query_idx * lanes..(query_idx + 1) * lanes];
+            let out_poly = out.get_poly_mut(0, 0);
+            for crt_idx in 0..spiral.crt_count {
+                let modulus = spiral.moduli[crt_idx];
+                let offset = crt_idx * d;
+                for lane in 0..d {
+                    let value = acc[offset + lane];
+                    debug_assert!(
+                        value <= u128::MAX - u128::from(modulus),
+                        "batched collapse accumulator overflowed its proven bound"
+                    );
+                    let reduced = barrett_reduction_u128(spiral, value);
+                    let sum = out_poly[offset + lane] + reduced;
+                    out_poly[offset + lane] = if sum >= modulus { sum - modulus } else { sum };
+                }
+            }
+            out
+        })
+        .collect()
+}
+
 /// One term of the fused collapse sum.
 ///
 /// `table` is `None` for the final `K_h` step, which uses the body row directly
@@ -679,6 +893,123 @@ fn accumulate_collapse_term(spiral: &SpiralParams, term: &CollapseTerm<'_, '_>, 
     let ell = term.body.cols;
     debug_assert_eq!(term.digits.rows, ell);
     debug_assert_eq!(term.digits.cols, 1);
+
+    // Slot-outer, digit-inner.
+    //
+    // All `ell` digits of a term accumulate into the *same* slot, so running
+    // digits on the outside makes each 32 KiB accumulator take `ell` separate
+    // read-modify-write passes. Summing the digits in a register and touching
+    // the accumulator once cuts accumulator traffic by `ell` — 3x at the
+    // production gadget — and accumulator traffic, not the digit stream, is
+    // what this loop is bound by: on the deployed Xeon 8358 it runs at 0.134
+    // MAC/cycle while using only 42% of STREAM bandwidth.
+    //
+    // The reordering is exact, not approximate. These are `u128` integer adds
+    // with no modular reduction between them and a proven no-overflow bound
+    // (`fused_accumulator_fits`), so the sum is associative and the result is
+    // bit-identical; `fused_collapse_matches_stepwise_cascade` pins that.
+    // Fast path for the production gadget. Naming the six operand slices
+    // directly, rather than indexing an array of slices, is worth more than it
+    // looks: `bodies[digit_idx]` reloads a (pointer, length) pair and
+    // bounds-checks it on every element, which measured at 16.8 instructions
+    // and 7.9 L1 loads per multiply-accumulate on the deployed Xeon at IPC
+    // 1.71 — instruction-bound, not memory-bound.
+    if ell == 3 && spiral.crt_count == 1 {
+        let b0 = &term.body.get_poly(0, 0)[..d];
+        let b1 = &term.body.get_poly(0, 1)[..d];
+        let b2 = &term.body.get_poly(0, 2)[..d];
+        let g0 = &term.digits.get_poly(0, 0)[..d];
+        let g1 = &term.digits.get_poly(1, 0)[..d];
+        let g2 = &term.digits.get_poly(2, 0)[..d];
+        let acc = &mut acc[..d];
+        let mask = d - 1;
+
+        match term.table {
+            Some(table) => {
+                let indices = &table.indices()[..d];
+                for dst in 0..d {
+                    // `d` is a power of two and every table entry is `< d`
+                    // (`NttAutomorphTable::validate_permutation`), so the mask
+                    // is the identity here and exists only to let the bound be
+                    // proven without a branch.
+                    let src = indices[dst] as usize & mask;
+                    debug_assert!((indices[dst] as usize) < d, "table index out of range");
+                    acc[dst] += u128::from(b0[src]) * u128::from(g0[dst])
+                        + u128::from(b1[src]) * u128::from(g1[dst])
+                        + u128::from(b2[src]) * u128::from(g2[dst]);
+                }
+            }
+            None => {
+                for dst in 0..d {
+                    acc[dst] += u128::from(b0[dst]) * u128::from(g0[dst])
+                        + u128::from(b1[dst]) * u128::from(g1[dst])
+                        + u128::from(b2[dst]) * u128::from(g2[dst]);
+                }
+            }
+        }
+        return;
+    }
+
+    if ell > MAX_INLINE_ELL {
+        accumulate_collapse_term_digit_outer(spiral, term, acc);
+        return;
+    }
+
+    let mut bodies: [&[u64]; MAX_INLINE_ELL] = [&[]; MAX_INLINE_ELL];
+    let mut digits: [&[u64]; MAX_INLINE_ELL] = [&[]; MAX_INLINE_ELL];
+
+    for crt_idx in 0..spiral.crt_count {
+        let offset = crt_idx * d;
+        for digit_idx in 0..ell {
+            bodies[digit_idx] = &term.body.get_poly(0, digit_idx)[offset..offset + d];
+            digits[digit_idx] = &term.digits.get_poly(digit_idx, 0)[offset..offset + d];
+        }
+        let acc_chunk = &mut acc[offset..offset + d];
+
+        match term.table {
+            Some(table) => {
+                let indices = table.indices();
+                debug_assert_eq!(indices.len(), d);
+                for (dst, slot) in acc_chunk.iter_mut().enumerate() {
+                    let src = indices[dst] as usize;
+                    let mut sum = 0_u128;
+                    for digit_idx in 0..ell {
+                        sum +=
+                            u128::from(bodies[digit_idx][src]) * u128::from(digits[digit_idx][dst]);
+                    }
+                    *slot += sum;
+                }
+            }
+            None => {
+                for (dst, slot) in acc_chunk.iter_mut().enumerate() {
+                    let mut sum = 0_u128;
+                    for digit_idx in 0..ell {
+                        sum +=
+                            u128::from(bodies[digit_idx][dst]) * u128::from(digits[digit_idx][dst]);
+                    }
+                    *slot += sum;
+                }
+            }
+        }
+    }
+}
+
+/// Largest gadget length the slot-outer path keeps its operand slices inline
+/// for. Production uses `ell = 3`; anything wider falls back rather than
+/// allocating per term.
+const MAX_INLINE_ELL: usize = 8;
+
+/// The original digit-outer accumulation, retained for `ell > MAX_INLINE_ELL`.
+///
+/// Kept as the reference ordering: `accumulate_collapse_term_orderings_agree`
+/// pins the fast path against it.
+fn accumulate_collapse_term_digit_outer(
+    spiral: &SpiralParams,
+    term: &CollapseTerm<'_, '_>,
+    acc: &mut [u128],
+) {
+    let d = spiral.poly_len;
+    let ell = term.body.cols;
 
     for crt_idx in 0..spiral.crt_count {
         let offset = crt_idx * d;
@@ -1197,6 +1528,238 @@ mod tests {
             *coeff = (seed + idx as u64 * 19 + (idx / params.d) as u64 * 7) % params.q;
         }
         matrix
+    }
+
+    fn packing_keys<'a>(params: &'a RlweParams, seed: u64) -> PackingKeys<'a> {
+        PackingKeys {
+            kg_body: ntt_matrix(params, 1, params.gadget.ell, seed),
+            kh_body: ntt_matrix(
+                params,
+                1,
+                params.gadget.ell,
+                seed.wrapping_mul(31).wrapping_add(7),
+            ),
+        }
+    }
+
+    /// Production gadget length, so the specialized `ell == 3` path is the one
+    /// under test. The default `params()` uses `ell = 5` and would silently
+    /// exercise only the generic path.
+    fn params_ell3() -> RlweParams {
+        RlweParams::new(
+            8,
+            12289,
+            4,
+            3.2,
+            GadgetParams {
+                bits_per: 5,
+                ell: 3,
+            },
+        )
+        .expect("valid ell=3 params")
+    }
+
+    /// The `ell == 3` specialization must match the generic ordering exactly.
+    ///
+    /// It indexes operand slices as `indices[dst] & (d - 1)` instead of with a
+    /// bounds check, so this also guards the masking against the permutation
+    /// invariant it relies on.
+    #[test]
+    fn accumulate_collapse_term_ell3_specialization_matches_generic() {
+        let params = params_ell3();
+        let d = params.d;
+        let ell = params.gadget.ell;
+        assert_eq!(ell, 3, "this test must drive the specialized path");
+        assert_eq!(params.spiral.crt_count, 1);
+
+        let images = TopKeyImages::build(&params);
+        let body = ntt_matrix(&params, 1, ell, params.q - 5);
+        let digits = ntt_matrix(&params, ell, 1, params.q - 17);
+
+        for table in [
+            Some(&images.kg_body_left_tables[0]),
+            Some(&images.kg_body_right_tables[0]),
+            None,
+        ] {
+            if let Some(table) = table {
+                assert!(
+                    table.validate_permutation(d),
+                    "hot-path masking requires a genuine permutation of 0..d"
+                );
+            }
+            let term = CollapseTerm {
+                body: &body,
+                table,
+                digits: &digits,
+            };
+
+            let mut fast = vec![0_u128; d];
+            let mut reference = vec![0_u128; d];
+            for _ in 0..2 {
+                accumulate_collapse_term(&params.spiral, &term, &mut fast);
+                accumulate_collapse_term_digit_outer(&params.spiral, &term, &mut reference);
+            }
+
+            assert_eq!(
+                fast,
+                reference,
+                "ell=3 specialization disagrees with the generic path (table: {})",
+                table.is_some()
+            );
+            assert!(fast.iter().any(|v| *v != 0), "all-zero accumulator");
+        }
+    }
+
+    /// Every cached automorphism table must be a permutation of `0..d`.
+    ///
+    /// The packing hot loop masks its operand index instead of bounds-checking
+    /// it, so a table that was not a bijection would read the wrong slot
+    /// silently rather than panicking.
+    #[test]
+    fn cached_automorphism_tables_are_permutations() {
+        for params in [params(), params_ell3()] {
+            let images = TopKeyImages::build(&params);
+            for table in images
+                .kg_body_left_tables
+                .iter()
+                .chain(images.kg_body_right_tables.iter())
+            {
+                assert!(
+                    table.validate_permutation(params.d),
+                    "cached table is not a permutation of 0..{}",
+                    params.d
+                );
+            }
+        }
+    }
+
+    /// The slot-outer reordering must be bit-exact against digit-outer.
+    ///
+    /// Both the permuted (`K_g`) and contiguous (`K_h`) branches are covered,
+    /// with operands near `q` so any lost carry in the `u128` accumulation
+    /// shows up rather than cancelling.
+    #[test]
+    fn accumulate_collapse_term_orderings_agree() {
+        let params = params();
+        let d = params.d;
+        let ell = params.gadget.ell;
+        let images = TopKeyImages::build(&params);
+
+        let body = ntt_matrix(&params, 1, ell, params.q - 3);
+        let digits = ntt_matrix(&params, ell, 1, params.q - 11);
+
+        for table in [Some(&images.kg_body_left_tables[0]), None] {
+            let term = CollapseTerm {
+                body: &body,
+                table,
+                digits: &digits,
+            };
+
+            let mut fast = vec![0_u128; d * params.spiral.crt_count];
+            let mut reference = vec![0_u128; d * params.spiral.crt_count];
+            // Accumulate twice so a term is exercised on a non-zero
+            // accumulator, which is how the real cascade uses it.
+            for _ in 0..2 {
+                accumulate_collapse_term(&params.spiral, &term, &mut fast);
+                accumulate_collapse_term_digit_outer(&params.spiral, &term, &mut reference);
+            }
+
+            assert_eq!(
+                fast,
+                reference,
+                "slot-outer and digit-outer accumulation disagree (table: {})",
+                table.is_some()
+            );
+            assert!(
+                fast.iter().any(|v| *v != 0),
+                "test inputs produced an all-zero accumulator"
+            );
+        }
+    }
+
+    /// Batching changes memory traffic, not arithmetic.
+    ///
+    /// Every batched ciphertext must be bit-identical to the one the
+    /// single-query path produces for the same input, for every query in the
+    /// batch. Distinct key bodies and distinct `b` blocks are used so a bug
+    /// that crossed accumulator slots between queries — the obvious failure
+    /// mode — cannot pass by symmetry.
+    #[test]
+    fn batched_pack_matches_sequential() {
+        // Both gadget lengths: `ell = 5` drives the generic accumulation and
+        // `ell = 3` the production specialization. Testing only the default
+        // params would leave the path the server actually runs uncovered.
+        for params in [params(), params_ell3()] {
+            batched_pack_matches_sequential_at(&params);
+        }
+    }
+
+    fn batched_pack_matches_sequential_at(params: &RlweParams) {
+        let crs = crs(params);
+        let pre = QueryPackPreprocessed::build(params, &crs).expect("valid preprocessing");
+        let top = TopKeyImages::build(params);
+
+        for k in [1_usize, 2, 3, 5] {
+            let keys: Vec<PackingKeys<'_>> = (0..k)
+                .map(|idx| packing_keys(params, 1_000 + idx as u64 * 977))
+                .collect();
+            let blocks: Vec<Vec<u64>> = (0..k)
+                .map(|idx| {
+                    (0..params.d)
+                        .map(|c| ((c as u64 + 1) * (idx as u64 * 13 + 5) + idx as u64) % params.q)
+                        .collect()
+                })
+                .collect();
+
+            let expected: Vec<RlweCiphertext<'_>> = blocks
+                .iter()
+                .zip(keys.iter())
+                .map(|(b, key)| {
+                    pre.pack_b_prevalidated(b, key, &top)
+                        .expect("sequential pack succeeds")
+                })
+                .collect();
+
+            let block_refs: Vec<&[u64]> = blocks.iter().map(|b| b.as_slice()).collect();
+            let key_refs: Vec<&PackingKeys<'_>> = keys.iter().collect();
+            let batched = pre
+                .pack_b_batched_prevalidated(&block_refs, &key_refs, &top)
+                .expect("batched pack succeeds");
+
+            assert_eq!(batched.len(), k, "batch returns one ciphertext per query");
+            for (idx, (got, want)) in batched.iter().zip(expected.iter()).enumerate() {
+                assert_eq!(
+                    got.inner.as_slice(),
+                    want.inner.as_slice(),
+                    "batched query {idx} of {k} differs from the sequential result"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn batched_pack_rejects_mismatched_lengths() {
+        let params = params();
+        let crs = crs(&params);
+        let pre = QueryPackPreprocessed::build(&params, &crs).expect("valid preprocessing");
+        let top = TopKeyImages::build(&params);
+        let key = packing_keys(&params, 5);
+        let block = b_scalars(&params);
+
+        assert!(matches!(
+            pre.pack_b_batched_prevalidated(&[block.as_slice()], &[], &top),
+            Err(InspiringError::LweShape(_))
+        ));
+        assert!(pre
+            .pack_b_batched_prevalidated(&[], &[], &top)
+            .expect("empty batch is not an error")
+            .is_empty());
+
+        let short = vec![0_u64; params.d - 1];
+        assert!(matches!(
+            pre.pack_b_batched_prevalidated(&[short.as_slice()], &[&key], &top),
+            Err(InspiringError::LweShape(_))
+        ));
     }
 
     #[test]

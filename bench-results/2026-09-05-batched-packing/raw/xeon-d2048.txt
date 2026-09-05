@@ -1,0 +1,12 @@
+d=2048 q=2^56 ell=3 threads=8
+digits_ntt per block: 100.6 MB  (12576768 MACs per pack)
+offline build: 1.11 s
+
+  k      seq ms/q    batch ms/q     speedup   stream GB/s    MAC/cyc
+  1          4.54          4.54       1.00x          22.1      0.133
+  2          4.54          4.39       1.03x          11.5      0.138
+  4          4.55          4.31       1.05x           5.8      0.140
+  8          4.53          4.34       1.04x           2.9      0.139
+ 16          4.65          4.40       1.06x           1.4      0.137
+
+stream GB/s assumes one pass over digits_ntt per batch; MAC/cyc assumes 2.6 GHz/core.

@@ -1,0 +1,35 @@
+# Live HTTP validation, roman-ipir-bench-8vcpu
+# snapshot: /root/vs-ypir/data/nullifiers.bin  1597627296 B  49925853 records  sha256:625efa4085e2001a...
+# shape: db_rows=28672 db_cols=32768 pir_item_count=27861 setup_seed=7
+
+## byte-exact response diff, baseline (main preprocess.rs) vs new, same query blob
+public-params (229376 B): IDENTICAL
+row 0     : ce743643d3cfc3ecfd10f8198f180db392d08afa  IDENTICAL
+row 1     : 401d201444643acdc10c37e759c6b6f214919b1b  IDENTICAL
+row 12345 : 0ff561a7a078ed7e9eb08ad890c06d0f5ef00354  IDENTICAL
+row 20000 : 71de0e092146d477a7497a0645cd5de7b51cd817  IDENTICAL
+row 27860 : bd269c30538c466607e9c6f6fb31ee9505b624f2  IDENTICAL  (last real row)
+row 28671 : dae6814bdeb3b11ed88c19788a3032822486a042  IDENTICAL  (padded row)
+
+## end-to-end decode via CLI against the new server
+record 1638400  -> row 914,   offset 512: found and verified
+record 49925852 -> row 27860, offset 732: found and verified (last record)
+all-zero nullifier, probe row 914          : correctly absent
+wire: upload=236544 (keys 86016 + query 150528)  download=81920  total=318464
+
+## sustained throughput (examples/loadtest, 24 requests)
+BASELINE (main loop)
+ conc        QPS     mean ms      p50 ms      p95 ms      p99 ms
+    1       8.17       122.5       122.6       124.2       125.1
+    2       8.17       239.8       244.6       249.3       250.9
+    4       8.15       460.2       492.0       615.5       625.2
+
+NEW (slot-outer + ell=3 fast path)
+ conc        QPS     mean ms      p50 ms      p95 ms      p99 ms
+    1       9.94       100.6       101.2       102.1       102.5
+    2       9.83       199.3       203.4       206.3       206.9
+    4       9.81       382.1       405.8       414.3       514.4
+
+QPS 8.17 -> 9.94 = 1.22x; mean latency 122.5 -> 100.6 ms.
+QPS is flat across concurrency on both builds: the server pins .workers(1),
+so concurrent arrivals serialize and only inflate latency.

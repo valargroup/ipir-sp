@@ -1,0 +1,17 @@
+End-to-end A/B, roman-ipir-bench-8vcpu (Xeon 8358, 8 cores, AVX-512, 31 GiB)
+IPIR_SP_BENCH_NULLIFIER=1, RUSTFLAGS=-C target-cpu=native
+Shape: rows=28672, item_bits=458752, d=2048, outputs=16, db_cols=32768
+cargo bench -p ipir-sp --bench end_to_end -- online_pack_only --sample-size 10 --measurement-time 20
+
+BASELINE (inspiring/src/preprocess.rs from main, digit-outer accumulation)
+  one_shot_server_breakdown_us: deserialize=356 matrix_vector=55356 packing=68361 serialization=2692
+  online_pack_only/16  time: [67.907 ms 68.057 ms 68.380 ms]
+
+NEW (slot-outer + ell=3 specialization)
+  one_shot_server_breakdown_us: deserialize=361 matrix_vector=53661 packing=46636 serialization=2629
+  online_pack_only/16  time: [46.141 ms 46.265 ms 46.372 ms]
+  ||e_pack||_inf_bits=34 (unchanged; the reordering is bit-exact)
+
+packing      68.4 -> 46.6 ms   1.47x
+total server 126.8 -> 103.3 ms 1.23x
+packing share of online time: 54% -> 45%
