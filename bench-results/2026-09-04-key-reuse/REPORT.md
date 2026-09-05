@@ -1,5 +1,11 @@
 # Bounded evaluation-key reuse: local prototype measurements
 
+These are **historical ternary-secret measurements**. The Gaussian-secret
+transition and fresh measurements are recorded in
+[the Gaussian report](../2026-09-04-gaussian-secrets/REPORT.md). To reproduce
+this report's secret distribution, use commit `82cf0d3` in a separate worktree;
+the current client samples Gaussian secrets.
+
 Four-way reuse substantially reduces traffic in the key-dominated shape. In the full-snapshot shape it reduces warm-cache traffic, but increases total bytes for a cold client making one batch. Eight sets save only another 3.3 percentage points of warm traffic in that shape while doubling retained packing-cache payload. The measured result favors four sets for the first experiment, with workload-specific caching criteria before any production decision.
 
 ## Environment and method

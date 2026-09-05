@@ -1,5 +1,31 @@
 # Migrating YPIR Packing Code To ipir-sp
 
+## Gaussian client secrets
+
+Fresh-query generation, seed-based decoding and experimental reusable batches
+now sample centred discrete-Gaussian secrets with standard deviation
+`rlwe.sigma_chi` (6.4 at the production profile), using the existing pinned
+backend sampler. Previously these paths sampled uniform ternary coefficients.
+`ClientSecret::sample_ternary` remains a low-level research helper; it is not
+used by the high-level query or decode paths.
+
+`IPIRSeed` is an unversioned 32-byte seed. Its interpretation changes with this
+sampler: **an old seed cannot reconstruct its old secret through the new default
+decoder**. Finish outstanding requests with the old client or abandon them and
+issue fresh requests after upgrading. Keep the old decoder for any deliberately
+retained old responses; there is no automatic detection or migration. Reusable
+batches are process-local and must be discarded across upgrades.
+
+Server query/key/response encodings and public preprocessing do not depend on
+the secret distribution. New clients can use the existing server and public
+setup, provided the generating client and its decoder use the same sampler and
+parameters. No server wire-format change or database rebuild is required.
+
+This fixes a distribution mismatch with the cited YPIR setting. It does not
+replace analysis of the complete InspiRING transcript or certify a security
+level. Historical benchmark records using ternary secrets remain historical.
+
+
 This note maps the YPIR CDKS packing surface to the corresponding `ipir-sp`
 entry points. The SimplePIR matrix layer remains the same conceptually; only the
 LWE-to-RLWE packing boundary changes.

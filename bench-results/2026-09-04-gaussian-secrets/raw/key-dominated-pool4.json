@@ -1,0 +1,80 @@
+{
+  "batches": 5,
+  "cols": 4096,
+  "database_build_ms": 18.419417,
+  "decryption_threshold": 2199023255543,
+  "degree": 2048,
+  "key_bytes": 86016,
+  "metrics": [
+    {
+      "client_decode_ms": {
+        "max": 1.622125,
+        "mean": 1.2751209500000003,
+        "median": 1.2446670000000002,
+        "min": 1.122708
+      },
+      "client_generation_ms_per_query": {
+        "max": 9.144,
+        "mean": 8.94684595,
+        "median": 9.08441675,
+        "min": 8.35872925
+      },
+      "cold_first_batch_bytes_per_query": 113664,
+      "max_decryption_error": 66833511936,
+      "mode": "fresh",
+      "response_bytes_per_query": 10240,
+      "server_answer_ms": {
+        "max": 7.439625,
+        "mean": 4.8685937500000005,
+        "median": 4.685291,
+        "min": 3.781292
+      },
+      "server_key_parse_ms_total": 1.718079,
+      "upload_bytes_per_query": 96256,
+      "warm_total_bytes_per_query": 106496
+    },
+    {
+      "client_decode_ms": {
+        "max": 1.379292,
+        "mean": 1.2284622500000002,
+        "median": 1.236,
+        "min": 1.1259169999999998
+      },
+      "client_generation_ms_per_query": {
+        "max": 3.0793750000000006,
+        "mean": 2.9618957999999997,
+        "median": 3.0307812499999995,
+        "min": 2.758365
+      },
+      "cold_first_batch_bytes_per_query": 70656,
+      "max_decryption_error": 59038837802,
+      "mode": "reused",
+      "response_bytes_per_query": 10240,
+      "server_answer_ms": {
+        "max": 5.639666,
+        "mean": 4.49666865,
+        "median": 4.424,
+        "min": 3.3759580000000002
+      },
+      "server_key_parse_ms_total": 0.414501,
+      "upload_bytes_per_query": 31744,
+      "warm_total_bytes_per_query": 41984
+    }
+  ],
+  "offline_ms_per_set": [
+    859.78125,
+    1111.9881249999999,
+    995.778083,
+    965.682
+  ],
+  "packing_cache_payload_bytes": 805044224,
+  "pool_size": 4,
+  "public_c1_bytes_per_set": 28672,
+  "queries_per_mode": 20,
+  "query_bits": 40,
+  "rayon_threads": 16,
+  "rows": 2048,
+  "secret_distribution": "discrete-gaussian",
+  "secret_stddev": 6.4,
+  "synthetic_database": true
+}

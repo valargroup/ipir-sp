@@ -1,7 +1,8 @@
 # Bounded evaluation-key reuse experiment
 
 This is an in-process research prototype, gated behind `experimental-key-reuse`.
-The production HTTP API and its fresh-secret query path are unchanged. The
+The production HTTP API remains fresh-secret-only. Both it and this experiment
+now use Gaussian secrets; see `MIGRATION.md` for the sampler transition. The
 prototype does not establish production security and must not be used as a
 production transport without further review.
 
@@ -50,7 +51,12 @@ and the fixed packing-mask seeds. Pool prefixes intentionally agree across
 sizes 4, 8 and 16; changing the size does not grant additional use of an old
 secret. Any incompatible derivation change requires a new stream domain.
 
-`QueryPool::start_batch` always draws a new OS-random private seed. A batch has
+`QueryPool::start_batch` always draws a new OS-random private seed. Both fresh
+queries and reusable batches sample a centred discrete-Gaussian secret with
+standard deviation `sigma_chi` (6.4 in the production profile), through the
+existing backend's constant-time CDF sampler. Seed-based decoding uses the same
+sampler. Matching YPIR's Gaussian convention does not discharge the composed
+security assumption above; see `MIGRATION.md` for old seed compatibility. A batch has
 no Clone, Debug, persistence, caller-selected seed, or counter-reset interface.
 `next_query(&mut self, row)` checks the public bounds and consumes its slot
 before generating the query. Exhaustion returns an error permanently. Retrying

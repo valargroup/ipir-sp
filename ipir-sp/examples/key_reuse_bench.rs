@@ -184,6 +184,7 @@ fn main() {
         "{}",
         serde_json::to_string_pretty(&json!({
             "rows":y.db_rows,"cols":cols,"degree":r.d,"query_bits":y.query_bits,
+            "secret_distribution":"discrete-gaussian","secret_stddev":r.sigma_chi,
             "pool_size":count,"batches":batches,"queries_per_mode":queries,
             "rayon_threads":rayon::current_num_threads(),"synthetic_database":true,
             "database_build_ms":database_build_ms,"offline_ms_per_set":offline_ms,
