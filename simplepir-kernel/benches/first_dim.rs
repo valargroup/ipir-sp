@@ -20,9 +20,13 @@ use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use simplepir_kernel::{ChunkedSplitKernel, FirstDimKernel};
 
-/// Production nullifier shape: 49,925,853 records at 448 per row, 4 instances.
-const ROWS: usize = 112_640;
-const COLS: usize = 8_192;
+/// Deployed shape: 49,925,853 records at 1,792 per row, 16 instances.
+///
+/// This tracks `nullifier-pir/src/encoding.rs`; the two move together. It was
+/// left at the previous `112,640 x 8,192` shape across the second optimization
+/// pass, so the benchmark stopped measuring what the server actually runs.
+const ROWS: usize = 28_672;
+const COLS: usize = 32_768;
 
 const SMALL_ROWS: usize = 28_672;
 const SMALL_COLS: usize = 2_048;

@@ -1,0 +1,14 @@
+
+ Performance counter stats for './target/release/examples/batched_pack_bench':
+
+       40461439153      cycles                                                                
+       64276966975      instructions                     #    1.59  insn per cycle            
+       24690050534      L1-dcache-loads                                                       
+        2021463081      L1-dcache-load-misses            #    8.19% of all L1-dcache accesses 
+
+       2.846095409 seconds time elapsed
+
+      11.833480000 seconds user
+       1.001961000 seconds sys
+
+

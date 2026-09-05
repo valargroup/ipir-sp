@@ -1,0 +1,11 @@
+# host
+CPU(s):                                  8
+Model name:                              Intel(R) Xeon(R) Platinum 8358 CPU @ 2.60GHz
+BIOS Model name:                         pc-i440fx-6.1  CPU @ 2.0GHz
+Thread(s) per core:                      1
+Core(s) per socket:                      8
+avx512 avx512bw avx512cd avx512dq avx512f avx512vbmi avx512vl 
+               total        used        free      shared  buff/cache   available
+Mem:              31           0          14           0          16          30
+rustc 1.89.0 (29483883e 2025-08-04)
+RUSTFLAGS=-C target-cpu=native

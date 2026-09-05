@@ -87,9 +87,60 @@ impl NttAutomorphTable {
     /// The slice length is exactly `d`, the RLWE polynomial degree. The entries
     /// are `u32` rather than `usize` to keep the full table cache compact; all
     /// supported parameter sets have `d` far below `u32::MAX`.
+    ///
+    /// # Invariant
+    ///
+    /// Every entry is `< d`: the table is a permutation of the NTT slots, so it
+    /// is a bijection on `0..d` by construction. [`Self::validate_permutation`]
+    /// checks it, and the packing hot loop depends on it to index operand
+    /// slices without a per-element bounds check.
     #[must_use]
     pub fn indices(&self) -> &[u32] {
         &self.indices
+    }
+
+    /// Build a table, enforcing the permutation invariant at construction.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `indices` is not a bijection on `0..d`. This is deliberately a
+    /// hard panic in release builds, not a `debug_assert`: the packing hot loop
+    /// indexes operand slices as `indices[dst] & (d - 1)` rather than with a
+    /// bounds check, so a table violating the invariant would silently read the
+    /// wrong slot and return a wrong plaintext instead of failing. Tables are
+    /// built once per parameter set and cached, so the `O(d)` check costs
+    /// nothing measurable against preprocessing.
+    #[must_use]
+    fn new_checked(exponent: u64, indices: Box<[u32]>, d: usize) -> Self {
+        let table = Self { exponent, indices };
+        assert!(
+            table.validate_permutation(d),
+            "NTT automorphism table for exponent {exponent} is not a permutation of 0..{d}; \
+             the packing hot loop's index masking depends on this invariant"
+        );
+        table
+    }
+
+    /// Check that the table really is a permutation of `0..d`.
+    ///
+    /// Construction-time only. The packing hot loop reads operand slices at
+    /// `indices[dst] & (d - 1)`, which is the identity given this invariant and
+    /// lets the bound be proven statically; if the invariant were ever violated
+    /// the mask would silently read the wrong slot instead of panicking, so the
+    /// check belongs here, once, rather than nowhere.
+    pub fn validate_permutation(&self, d: usize) -> bool {
+        if self.indices.len() != d {
+            return false;
+        }
+        let mut seen = vec![false; d];
+        for &index in self.indices.iter() {
+            let index = index as usize;
+            if index >= d || seen[index] {
+                return false;
+            }
+            seen[index] = true;
+        }
+        true
     }
 }
 
@@ -134,7 +185,7 @@ pub fn ntt_automorph_table(params: &RlweParams, exponent: u64) -> NttAutomorphTa
         if let Some(indices) =
             match_probe_slots(params, &probe_a_ntt, &probe_b_ntt, &auto_a_ntt, &auto_b_ntt)
         {
-            return NttAutomorphTable { exponent, indices };
+            return NttAutomorphTable::new_checked(exponent, indices, params.d);
         }
     }
 
@@ -333,10 +384,11 @@ fn add_assign_raw_mod(out: &mut PolyMatrixRaw<'_>, rhs: &PolyMatrixRaw<'_>) {
 }
 
 fn identity_table(params: &RlweParams) -> NttAutomorphTable {
-    NttAutomorphTable {
-        exponent: 1,
-        indices: (0..params.d as u32).collect::<Vec<_>>().into_boxed_slice(),
-    }
+    NttAutomorphTable::new_checked(
+        1,
+        (0..params.d as u32).collect::<Vec<_>>().into_boxed_slice(),
+        params.d,
+    )
 }
 
 fn compose_tables(
@@ -351,7 +403,7 @@ fn compose_tables(
         .map(|idx| first.indices[second.indices[idx] as usize])
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    NttAutomorphTable { exponent, indices }
+    NttAutomorphTable::new_checked(exponent, indices, params.d)
 }
 
 fn match_probe_slots(
