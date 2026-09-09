@@ -25,9 +25,23 @@ pub(super) fn build<'a>(
     top.validate(params)?;
     let mut left = PackPublicPreprocessed::build(params, crs)?.a_agg;
     let mut right = left.split_off(params.d / 2);
-    let mut digits_ntt = Vec::with_capacity(params.d - 1);
-    collapse_half(params, &mut left, &top.kg_top_left, &mut digits_ntt);
-    collapse_half(params, &mut right, &top.kg_top_right, &mut digits_ntt);
+    // The c1 halves have no shared state. The reference only carries b from
+    // left to right, but b stays zero here. Preserve left-then-right digit
+    // order when joining the independent cascades.
+    let (mut digits_ntt, right_digits) = rayon::join(
+        || {
+            let mut digits = Vec::with_capacity(params.d / 2 - 1);
+            collapse_half(params, &mut left, &top.kg_top_left, &mut digits);
+            digits
+        },
+        || {
+            let mut digits = Vec::with_capacity(params.d / 2 - 1);
+            collapse_half(params, &mut right, &top.kg_top_right, &mut digits);
+            digits
+        },
+    );
+    digits_ntt.reserve(right_digits.len() + 1);
+    digits_ntt.extend(right_digits);
     let final_digits = ks_digits_ntt_from_c1(params, &right[0]);
     add_product(params, &mut left[0], &top.kh_top, &final_digits);
     digits_ntt.push(final_digits);
