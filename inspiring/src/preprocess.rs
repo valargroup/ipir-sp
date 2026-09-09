@@ -262,6 +262,18 @@ impl<'a> PackingKeys<'a> {
 }
 
 impl<'a> QueryPackPreprocessed<'a> {
+    /// Build the same public preprocessing as `build`, reusing fixed public
+    /// mask images already held for online packing. `top` must come from
+    /// `TopKeyImages::build(params)` and remain unmodified. No database-dependent
+    /// values or client key bodies are reused.
+    pub fn build_with_top(
+        params: &'a RlweParams,
+        crs: &PolyMatrixNTT<'a>,
+        top: &TopKeyImages<'a>,
+    ) -> Result<Self, InspiringError> {
+        crate::preprocess_reuse::build(params, crs, top)
+    }
+
     /// Build public/static packing preprocessing for one CRS block.
     pub fn build(params: &'a RlweParams, crs: &PolyMatrixNTT<'a>) -> Result<Self, InspiringError> {
         let public = PackPublicPreprocessed::build(params, crs)?;
