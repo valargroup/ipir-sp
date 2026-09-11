@@ -2602,7 +2602,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 [[package]]
 name = "valar-spiral-rs"
 version = "0.5.2"
-source = "git+https://github.com/valargroup/spiral-rs.git?rev=6f5b66c6a5a639827c6486c59d31c7ec2d4399a8#6f5b66c6a5a639827c6486c59d31c7ec2d4399a8"
+source = "git+https://github.com/valargroup/spiral-rs.git?rev=584fee3893b1d2d17b5d774c83bd801fb70d5ace#584fee3893b1d2d17b5d774c83bd801fb70d5ace"
 dependencies = [
  "fastrand",
  "getrandom 0.2.17",
