@@ -1,0 +1,173 @@
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling cfg-if v1.0.4
+   Compiling zerocopy v0.8.48
+   Compiling libc v0.2.186
+   Compiling version_check v0.9.5
+   Compiling memchr v2.8.0
+   Compiling serde_core v1.0.228
+   Compiling generic-array v0.14.7
+   Compiling crossbeam-utils v0.8.21
+   Compiling typenum v1.20.0
+   Compiling syn v2.0.117
+   Compiling zmij v1.0.21
+   Compiling serde_json v1.0.149
+   Compiling crossbeam-epoch v0.9.18
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling getrandom v0.2.17
+   Compiling either v1.15.0
+   Compiling rayon-core v1.13.0
+   Compiling itoa v1.0.18
+   Compiling rand_core v0.6.4
+   Compiling digest v0.10.7
+   Compiling crossbeam-deque v0.8.6
+   Compiling cpufeatures v0.2.17
+   Compiling utf8parse v0.2.2
+   Compiling anstyle-parse v1.0.0
+   Compiling aho-corasick v1.1.4
+   Compiling thiserror v1.0.69
+   Compiling serde v1.0.228
+   Compiling zerocopy-derive v0.8.48
+   Compiling anstyle-query v1.1.5
+   Compiling anstyle v1.0.14
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling colorchoice v1.0.5
+   Compiling regex-syntax v0.8.10
+   Compiling anstream v1.0.0
+   Compiling thiserror-impl v1.0.69
+   Compiling regex-automata v0.4.14
+   Compiling serde_derive v1.0.228
+   Compiling rayon v1.12.0
+   Compiling sha2 v0.10.9
+   Compiling ppv-lite86 v0.2.21
+   Compiling rand_chacha v0.3.1
+   Compiling subtle v2.6.1
+   Compiling fastrand v2.4.1
+   Compiling rand v0.8.6
+   Compiling regex v1.12.3
+   Compiling valar-spiral-rs v0.5.2 (https://github.com/valargroup/spiral-rs.git?rev=6f5b66c6a5a639827c6486c59d31c7ec2d4399a8#6f5b66c6)
+   Compiling clap_lex v1.1.0
+   Compiling heck v0.5.0
+   Compiling strsim v0.11.1
+   Compiling clap_derive v4.6.1
+   Compiling clap_builder v4.6.0
+   Compiling inspiring v0.1.0 (/workspace/inspiring)
+   Compiling log v0.4.29
+   Compiling autocfg v1.5.0
+   Compiling env_filter v1.0.1
+   Compiling num-traits v0.2.19
+   Compiling jiff v0.2.24
+   Compiling reinspiring v0.1.0 (/workspace/reinspiring)
+   Compiling clap v4.6.1
+   Compiling simplepir-kernel v0.1.0 (/workspace/simplepir-kernel)
+   Compiling half v2.7.1
+   Compiling sha1 v0.10.6
+   Compiling plotters-backend v0.3.7
+   Compiling ciborium-io v0.2.2
+   Compiling ciborium-ll v0.2.2
+   Compiling plotters-svg v0.3.7
+   Compiling itertools v0.10.5
+   Compiling cast v0.3.0
+   Compiling same-file v1.0.6
+   Compiling walkdir v2.5.0
+   Compiling plotters v0.3.7
+   Compiling env_logger v0.11.10
+   Compiling ipir-sp v0.1.0 (/workspace/ipir-sp)
+   Compiling criterion-plot v0.5.0
+   Compiling ciborium v0.2.2
+   Compiling tinytemplate v1.2.1
+   Compiling is-terminal v0.4.17
+   Compiling once_cell v1.21.4
+   Compiling anes v0.1.6
+   Compiling oorandom v11.1.5
+   Compiling criterion v0.5.1
+    Finished `bench` profile [optimized] target(s) in 30.41s
+     Running benches/end_to_end.rs (target/release/deps/end_to_end-1a7bf348764ead21)
+Gnuplot not found, using plotters backend
+setup: selected profile=ipir_sp_smaller_d64_64_128, rows=64, item_bits=128, d=64
+setup: params ready, outputs=1, db_cols=64
+setup: generating deterministic fixture material
+setup: deterministic fixture material ready
+setup: generating SimplePIR multiply fixture
+setup: SimplePIR multiply fixture ready
+setup: extracting CRS blocks from hint
+setup: extracted 1 CRS block(s)
+setup: building pack preprocessing cache
+setup: pack preprocessing cache built
+setup: building ReinspiRING H' preprocess
+setup: ReinspiRING ready, blocks=1, H'_inf_bits≈6.8
+setup: checking deterministic noise
+setup: deterministic noise checked
+ipir-sp target: profile=ipir_sp_smaller_d64_64_128, rows=64, item_bits=128, d=64, outputs=1, db_cols=64, serialized_packing_keys=1 KiB, measured_packing_keys=1 KiB, measured_offline_query_polys=0 KiB, measured_online_query_packed=0 KiB, measured_fresh_query_upload=1 KiB, cdks_upload=462 KiB, response=0 KiB, ||e_pack||_inf_bits=12, paper_noise_target_bits<=33.4, cdks_online_target=55.6 ms, H'_inf_bits≈6.8
+ipir-sp measured_upload_bytes: packing_keys=1120 offline_query_polys=512 online_query_packed=104 fresh_query_total=1736 current_http_query=104
+ipir-sp one_shot_server_breakdown_us: deserialize=0 matrix_vector=10 packing_inspiring=41 packing_reinspiring=92 serialization=4
+Benchmarking ipir_sp_smaller_d64_64_128/online_deserialize_query_only/1
+Benchmarking ipir_sp_smaller_d64_64_128/online_deserialize_query_only/1: Warming up for 1.0000 s
+Benchmarking ipir_sp_smaller_d64_64_128/online_deserialize_query_only/1: Collecting 10 samples in estimated 5.0000 s (15M iterations)
+Benchmarking ipir_sp_smaller_d64_64_128/online_deserialize_query_only/1: Analyzing
+ipir_sp_smaller_d64_64_128/online_deserialize_query_only/1
+                        time:   [332.88 ns 334.91 ns 336.85 ns]
+Benchmarking ipir_sp_smaller_d64_64_128/multiply_query_only_scalar/64x64
+Benchmarking ipir_sp_smaller_d64_64_128/multiply_query_only_scalar/64x64: Warming up for 1.0000 s
+Benchmarking ipir_sp_smaller_d64_64_128/multiply_query_only_scalar/64x64: Collecting 10 samples in estimated 5.0006 s (286k iterations)
+Benchmarking ipir_sp_smaller_d64_64_128/multiply_query_only_scalar/64x64: Analyzing
+ipir_sp_smaller_d64_64_128/multiply_query_only_scalar/64x64
+                        time:   [17.358 µs 17.483 µs 17.814 µs]
+Found 2 outliers among 10 measurements (20.00%)
+  1 (10.00%) high mild
+  1 (10.00%) high severe
+Benchmarking ipir_sp_smaller_d64_64_128/multiply_query_only_chunked_split/64x64
+Benchmarking ipir_sp_smaller_d64_64_128/multiply_query_only_chunked_split/64x64: Warming up for 1.0000 s
+Benchmarking ipir_sp_smaller_d64_64_128/multiply_query_only_chunked_split/64x64: Collecting 10 samples in estimated 5.0001 s (722k iterations)
+Benchmarking ipir_sp_smaller_d64_64_128/multiply_query_only_chunked_split/64x64: Analyzing
+ipir_sp_smaller_d64_64_128/multiply_query_only_chunked_split/64x64
+                        time:   [7.0301 µs 7.0988 µs 7.1568 µs]
+Benchmarking ipir_sp_smaller_d64_64_128/offline_crs_extract_and_preprocess/1
+Benchmarking ipir_sp_smaller_d64_64_128/offline_crs_extract_and_preprocess/1: Warming up for 1.0000 s
+Benchmarking ipir_sp_smaller_d64_64_128/offline_crs_extract_and_preprocess/1: Collecting 10 samples in estimated 5.0528 s (4785 iterations)
+Benchmarking ipir_sp_smaller_d64_64_128/offline_crs_extract_and_preprocess/1: Analyzing
+ipir_sp_smaller_d64_64_128/offline_crs_extract_and_preprocess/1
+                        time:   [1.0171 ms 1.0303 ms 1.0487 ms]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high severe
+Benchmarking ipir_sp_smaller_d64_64_128/online_pack_inspiring/1
+Benchmarking ipir_sp_smaller_d64_64_128/online_pack_inspiring/1: Warming up for 1.0000 s
+Benchmarking ipir_sp_smaller_d64_64_128/online_pack_inspiring/1: Collecting 10 samples in estimated 5.0004 s (255k iterations)
+Benchmarking ipir_sp_smaller_d64_64_128/online_pack_inspiring/1: Analyzing
+ipir_sp_smaller_d64_64_128/online_pack_inspiring/1
+                        time:   [19.595 µs 19.953 µs 20.551 µs]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+Benchmarking ipir_sp_smaller_d64_64_128/online_pack_reinspiring/1
+Benchmarking ipir_sp_smaller_d64_64_128/online_pack_reinspiring/1: Warming up for 1.0000 s
+Benchmarking ipir_sp_smaller_d64_64_128/online_pack_reinspiring/1: Collecting 10 samples in estimated 5.0023 s (77k iterations)
+Benchmarking ipir_sp_smaller_d64_64_128/online_pack_reinspiring/1: Analyzing
+ipir_sp_smaller_d64_64_128/online_pack_reinspiring/1
+                        time:   [63.132 µs 63.928 µs 64.619 µs]
+Benchmarking ipir_sp_smaller_d64_64_128/online_serialize_only/1
+Benchmarking ipir_sp_smaller_d64_64_128/online_serialize_only/1: Warming up for 1.0000 s
+Benchmarking ipir_sp_smaller_d64_64_128/online_serialize_only/1: Collecting 10 samples in estimated 5.0000 s (2.1M iterations)
+Benchmarking ipir_sp_smaller_d64_64_128/online_serialize_only/1: Analyzing
+ipir_sp_smaller_d64_64_128/online_serialize_only/1
+                        time:   [2.4347 µs 2.4497 µs 2.4790 µs]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+Benchmarking ipir_sp_smaller_d64_64_128/online_pack_and_serialize/1
+Benchmarking ipir_sp_smaller_d64_64_128/online_pack_and_serialize/1: Warming up for 1.0000 s
+Benchmarking ipir_sp_smaller_d64_64_128/online_pack_and_serialize/1: Collecting 10 samples in estimated 5.0013 s (213k iterations)
+Benchmarking ipir_sp_smaller_d64_64_128/online_pack_and_serialize/1: Analyzing
+ipir_sp_smaller_d64_64_128/online_pack_and_serialize/1
+                        time:   [23.353 µs 23.795 µs 24.495 µs]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+Benchmarking ipir_sp_smaller_d64_64_128/client_decode_only/1
+Benchmarking ipir_sp_smaller_d64_64_128/client_decode_only/1: Warming up for 1.0000 s
+Benchmarking ipir_sp_smaller_d64_64_128/client_decode_only/1: Collecting 10 samples in estimated 5.0006 s (226k iterations)
+Benchmarking ipir_sp_smaller_d64_64_128/client_decode_only/1: Analyzing
+ipir_sp_smaller_d64_64_128/client_decode_only/1
+                        time:   [22.035 µs 22.081 µs 22.177 µs]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high severe
+
