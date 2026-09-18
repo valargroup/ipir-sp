@@ -8,6 +8,7 @@ description = "IPIR-SP glue crate using InspiRING.Pack as the ring-packing primi
 
 [dependencies]
 inspiring = { path = "../inspiring" }
+reinspiring = { path = "../reinspiring" }
 simplepir-kernel = { path = "../simplepir-kernel" }
 spiral-rs = { workspace = true }
 rand = { version = "0.8.5", features = ["small_rng"] }

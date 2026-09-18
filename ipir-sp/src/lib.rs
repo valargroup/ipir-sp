@@ -1,8 +1,9 @@
-//! IPIR-SP integration layer over `inspiring`.
+//! IPIR-SP integration layer over `inspiring` (default) and optional `reinspiring`.
 //!
-//! This crate keeps YPIR's u32/SimplePIR-facing surface separate from
-//! `inspiring`, and uses `inspiring::pack` as the only LWE-to-RLWE packing
-//! primitive.
+//! This crate keeps YPIR's u32/SimplePIR-facing surface separate from the packing
+//! crates, and uses [`inspiring::QueryPackPreprocessed::pack_b`] as the default
+//! LWE-to-RLWE packing primitive. Select [`crate::PackBackend::Reinspiring`] for
+//! the coefficient-domain Algorithm 2 path (ePrint 2026/1934).
 //! CI covers this crate through the workspace-level Rust workflow.
 
 #![deny(rust_2018_idioms)]
@@ -11,11 +12,16 @@
 pub mod bits;
 pub mod client;
 pub mod modulus_switch;
+pub mod pack_backend;
 pub mod params;
 pub mod serialize;
 pub mod server;
 
 pub use client::{IPIRClient, IPIRSeed, IPIRSimpleQuery};
+pub use pack_backend::{
+    build_reinspiring_blocks, pack_intermediate_blocks_reinspiring,
+    pack_intermediate_blocks_with_backend, PackBackend,
+};
 pub use params::{params_for_simplepir, YpirSchemeParams};
 pub use server::IPIRServer;
 /// Plaintext database element trait used by `IPIRServer` first-dimension kernels.
