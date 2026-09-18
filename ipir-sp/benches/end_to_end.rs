@@ -14,7 +14,9 @@
 //! matches the served configuration.
 //!
 //! The SimplePIR first-dimension multiply is benchmarked separately from the
-//! InspiRING packing boundary so changes to the DB/query kernel are visible.
+//! packing boundary so changes to the DB/query kernel are visible. Packing is
+//! measured for both backends: `online_pack_inspiring` and
+//! `online_pack_reinspiring` (SMALL/MID only).
 
 use std::time::{Duration, Instant};
 
@@ -30,9 +32,13 @@ use ipir_sp::serialize::{serialize_packing_keys, serialize_u64s_le, serialized_p
 use ipir_sp::server::{
     build_pack_preprocessed_blocks, offline_precompute_from_hint, pack_intermediate_blocks,
 };
+use ipir_sp::{
+    build_reinspiring_blocks, pack_intermediate_blocks_reinspiring,
+};
 use ipir_sp::YpirSchemeParams;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+use reinspiring::ReinspiringPreprocessed;
 use simplepir_kernel::{ChunkedSplitKernel, FirstDimKernel, ScalarKernel};
 use spiral_rs::poly::{from_ntt_alloc, PolyMatrix};
 
@@ -81,7 +87,10 @@ struct BenchFixture<'a> {
     first_dim_element_max: u64,
     first_dim_query: Vec<u64>,
     preprocessed: Vec<QueryPackPreprocessed<'a>>,
+    /// Present for SMALL/MID; omitted for FULL/NULLIFIER (`d=2048`) where Compile is too heavy.
+    reinspiring_pre: Option<Vec<ReinspiringPreprocessed<'a>>>,
     noise_bits: u32,
+    h_prime_norm_bits: Option<f64>,
 }
 
 struct UploadMeasurements {
@@ -300,6 +309,10 @@ fn build_preprocessed<'a>(
     preprocessed
 }
 
+fn reinspiring_enabled_for_degree(degree: usize) -> bool {
+    degree < 2048
+}
+
 fn build_fixture() -> BenchFixture<'static> {
     let spec = selected_spec();
     eprintln!(
@@ -326,6 +339,27 @@ fn build_fixture() -> BenchFixture<'static> {
         .unwrap_or(0);
     eprintln!("setup: SimplePIR multiply fixture ready");
     let preprocessed = build_preprocessed(rlwe, &ypir, hint_0);
+
+    let (reinspiring_pre, h_prime_norm_bits) = if reinspiring_enabled_for_degree(rlwe.d) {
+        eprintln!("setup: building ReinspiRING H' preprocess");
+        let rpre = build_reinspiring_blocks(&preprocessed).expect("reinspiring preprocess");
+        let bits = rpre
+            .first()
+            .map(|b| (b.h_prime.infinity_norm_centered() as f64).log2());
+        eprintln!(
+            "setup: ReinspiRING ready, blocks={}, H'_inf_bits≈{:.1}",
+            rpre.len(),
+            bits.unwrap_or(0.0)
+        );
+        (Some(rpre), bits)
+    } else {
+        eprintln!(
+            "setup: skipping ReinspiRING preprocess at d={} (FULL/NULLIFIER)",
+            rlwe.d
+        );
+        (None, None)
+    };
+
     let mut rng = ChaCha20Rng::seed_from_u64(SEED);
     let packing_keys = PackingKeys::generate_full(rlwe, &secret.to_ntt(rlwe), &mut rng);
     let top_keys = TopKeyImages::build(rlwe);
@@ -354,7 +388,9 @@ fn build_fixture() -> BenchFixture<'static> {
         first_dim_element_max,
         first_dim_query,
         preprocessed,
+        reinspiring_pre,
         noise_bits: log2_ceil(noise),
+        h_prime_norm_bits,
     }
 }
 
@@ -458,7 +494,7 @@ fn measure_server_breakdown_once(
     fixture: &BenchFixture<'_>,
     packed_query_body: &[u8],
     packed_fixture: &[inspiring::RlweCiphertext<'_>],
-) -> (Duration, Duration, Duration, Duration) {
+) -> (Duration, Duration, Duration, Duration, Option<Duration>) {
     let deserialize_started = Instant::now();
     let first_dim_query = IPIRSimpleQuery::from_switched_bytes(
         packed_query_body,
@@ -495,6 +531,16 @@ fn measure_server_breakdown_once(
     black_box(&packed);
     let packing_time = packing_started.elapsed();
 
+    let packing_reinspiring_time = fixture.reinspiring_pre.as_ref().map(|rpre| {
+        let started = Instant::now();
+        let packed_r =
+            pack_intermediate_blocks_reinspiring(&intermediate, &fixture.packing_keys, rpre)
+                .expect("reinspiring pack succeeds");
+        black_box(&packed_r);
+        drop(packed_r);
+        started.elapsed()
+    });
+
     let serialization_started = Instant::now();
     black_box(serialize_rlwe_response_bodies(
         packed_fixture,
@@ -507,6 +553,7 @@ fn measure_server_breakdown_once(
         multiply_time,
         packing_time,
         serialization_time,
+        packing_reinspiring_time,
     )
 }
 
@@ -533,11 +580,11 @@ fn bench_end_to_end(c: &mut Criterion) {
         output_count,
         fixture.rlwe.q,
     );
-    let (deserialize_once, multiply_once, packing_once, serialization_once) =
+    let (deserialize_once, multiply_once, packing_once, serialization_once, packing_rein_once) =
         measure_server_breakdown_once(&fixture, &packed_query_body, &packed_fixture);
 
     eprintln!(
-        "ipir-sp target: profile={}, rows={}, item_bits={}, d={}, outputs={}, db_cols={}, serialized_packing_keys={} KiB, measured_packing_keys={} KiB, measured_offline_query_polys={} KiB, measured_online_query_packed={} KiB, measured_fresh_query_upload={} KiB, cdks_upload={} KiB, response={} KiB, ||e_pack||_inf_bits={}, paper_noise_target_bits<={:.1}, cdks_online_target={} ms",
+        "ipir-sp target: profile={}, rows={}, item_bits={}, d={}, outputs={}, db_cols={}, serialized_packing_keys={} KiB, measured_packing_keys={} KiB, measured_offline_query_polys={} KiB, measured_online_query_packed={} KiB, measured_fresh_query_upload={} KiB, cdks_upload={} KiB, response={} KiB, ||e_pack||_inf_bits={}, paper_noise_target_bits<={:.1}, cdks_online_target={} ms, H'_inf_bits≈{}",
         fixture.name,
         fixture.ypir.db_rows,
         fixture.ypir.item_size_bits,
@@ -554,6 +601,10 @@ fn bench_end_to_end(c: &mut Criterion) {
         fixture.noise_bits,
         INSPIRING_PAPER_NOISE_BITS,
         YPIR_CDKS_ONLINE_MS,
+        fixture
+            .h_prime_norm_bits
+            .map(|b| format!("{b:.1}"))
+            .unwrap_or_else(|| "n/a".into()),
     );
     eprintln!(
         "ipir-sp measured_upload_bytes: packing_keys={} offline_query_polys={} online_query_packed={} fresh_query_total={} current_http_query={}",
@@ -564,10 +615,13 @@ fn bench_end_to_end(c: &mut Criterion) {
         upload_measurements.online_query_packed_bytes,
     );
     eprintln!(
-        "ipir-sp one_shot_server_breakdown_us: deserialize={} matrix_vector={} packing={} serialization={}",
+        "ipir-sp one_shot_server_breakdown_us: deserialize={} matrix_vector={} packing_inspiring={} packing_reinspiring={} serialization={}",
         deserialize_once.as_micros(),
         multiply_once.as_micros(),
         packing_once.as_micros(),
+        packing_rein_once
+            .map(|d| d.as_micros().to_string())
+            .unwrap_or_else(|| "n/a".into()),
         serialization_once.as_micros(),
     );
 
@@ -663,19 +717,40 @@ fn bench_end_to_end(c: &mut Criterion) {
         );
     }
 
-    group.bench_function(BenchmarkId::new("online_pack_only", output_count), |b| {
-        b.iter(|| {
-            let packed = pack_intermediate_blocks(
-                black_box(&fixture.intermediate),
-                black_box(&fixture.packing_keys),
-                black_box(&fixture.top_keys),
-                black_box(&fixture.preprocessed),
-            )
-            .expect("online pack succeeds");
-            black_box(&packed);
-            drop(packed);
-        });
-    });
+    group.bench_function(
+        BenchmarkId::new("online_pack_inspiring", output_count),
+        |b| {
+            b.iter(|| {
+                let packed = pack_intermediate_blocks(
+                    black_box(&fixture.intermediate),
+                    black_box(&fixture.packing_keys),
+                    black_box(&fixture.top_keys),
+                    black_box(&fixture.preprocessed),
+                )
+                .expect("online pack succeeds");
+                black_box(&packed);
+                drop(packed);
+            });
+        },
+    );
+
+    if let Some(ref rpre) = fixture.reinspiring_pre {
+        group.bench_function(
+            BenchmarkId::new("online_pack_reinspiring", output_count),
+            |b| {
+                b.iter(|| {
+                    let packed = pack_intermediate_blocks_reinspiring(
+                        black_box(&fixture.intermediate),
+                        black_box(&fixture.packing_keys),
+                        black_box(rpre),
+                    )
+                    .expect("reinspiring pack succeeds");
+                    black_box(&packed);
+                    drop(packed);
+                });
+            },
+        );
+    }
 
     group.bench_function(
         BenchmarkId::new("online_serialize_only", output_count),

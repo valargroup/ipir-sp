@@ -32,8 +32,10 @@ fn map_reinspiring(err: ReinspiringError) -> InspiringError {
 /// Build ReinspiRING `H'` caches from inspiring digit material.
 ///
 /// Call once offline after [`crate::server::build_pack_preprocessed_blocks`].
+/// The returned blocks borrow only the long-lived [`RlweParams`] (and spiral
+/// allocations tied to it), not the inspiring preprocess vector itself.
 pub fn build_reinspiring_blocks<'a>(
-    inspiring_pre: &'a [QueryPackPreprocessed<'a>],
+    inspiring_pre: &[QueryPackPreprocessed<'a>],
 ) -> Result<Vec<ReinspiringPreprocessed<'a>>, InspiringError> {
     let lift_q = inspiring_pre
         .first()

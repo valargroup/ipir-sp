@@ -28,8 +28,12 @@ yields:
 
 | Criterion id | What it measures |
 | --- | --- |
-| `offline_crs_extract_and_preprocess/5` | YPIR `hint_0` block extraction plus InspiRING `PackPreprocessed::build` for all five RLWE outputs. Setup time clones the deterministic hint and regenerates KS pairs, so the measured body is server-side CRS extraction/preprocessing. |
-| `online_pack_and_serialize/5` | InspiRING packing for all five online `b` blocks plus row-wise single-CRT response modulus switching and byte serialization. This starts after SimplePIR's matrix multiplication has produced the intermediate values. |
+| `offline_crs_extract_and_preprocess` | YPIR `hint_0` block extraction plus InspiRING query-pack preprocessing for all RLWE outputs. |
+| `online_pack_inspiring` | InspiRING NTT packing (`pack_intermediate_blocks`) for all online `b` blocks. |
+| `online_pack_reinspiring` | ReinspiRING coefficient packing (`H'·y`) for the same blocks. Built for SMALL/MID only; skipped at `d=2048` (FULL/NULLIFIER) because Compile preprocess is too heavy for the Criterion fixture. |
+| `online_pack_and_serialize` | InspiRING packing plus response modulus switching / serialization. |
+
+The stderr summary prints one-shot `packing_inspiring` and `packing_reinspiring` microseconds plus `H'_inf_bits` when ReinspiRING preprocess ran.
 
 The scalar SimplePIR matrix and hint kernels in `ipir-sp` are correctness
 ports, not the optimized YPIR kernels. For that reason the Phase 8 benchmark

@@ -50,7 +50,7 @@ fn digit_limbs_coeff(digits: &PolyMatrixNTT<'_>, ell: usize, d: usize) -> Vec<Ve
 
 /// Build ReinspiRING preprocess from an inspiring query-pack cache.
 pub fn preprocess_from_inspiring<'a>(
-    pre: &'a QueryPackPreprocessed<'a>,
+    pre: &QueryPackPreprocessed<'a>,
     lift_q: u64,
     algo: CompileAlgo,
 ) -> Result<ReinspiringPreprocessed<'a>, ReinspiringError> {
