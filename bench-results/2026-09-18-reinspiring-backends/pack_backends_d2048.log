@@ -1,0 +1,111 @@
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling cfg-if v1.0.4
+   Compiling zerocopy v0.8.48
+   Compiling version_check v0.9.5
+   Compiling libc v0.2.186
+   Compiling memchr v2.8.0
+   Compiling generic-array v0.14.7
+   Compiling serde_core v1.0.228
+   Compiling syn v2.0.117
+   Compiling crossbeam-utils v0.8.21
+   Compiling typenum v1.20.0
+   Compiling zmij v1.0.21
+   Compiling serde_json v1.0.149
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling crossbeam-epoch v0.9.18
+   Compiling getrandom v0.2.17
+   Compiling either v1.15.0
+   Compiling rayon-core v1.13.0
+   Compiling itoa v1.0.18
+   Compiling rand_core v0.6.4
+   Compiling crossbeam-deque v0.8.6
+   Compiling digest v0.10.7
+   Compiling utf8parse v0.2.2
+   Compiling cpufeatures v0.2.17
+   Compiling anstyle-parse v1.0.0
+   Compiling aho-corasick v1.1.4
+   Compiling anstyle-query v1.1.5
+   Compiling serde v1.0.228
+   Compiling zerocopy-derive v0.8.48
+   Compiling anstyle v1.0.14
+   Compiling thiserror v1.0.69
+   Compiling colorchoice v1.0.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling regex-syntax v0.8.10
+   Compiling anstream v1.0.0
+   Compiling serde_derive v1.0.228
+   Compiling regex-automata v0.4.14
+   Compiling thiserror-impl v1.0.69
+   Compiling rayon v1.12.0
+   Compiling sha2 v0.10.9
+   Compiling subtle v2.6.1
+   Compiling ppv-lite86 v0.2.21
+   Compiling fastrand v2.4.1
+   Compiling rand_chacha v0.3.1
+   Compiling regex v1.12.3
+   Compiling rand v0.8.6
+   Compiling clap_lex v1.1.0
+   Compiling valar-spiral-rs v0.5.2 (https://github.com/valargroup/spiral-rs.git?rev=6f5b66c6a5a639827c6486c59d31c7ec2d4399a8#6f5b66c6)
+   Compiling strsim v0.11.1
+   Compiling heck v0.5.0
+   Compiling clap_derive v4.6.1
+   Compiling inspiring v0.1.0 (/workspace/inspiring)
+   Compiling clap_builder v4.6.0
+   Compiling autocfg v1.5.0
+   Compiling log v0.4.29
+   Compiling env_filter v1.0.1
+   Compiling num-traits v0.2.19
+   Compiling jiff v0.2.24
+   Compiling simplepir-kernel v0.1.0 (/workspace/simplepir-kernel)
+   Compiling reinspiring v0.1.0 (/workspace/reinspiring)
+   Compiling half v2.7.1
+   Compiling sha1 v0.10.6
+   Compiling ciborium-io v0.2.2
+   Compiling plotters-backend v0.3.7
+   Compiling plotters-svg v0.3.7
+   Compiling ciborium-ll v0.2.2
+   Compiling clap v4.6.1
+   Compiling itertools v0.10.5
+   Compiling cast v0.3.0
+   Compiling same-file v1.0.6
+   Compiling walkdir v2.5.0
+   Compiling criterion-plot v0.5.0
+   Compiling plotters v0.3.7
+   Compiling env_logger v0.11.10
+   Compiling ipir-sp v0.1.0 (/workspace/ipir-sp)
+   Compiling ciborium v0.2.2
+   Compiling tinytemplate v1.2.1
+   Compiling is-terminal v0.4.17
+   Compiling oorandom v11.1.5
+   Compiling once_cell v1.21.4
+   Compiling anes v0.1.6
+   Compiling criterion v0.5.1
+    Finished `bench` profile [optimized] target(s) in 29.78s
+     Running benches/pack_backends_d2048.rs (target/release/deps/pack_backends_d2048-5700939535e8d8a0)
+Gnuplot not found, using plotters backend
+setup d=2048: q=72057594037641217, ell=3, bits_per=19
+setup: building InspiRING preprocess (1 block)
+setup: InspiRING preprocess done in 1.0s
+setup: building ReinspiRING H' (Compile)…
+setup: ReinspiRING ready in 80.9s, H'_inf_bits≈28.1, H' entries=12582912
+setup: byte-equality check passed
+Benchmarking pack_backends_d2048/online_pack_inspiring/2048
+Benchmarking pack_backends_d2048/online_pack_inspiring/2048: Warming up for 2.0000 s
+Benchmarking pack_backends_d2048/online_pack_inspiring/2048: Collecting 10 samples in estimated 8.0618 s (4455 iterations)
+Benchmarking pack_backends_d2048/online_pack_inspiring/2048: Analyzing
+pack_backends_d2048/online_pack_inspiring/2048
+                        time:   [1.7931 ms 1.8554 ms 1.9399 ms]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+Benchmarking pack_backends_d2048/online_pack_reinspiring/2048
+Benchmarking pack_backends_d2048/online_pack_reinspiring/2048: Warming up for 2.0000 s
+Benchmarking pack_backends_d2048/online_pack_reinspiring/2048: Collecting 10 samples in estimated 8.8801 s (220 iterations)
+Benchmarking pack_backends_d2048/online_pack_reinspiring/2048: Analyzing
+pack_backends_d2048/online_pack_reinspiring/2048
+                        time:   [40.327 ms 40.348 ms 40.381 ms]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high severe
+
