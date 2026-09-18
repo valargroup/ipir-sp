@@ -39,6 +39,10 @@ name = "end_to_end"
 harness = false
 
 [[bench]]
+name = "pack_backends_d2048"
+harness = false
+
+[[bench]]
 name = "client_decode"
 harness = false
 

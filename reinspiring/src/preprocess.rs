@@ -3,6 +3,7 @@
 //! See SPEC.md §5–§6.
 
 use inspiring::{QueryPackPreprocessed, RlweParams};
+use rayon::prelude::*;
 use spiral_rs::poly::{from_ntt_alloc, PolyMatrix, PolyMatrixNTT};
 
 use crate::compile::{collapse_kg_exponents, compile_fast, compile_naive_fused};
@@ -76,19 +77,20 @@ pub fn preprocess_from_inspiring<'a>(
     }
     let t_double_prime = digit_limbs_coeff(&pre.digits_ntt[d - 2], ell, d);
 
-    let mut blocks = Vec::with_capacity(ell);
-    for limb in 0..ell {
-        let ts: Vec<Vec<u64>> = per_step_limbs
-            .iter()
-            .map(|step| step[limb].clone())
-            .collect();
-        let block = match algo {
-            CompileAlgo::Naive => compile_naive_fused(&ts, &exponents, q)?,
-            CompileAlgo::Fast => compile_fast(&ts, &exponents, q)?,
-        };
-        blocks.push(block);
-    }
-    let h_prime = PackingMatrix::hstack(&blocks)?;
+    let blocks: Result<Vec<_>, _> = (0..ell)
+        .into_par_iter()
+        .map(|limb| {
+            let ts: Vec<Vec<u64>> = per_step_limbs
+                .iter()
+                .map(|step| step[limb].clone())
+                .collect();
+            match algo {
+                CompileAlgo::Naive => compile_naive_fused(&ts, &exponents, q),
+                CompileAlgo::Fast => compile_fast(&ts, &exponents, q),
+            }
+        })
+        .collect();
+    let h_prime = PackingMatrix::hstack(&blocks?)?;
 
     Ok(ReinspiringPreprocessed {
         params: rp,

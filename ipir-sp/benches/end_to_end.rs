@@ -309,7 +309,12 @@ fn build_preprocessed<'a>(
     preprocessed
 }
 
+// Allow ReinspiRING at every degree when `IPIR_SP_BENCH_REINSPIRING=1`,
+// otherwise only for `d < 2048` (FULL/NULLIFIER skip by default).
 fn reinspiring_enabled_for_degree(degree: usize) -> bool {
+    if std::env::var_os("IPIR_SP_BENCH_REINSPIRING").is_some() {
+        return true;
+    }
     degree < 2048
 }
 
