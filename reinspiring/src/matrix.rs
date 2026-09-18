@@ -61,6 +61,9 @@ impl PackingMatrix {
     }
 
     /// `out = self · v mod q` with `v.len() == cols`, `out.len() == rows`.
+    ///
+    /// For hardware-native power-of-two `q = 2^k` (paper eval uses `q = 2^54`),
+    /// reduction is a bitmask — the main win vs Barrett/NTT-friendly moduli.
     pub fn matvec(&self, v: &[u64], out: &mut [u64]) -> Result<(), ReinspiringError> {
         if v.len() != self.cols {
             return Err(ReinspiringError::LweShape(format!(
@@ -78,9 +81,19 @@ impl PackingMatrix {
         }
         let q = self.q;
         let cols = self.cols;
-        out.par_iter_mut()
-            .enumerate()
-            .for_each(|(r, slot)| {
+        if q.is_power_of_two() {
+            let mask = u128::from(q - 1);
+            out.par_iter_mut().enumerate().for_each(|(r, slot)| {
+                let row = &self.data[r * cols..(r + 1) * cols];
+                let mut acc = 0_u128;
+                for (a, &b) in row.iter().zip(v.iter()) {
+                    // Entries are already reduced into `[0, q)` on the hot path.
+                    acc = acc.wrapping_add(u128::from(*a) * u128::from(b & (q - 1)));
+                }
+                *slot = (acc & mask) as u64;
+            });
+        } else {
+            out.par_iter_mut().enumerate().for_each(|(r, slot)| {
                 let row = &self.data[r * cols..(r + 1) * cols];
                 let mut acc = 0_u128;
                 for (a, &b) in row.iter().zip(v.iter()) {
@@ -88,6 +101,7 @@ impl PackingMatrix {
                 }
                 *slot = (acc % u128::from(q)) as u64;
             });
+        }
         Ok(())
     }
 
