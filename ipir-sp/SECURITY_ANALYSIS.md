@@ -140,3 +140,21 @@ bound. Four certificate-verifier tests cover valid and malformed/incomplete evid
 See the [implementation CI](https://github.com/valargroup/ipir-sp/actions/runs/33935407642).
 Research harnesses and raw results are retained separately; other snapshots need
 their own certificates.
+
+## Full-width plaintext profile
+
+`SimplePirProfile::P16Q46` is an explicit capacity profile, not a change to the
+default YPIR-compatible parameters. It changes the plaintext modulus to `2^16`
+and sets a 46-bit minimum for query transport. At 8,192 rows and six output
+blocks this makes all bits in each stored `u16` useful while leaving `n`, `q`,
+the secret/error sampler, gadget parameters, and response precision unchanged.
+The documented RLWE privacy assumptions therefore remain the same; the main new
+risk is correctness because the plaintext decoding interval is four times smaller.
+
+The retained research evidence certifies six fixed public schedules at a weakest
+ideal-independent-sampler per-query failure bound of `2^-143`, unioned over all
+12,288 output coefficients. The implemented-system statement additionally has
+the ChaCha20 replacement advantage and OS-randomness assumption. This does not
+certify arbitrary future snapshots. Applications using this profile must bind
+the profile ID to their wire protocol and cached preprocessing and enforce their
+chosen snapshot-specific correctness policy before publication.

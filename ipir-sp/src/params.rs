@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 pub const POLY_LEN: usize = 2048;
 /// IPIR-SP row-2 plaintext modulus (`log p = 14`).
 pub const PLAINTEXT_MODULUS: u64 = 1 << 14;
+/// Plaintext modulus for the capacity-expanded profile.
+pub const PLAINTEXT_MODULUS_16: u64 = 1 << 16;
 /// One 56-bit NTT-friendly prime with `q = 1 mod 2d`.
 pub const SINGLE_CRT_Q: u64 = 72_057_594_037_641_217;
 /// YPIR's first transport modulus for packed response bytes.
@@ -23,6 +25,47 @@ pub const T_EXP_RIGHT: usize = 2;
 pub const GADGET_BITS_PER: u32 = 19;
 /// IPIR-SP Table-5 row-2 gadget length.
 pub const GADGET_ELL: usize = 3;
+
+/// Versioned SimplePIR plaintext and query-transport profiles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SimplePirProfile {
+    /// Upstream-compatible 14-bit plaintexts with derived query precision.
+    P14,
+    /// Full `u16` plaintexts with at least 46 query bits for dense snapshots.
+    P16Q46,
+}
+
+impl SimplePirProfile {
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::P14 => "simplepir-p14-v1",
+            Self::P16Q46 => "simplepir-p16-q46-v1",
+        }
+    }
+
+    #[must_use]
+    pub const fn plaintext_bits(self) -> usize {
+        match self {
+            Self::P14 => 14,
+            Self::P16Q46 => 16,
+        }
+    }
+
+    #[must_use]
+    pub const fn plaintext_modulus(self) -> u64 {
+        1 << self.plaintext_bits()
+    }
+
+    #[must_use]
+    pub const fn minimum_query_bits(self) -> usize {
+        match self {
+            Self::P14 => 1,
+            Self::P16Q46 => 46,
+        }
+    }
+}
 
 /// YPIR-specific knobs that live outside `inspiring::RlweParams`.
 ///
@@ -71,22 +114,34 @@ pub struct YpirSchemeParams {
     /// Bit width the first-dimension query is transmitted at.
     ///
     /// Derived from `(q, p, db_rows)` by
-    /// [`crate::modulus_switch::query_modulus_bits`]; it must be recomputed
-    /// whenever the shape changes, never copied across parameter sets.
+    /// [`crate::modulus_switch::query_modulus_bits`] and raised to the selected
+    /// profile's conservative floor. It must be recomputed whenever the shape
+    /// or profile changes, never copied across parameter sets.
     pub query_bits: usize,
 }
 
 /// Return `(inspiring::RlweParams, YpirSchemeParams)` for YPIR's SimplePIR scenario.
 ///
-/// The initial target is IPIR-SP Table 5 row 2:
+/// The backward-compatible default is IPIR-SP Table 5 row 2:
 /// `(log d, log q, log p, ell, z) = (11, 56, 14, 3, 2^19)`.
 pub fn params_for_simplepir(
     num_items: u64,
     item_size_bits: u64,
 ) -> Result<(RlweParams, YpirSchemeParams), inspiring::InspiringError> {
+    params_for_simplepir_profile(num_items, item_size_bits, SimplePirProfile::P14)
+}
+
+/// Return SimplePIR parameters for an explicit, versioned profile.
+pub fn params_for_simplepir_profile(
+    num_items: u64,
+    item_size_bits: u64,
+    profile: SimplePirProfile,
+) -> Result<(RlweParams, YpirSchemeParams), inspiring::InspiringError> {
+    let plaintext_bits = profile.plaintext_bits();
+    let plaintext_modulus = profile.plaintext_modulus();
     assert!(
-        item_size_bits >= (POLY_LEN as u64 * 14),
-        "YPIR SimplePIR expects items at least one 2048x14-bit chunk"
+        item_size_bits >= (POLY_LEN * plaintext_bits) as u64,
+        "SimplePIR expects items at least one plaintext polynomial"
     );
     assert!(
         num_items >= POLY_LEN as u64,
@@ -100,12 +155,12 @@ pub fn params_for_simplepir(
     // Retained for YPIR wire-compatibility reporting only; nothing on the IPIR
     // path consumes it, so it is derived from the padded power of two.
     let db_dim_1 = db_rows.next_power_of_two().trailing_zeros() as usize - 11;
-    let instances = item_size_bits.div_ceil(POLY_LEN as u64 * 14) as usize;
+    let instances = item_size_bits.div_ceil((POLY_LEN * plaintext_bits) as u64) as usize;
 
     let rlwe = RlweParams::new(
         POLY_LEN,
         SINGLE_CRT_Q,
-        PLAINTEXT_MODULUS,
+        plaintext_modulus,
         6.4,
         GadgetParams {
             bits_per: GADGET_BITS_PER,
@@ -122,7 +177,7 @@ pub fn params_for_simplepir(
         instances,
         db_rows: db_rows as usize,
         db_cols: instances * POLY_LEN,
-        p: PLAINTEXT_MODULUS,
+        p: plaintext_modulus,
         q_prime_1: Q_PRIME_1,
         q_prime_2: Q_PRIME_2,
         q2_bits: Q2_BITS,
@@ -130,9 +185,10 @@ pub fn params_for_simplepir(
         t_exp_right: T_EXP_RIGHT,
         query_bits: crate::modulus_switch::query_modulus_bits(
             SINGLE_CRT_Q,
-            PLAINTEXT_MODULUS,
+            plaintext_modulus,
             db_rows as usize,
-        ),
+        )
+        .max(profile.minimum_query_bits()),
     };
 
     Ok((rlwe, ypir))
@@ -198,5 +254,25 @@ mod tests {
         assert_eq!(decoded, ypir);
         assert_eq!(decoded.db_dim_1, 4);
         assert_eq!(decoded.instances, 10);
+    }
+
+    #[test]
+    fn p16_q46_profile_has_six_instances_and_33_record_capacity() {
+        const RECORD_BYTES: u64 = 737;
+        const RECORDS_PER_ROW: u64 = 33;
+        let (rlwe, ypir) = params_for_simplepir_profile(
+            8_192,
+            RECORD_BYTES * RECORDS_PER_ROW * 8,
+            SimplePirProfile::P16Q46,
+        )
+        .expect("valid capacity-expanded profile");
+
+        assert_eq!(SimplePirProfile::P16Q46.id(), "simplepir-p16-q46-v1");
+        assert_eq!(rlwe.p, PLAINTEXT_MODULUS_16);
+        assert_eq!(ypir.p, PLAINTEXT_MODULUS_16);
+        assert_eq!(ypir.instances, 6);
+        assert_eq!(ypir.db_cols, 12_288);
+        assert_eq!(ypir.query_bits, 46);
+        assert_eq!(ypir.q_prime_1, 1 << 20);
     }
 }
