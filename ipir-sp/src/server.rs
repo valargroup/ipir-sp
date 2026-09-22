@@ -636,6 +636,19 @@ pub fn build_pack_preprocessed_blocks<'a>(
         .collect()
 }
 
+/// Build each independent CRS block while reusing the immutable public mask
+/// images created by `TopKeyImages::build(params)` for online packing.
+pub fn build_pack_preprocessed_blocks_with_top<'a>(
+    params: &'a RlweParams,
+    crs_blocks: &[CrsBlock],
+    top: &TopKeyImages<'a>,
+) -> Result<Vec<QueryPackPreprocessed<'a>>, InspiringError> {
+    crs_blocks
+        .par_iter()
+        .map(|block| QueryPackPreprocessed::build_with_top(params, &block.to_ntt(params), top))
+        .collect()
+}
+
 /// Tile edge for the hint transpose, in both coefficients and columns.
 ///
 /// `HINT_TILE * HINT_TILE * 8` bytes (512 KiB) is the read working set.

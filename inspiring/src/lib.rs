@@ -84,3 +84,5 @@ pub use preprocess::{
     PackPreprocessed, PackPublicPreprocessed, PackingKeys, QueryPackPreprocessed, TopKeyImages,
     REFERENCE_V_SEED, REFERENCE_W_SEED,
 };
+
+mod preprocess_reuse;

@@ -3,7 +3,7 @@ members = ["inspiring", "ipir-sp", "nullifier-pir", "simplepir-kernel"]
 resolver = "2"
 
 [workspace.dependencies]
-spiral-rs = { package = "valar-spiral-rs", git = "https://github.com/valargroup/spiral-rs.git", rev = "6f5b66c6a5a639827c6486c59d31c7ec2d4399a8" }
+spiral-rs = { package = "valar-spiral-rs", git = "https://github.com/valargroup/spiral-rs.git", rev = "584fee3893b1d2d17b5d774c83bd801fb70d5ace" }
 
 [profile.release]
 opt-level = 3

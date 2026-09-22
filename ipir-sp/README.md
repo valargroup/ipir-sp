@@ -101,6 +101,21 @@ YPIR's Gaussian convention. The pinned sampler receives width
 `sigma_chi * sqrt(2*pi)`. See [migration notes](MIGRATION.md) for the changed
 interpretation of old client seeds.
 
+## Versioned plaintext profiles
+
+`params_for_simplepir` remains the upstream-compatible 14-bit profile. Applications
+that need full-width `u16` plaintexts opt in with
+`params_for_simplepir_profile(..., SimplePirProfile::P16Q46)`. That profile keeps
+the ring, ciphertext modulus, Gaussian sampler, gadget, and 20-bit response
+transport unchanged, while using `p = 2^16` and at least 46 bits per transmitted
+query coefficient. The extra query bit is intentional: fixed-schedule certificates
+for dense 8,192-row databases exhausted the conservative proof budget at 45 bits
+and achieved a weakest tested ideal-sampler bound of `2^-143` at 46 bits.
+
+Bind `SimplePirProfile::id()` into application manifests, cached artifacts, and
+client/server compatibility checks. Changing profiles requires re-encoding the
+database and rebuilding preprocessing.
+
 ## Tests And Benchmarks
 
 The opt-in `experimental-key-reuse` feature provides an in-process prototype
