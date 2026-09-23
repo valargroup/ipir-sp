@@ -130,20 +130,27 @@ fn production_params_round_trip_recovers_the_target_row() {
 
 #[test]
 fn p16_q46_profile_round_trip_has_decryption_margin() {
-    const ROWS: u64 = 8_192;
-    const TARGET: usize = ROWS as usize - 1;
-    let profile = ProductionSimplePirParams::new(ROWS, 2048 * 16, SimplePirProfile::P16Q46)
-        .expect("P16Q46 profile");
+    p16_round_trip(SimplePirProfile::P16Q46, 8192);
+}
+
+#[test]
+fn p16_q49_largest_domain_round_trip_rejects_q46_wire() {
+    p16_round_trip(SimplePirProfile::P16Q49, 32768);
+}
+
+fn p16_round_trip(kind: SimplePirProfile, rows: u64) {
+    let target = rows as usize - 1;
+    let profile = ProductionSimplePirParams::new(rows, 2048 * 16, kind).expect("p16 profile");
     let (rlwe, ypir) = (profile.rlwe(), profile.ypir());
     assert_eq!(ypir.p, 1 << 16);
-    assert_eq!(ypir.query_bits, 46);
+    assert_eq!(ypir.query_bits, kind.minimum_query_bits());
 
     let db: Vec<u16> = (0..ypir.db_rows)
         .flat_map(|row| {
             (0..ypir.db_cols).map(move |col| ((row * 31 + col * 17 + 5) % (1 << 16)) as u16)
         })
         .collect();
-    let expected: Vec<u64> = db[TARGET * ypir.db_cols..(TARGET + 1) * ypir.db_cols]
+    let expected: Vec<u64> = db[target * ypir.db_cols..(target + 1) * ypir.db_cols]
         .iter()
         .map(|value| u64::from(*value))
         .collect();
@@ -164,8 +171,21 @@ fn p16_q46_profile_round_trip_has_decryption_margin() {
         rlwe.q,
     );
     let top_keys = TopKeyImages::build(rlwe);
-    let (query, packing_keys, seed) = client.generate_fresh_query_simplepir(&setup, TARGET);
+    let (query, packing_keys, seed) = client.generate_fresh_query_simplepir(&setup, target);
     let query_bytes = query.to_switched_bytes(rlwe.q, ypir.query_bits);
+    if kind == SimplePirProfile::P16Q49 {
+        let old_wire = query.to_switched_bytes(rlwe.q, 46);
+        assert!(server
+            .perform_full_online_computation_simplepir_measured(
+                rlwe,
+                &old_wire,
+                &packing_keys,
+                &top_keys,
+                &preprocessed,
+            )
+            .is_err());
+        assert_eq!(query_bytes.len() - old_wire.len(), 12 * 1024);
+    }
     let (response, _) = server
         .perform_full_online_computation_simplepir_measured(
             rlwe,
@@ -184,7 +204,7 @@ fn p16_q46_profile_round_trip_has_decryption_margin() {
     assert_eq!(decoded, expected);
     assert!(
         max_error < rlwe.delta / 4,
-        "P16Q46 phase error too large: error {max_error} against delta/2 {}",
+        "p16 phase error too large: error {max_error} against delta/2 {}",
         rlwe.delta / 2
     );
 }

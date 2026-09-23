@@ -170,3 +170,24 @@ additionally has the ChaCha20 replacement advantage and OS-randomness assumption
 certify arbitrary future snapshots. Applications using this profile must bind
 the profile ID to their wire protocol and cached preprocessing and enforce their
 chosen snapshot-specific correctness policy before publication.
+
+### Wider p16 query transport
+
+`SimplePirProfile::P16Q49` has identity `simplepir-p16-q49-v1` and raises the
+minimum query precision to 49 bits. It leaves all RLWE parameters, plaintext
+encoding, key generation, public setup, gadget decomposition, and response
+precision identical to P16Q46. The transmitted query is still deterministic
+modulus switching of the same full-modulus RLWE query; the existing privacy
+argument based on that full query therefore applies without assuming that
+46-bit rounding provides additional security.
+
+The purpose is correctness margin: a query coefficient's switching-error bound
+falls with the transport rounding interval. The decoding threshold does not
+increase. The exact finite-CDF sampler and packing-key tails must still be
+included, and the full-query union bound remains necessary. A wider query is
+not itself a certificate. Applications must qualify their supported database
+shapes and bind the new profile ID and exact parameters into protocol and cache
+identities before publication. Mixed 46/49-bit query bodies are incompatible.
+
+Tests cover all 2K/4K/8K/16K/32K parameter shapes, rejection of altered precision,
+and an actual 32K client/server round trip that rejects the old 46-bit body.
