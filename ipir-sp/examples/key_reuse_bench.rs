@@ -136,23 +136,25 @@ fn main() {
                     .unwrap();
                 answer_ms[mode].push(start.elapsed().as_secs_f64() * 1000.);
                 download[mode] += response.len();
+                let expected: Vec<u64> = (0..cols).map(|col| u64::from(value(row, col))).collect();
                 let start = Instant::now();
                 let (decoded, error) = if let Some(b) = &batch {
-                    b.decode_with_margin(&c1[bank], &response)
+                    b.decode_with_expected_phase_error(&c1[bank], &response, &expected)
                 } else {
-                    pool.client().decode_response_simplepir_with_margin(
-                        fresh_seed.unwrap(),
-                        &c1[bank],
-                        &response,
-                    )
+                    pool.client()
+                        .decode_response_simplepir_with_expected_phase_error(
+                            fresh_seed.unwrap(),
+                            &c1[bank],
+                            &response,
+                            &expected,
+                        )
                 };
                 decode_ms[mode].push(start.elapsed().as_secs_f64() * 1000.);
                 worst_error[mode] = worst_error[mode].max(error);
                 assert_eq!(decoded.len(), cols);
                 for (col, actual) in decoded.into_iter().enumerate() {
                     assert_eq!(
-                        actual,
-                        u64::from(value(row, col)),
+                        actual, expected[col],
                         "mode={mode} slot={slot} row={row} col={col}"
                     );
                 }
@@ -181,7 +183,7 @@ fn main() {
                 "warm_total_bytes_per_query":(upload[mode]+download[mode])/queries,
                 "cold_first_batch_bytes_per_query":(upload[mode]+download[mode])/queries +
                     if mode==0 {public_bytes/count/count} else {public_bytes/count},
-                "max_decryption_error":worst_error[mode],
+                "max_expected_phase_error":worst_error[mode],
             })
         })
         .collect();

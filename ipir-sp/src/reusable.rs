@@ -123,11 +123,34 @@ impl ReusableBatch<'_> {
     }
 
     /// Decode with the public `c1` for this query's slot and database snapshot.
-    /// The in-process harness binds slot and snapshot; no network API is provided.
-    pub fn decode_with_margin(&self, c1: &[Vec<u64>], response: &[u8]) -> (Vec<u64>, u64) {
+    /// The residual cannot establish correctness. The in-process harness binds
+    /// slot and snapshot; no network API is provided.
+    pub fn decode_with_rounding_residual(
+        &self,
+        c1: &[Vec<u64>],
+        response: &[u8],
+    ) -> (Vec<u64>, u64) {
         self.pool
             .client
-            .decode_response_simplepir_with_margin(self.client_seed, c1, response)
+            .decode_response_simplepir_with_rounding_residual(self.client_seed, c1, response)
+    }
+
+    /// Decode and measure circular phase error against a known plaintext row.
+    /// Panics if `expected` has the wrong length or contains values outside `Z_p`.
+    pub fn decode_with_expected_phase_error(
+        &self,
+        c1: &[Vec<u64>],
+        response: &[u8],
+        expected: &[u64],
+    ) -> (Vec<u64>, u64) {
+        self.pool
+            .client
+            .decode_response_simplepir_with_expected_phase_error(
+                self.client_seed,
+                c1,
+                response,
+                expected,
+            )
     }
 }
 

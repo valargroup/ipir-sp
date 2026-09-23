@@ -70,9 +70,8 @@ fn production_params_round_trip_recovers_the_target_row() {
         }
     };
 
-    // One query is one draw from the noise distribution. Every query samples a
-    // fresh secret, fresh packing keys, and fresh errors, so several draws over
-    // spread-out rows give the margin assertion something to bite on.
+    // Each query samples a fresh secret, packing keys and errors. Measure
+    // phase error against the known row across several independent draws.
     let mut worst_error = 0_u64;
     for target_row in TARGET_ROWS {
         let expected: Vec<u64> = db[target_row * ypir.db_cols..(target_row + 1) * ypir.db_cols]
@@ -98,8 +97,12 @@ fn production_params_round_trip_recovers_the_target_row() {
             )
             .expect("online response");
 
-        let (decoded, max_error) =
-            client.decode_response_simplepir_with_margin(client_seed, &published_c1, &response);
+        let (decoded, max_error) = client.decode_response_simplepir_with_expected_phase_error(
+            client_seed,
+            &published_c1,
+            &response,
+            &expected,
+        );
         assert_eq!(
             decoded, expected,
             "decoded row {target_row} must match the database row"
@@ -107,10 +110,8 @@ fn production_params_round_trip_recovers_the_target_row() {
         worst_error = worst_error.max(max_error);
     }
 
-    // The real regression signal: decoding is correct exactly while the worst
-    // phase error stays under Δ/2. Assert real headroom, not bare correctness,
-    // so that shrinking the query width or widening the database cannot quietly
-    // consume the budget and still pass.
+    // Assert headroom against the expected encoding, so a wrong plaintext
+    // cannot masquerade as small error near another encoding.
     eprintln!(
         "production flow: ||e||_inf = 2^{} over {} queries against delta/2 = 2^{} (query at {} bits)",
         bits(worst_error),
@@ -120,7 +121,7 @@ fn production_params_round_trip_recovers_the_target_row() {
     );
     assert!(
         worst_error < threshold / 4,
-        "decryption margin too thin: error 2^{} against delta/2 = 2^{}",
+        "phase error too large: error 2^{} against delta/2 = 2^{}",
         bits(worst_error),
         bits(threshold)
     );
@@ -173,12 +174,16 @@ fn p16_q46_profile_round_trip_has_decryption_margin() {
             &preprocessed,
         )
         .expect("online response");
-    let (decoded, max_error) =
-        client.decode_response_simplepir_with_margin(seed, &published_c1, &response);
+    let (decoded, max_error) = client.decode_response_simplepir_with_expected_phase_error(
+        seed,
+        &published_c1,
+        &response,
+        &expected,
+    );
     assert_eq!(decoded, expected);
     assert!(
         max_error < rlwe.delta / 4,
-        "P16Q46 decryption margin too thin: error {max_error} against delta/2 {}",
+        "P16Q46 phase error too large: error {max_error} against delta/2 {}",
         rlwe.delta / 2
     );
 }

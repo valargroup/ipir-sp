@@ -52,7 +52,7 @@ output blocks, 1,792 nullifiers per row.
 | Packing per output block | **4.2 ms** | |
 | Offline preprocessing, full snapshot | **6.6 s** | `build_pack_preprocessed_blocks` over all sixteen CRS blocks |
 | Offline per CRS block | **0.42 s** | |
-| Decryption margin | 2^36 vs Δ/2 = 2^41 | real pipeline, production RLWE parameters, worst of 8 queries |
+| Historical rounding residual | 2^36 vs Δ/2 = 2^41 | nearest-encoding distance from 8 queries; this metric cannot establish decryption correctness or noise headroom |
 
 ### How it got here
 

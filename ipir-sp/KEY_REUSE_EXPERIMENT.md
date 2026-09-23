@@ -83,18 +83,19 @@ batch's slot allocation.
 ## Running the experiment
 
 ```bash
-cargo test -p ipir-sp --release --features experimental-key-reuse
-cargo run --release -p ipir-sp --features experimental-key-reuse \
+cargo test -p ipir-sp --release --features experimental-key-reuse,experimental-params
+cargo run --release -p ipir-sp --features experimental-key-reuse,experimental-params \
   --example key_reuse_bench -- 2048 4096 4 5
-cargo run --release -p ipir-sp --features experimental-key-reuse \
+cargo run --release -p ipir-sp --features experimental-key-reuse,experimental-params \
   --example key_reuse_bench -- 28672 32768 4 3
 ```
 
 Arguments are rows, columns, pool size and complete batches. Sizes 4, 8 and 16
 are supported. All runs use production RLWE parameters, an explicitly synthetic
 arithmetic-pattern database, and fresh private randomness. Every decoded
-coefficient is checked; maximum sampled error must stay below `delta/8`, one
-quarter of the decryption threshold. The synthetic pattern does not establish
+coefficient is checked; maximum phase error relative to the known plaintext
+must stay below `delta/8`, one quarter of the decryption threshold. The
+synthetic pattern does not establish
 the failure probability or the error distribution for a real nullifier snapshot.
 
 The output records measured serialized payload lengths, preparation times,

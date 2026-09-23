@@ -1,5 +1,14 @@
 # Migrating YPIR Packing Code To ipir-sp
 
+## Decryption diagnostics
+
+`decode_response_simplepir_with_margin` and the experimental
+`decode_with_margin` are renamed to `with_rounding_residual` variants. Their
+returned distance is to the nearest plaintext encoding and cannot establish
+correct decoding or noise headroom. Tests and benchmarks with a known plaintext
+should use `decode_response_simplepir_with_expected_phase_error` (or the batch
+wrapper) and compare the decoded coefficients with the expected row.
+
 ## Production parameter API
 
 Construct `ProductionSimplePirParams::new(num_items, item_size_bits, profile)`

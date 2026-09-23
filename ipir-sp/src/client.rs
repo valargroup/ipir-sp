@@ -411,42 +411,101 @@ impl IPIRClient {
         decoded
     }
 
-    /// Decode a response and report the worst decryption error observed.
+    /// Decode a response and report its largest rounding residual.
     ///
-    /// Returns `(coefficients, max_error)` where `max_error` is the largest
-    /// centered distance between a recovered phase and the nearest multiple of
-    /// `Δ`. Decryption is correct exactly while that stays under `Δ/2`, so this
-    /// is the quantity any change to the query width, the plaintext modulus, or
-    /// the database shape has to be judged against.
+    /// Returns `(coefficients, max_rounding_residual)`. The residual is the
+    /// distance between a recovered phase and the nearest multiple of `Δ`.
+    /// It is always at most `Δ/2`, even if decoding selected the wrong
+    /// plaintext. Do not use it as a correctness or noise-headroom check.
     #[must_use]
-    pub fn decode_response_simplepir_with_margin(
+    pub fn decode_response_simplepir_with_rounding_residual(
         &self,
         client_seed: IPIRSeed,
         published_c1: &[Vec<u64>],
         response: &[u8],
     ) -> (Vec<u64>, u64) {
+        self.decode_response_simplepir_with_diagnostic(
+            client_seed,
+            published_c1,
+            response,
+            |_, phase| {
+                let offset = phase % self.rlwe.delta;
+                offset.min(self.rlwe.delta - offset)
+            },
+        )
+    }
+
+    /// Decode a response and measure phase error against known plaintext.
+    ///
+    /// Returns `(coefficients, max_phase_error)`, using circular distance
+    /// modulo `q` from each recovered phase to `expected[i] * Δ`. This is a
+    /// test/benchmark diagnostic: callers must know the true plaintext and
+    /// also compare decoded coefficients with it. Panics if the expected row
+    /// has the wrong length or contains a value outside `Z_p`.
+    #[must_use]
+    pub fn decode_response_simplepir_with_expected_phase_error(
+        &self,
+        client_seed: IPIRSeed,
+        published_c1: &[Vec<u64>],
+        response: &[u8],
+        expected: &[u64],
+    ) -> (Vec<u64>, u64) {
+        assert_eq!(
+            expected.len(),
+            self.ypir.db_cols,
+            "expected plaintext length mismatch"
+        );
+        assert!(
+            expected.iter().all(|&value| value < self.rlwe.p),
+            "expected plaintext outside Z_p"
+        );
+        self.decode_response_simplepir_with_diagnostic(
+            client_seed,
+            published_c1,
+            response,
+            |index, phase| {
+                let encoded = expected[index] * self.rlwe.delta;
+                let diff = phase.abs_diff(encoded);
+                diff.min(self.rlwe.q - diff)
+            },
+        )
+    }
+
+    fn decode_response_simplepir_with_diagnostic(
+        &self,
+        client_seed: IPIRSeed,
+        published_c1: &[Vec<u64>],
+        response: &[u8],
+        mut distance: impl FnMut(usize, u64) -> u64,
+    ) -> (Vec<u64>, u64) {
         let blocks = self.ypir.db_cols / self.rlwe.d;
         let body_len = response_body_len(self.rlwe.d, self.ypir.q_prime_1);
-        assert_eq!(response.len(), blocks * body_len);
-        assert_eq!(published_c1.len(), blocks);
+        assert_eq!(
+            response.len(),
+            blocks * body_len,
+            "serialized response length mismatch"
+        );
+        assert_eq!(
+            published_c1.len(),
+            blocks,
+            "expected one published c1 row per output block"
+        );
 
         let secret = self.secret_from_seed(client_seed);
         let secret_ntt = secret.to_ntt(&self.rlwe);
         let mut decoded = Vec::with_capacity(self.ypir.db_cols);
-        let mut max_error = 0_u64;
+        let mut max_distance = 0_u64;
 
         for (chunk, row_0) in response.chunks_exact(body_len).zip(published_c1) {
             let row_1 = recover_response_body(chunk, self.rlwe.d, self.ypir.q_prime_1, self.rlwe.q);
             let phase = phase_of(&self.rlwe, row_0, &row_1, &secret_ntt);
-            for coeff in &phase {
-                let offset = coeff % self.rlwe.delta;
-                let error = offset.min(self.rlwe.delta - offset);
-                max_error = max_error.max(error);
+            for coeff in phase {
+                max_distance = max_distance.max(distance(decoded.len(), coeff));
                 decoded.push(((coeff + self.rlwe.delta / 2) / self.rlwe.delta) % self.rlwe.p);
             }
         }
 
-        (decoded, max_error)
+        (decoded, max_distance)
     }
 
     fn secret_from_seed(&self, client_seed: IPIRSeed) -> ClientSecret {
@@ -1046,6 +1105,77 @@ mod tests {
         } else {
             diff as i64
         }
+    }
+
+    #[test]
+    fn rounding_residual_can_be_small_after_wrong_plaintext_decode() {
+        let (rlwe, ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        let client = IPIRClient::new_experimental(&rlwe, &ypir).unwrap();
+        let c1 = vec![vec![0; rlwe.d]];
+        let response = u64s_to_contiguous_bytes(&vec![64; rlwe.d], 20);
+        let expected = vec![0; rlwe.d];
+
+        let (decoded, residual) =
+            client.decode_response_simplepir_with_rounding_residual([0; 32], &c1, &response);
+        let (checked, phase_error) = client.decode_response_simplepir_with_expected_phase_error(
+            [0; 32], &c1, &response, &expected,
+        );
+        assert_eq!(decoded, vec![1; rlwe.d]);
+        assert_eq!(checked, decoded);
+        assert_eq!(residual, 1);
+        assert!(phase_error > rlwe.delta / 2);
+    }
+
+    #[test]
+    fn expected_phase_error_handles_zero_and_modular_wraparound() {
+        let (rlwe, ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        let client = IPIRClient::new_experimental(&rlwe, &ypir).unwrap();
+        let c1 = vec![vec![0; rlwe.d]];
+        let expected = vec![0; rlwe.d];
+        let zero_response = u64s_to_contiguous_bytes(&vec![0; rlwe.d], 20);
+        let (decoded, error) = client.decode_response_simplepir_with_expected_phase_error(
+            [0; 32],
+            &c1,
+            &zero_response,
+            &expected,
+        );
+        assert_eq!(decoded, expected);
+        assert_eq!(error, 0);
+
+        let near_q_response = u64s_to_contiguous_bytes(&vec![(1 << 20) - 1; rlwe.d], 20);
+        let (decoded, error) = client.decode_response_simplepir_with_expected_phase_error(
+            [0; 32],
+            &c1,
+            &near_q_response,
+            &expected,
+        );
+        assert_eq!(
+            error,
+            rlwe.q - crate::modulus_switch::rescale((1 << 20) - 1, 1 << 20, rlwe.q)
+        );
+        assert_eq!(decoded, expected);
+        assert!(error < rlwe.delta / 2);
+    }
+
+    #[test]
+    fn expected_phase_error_rejects_wrong_shape_and_plaintext_range() {
+        let (rlwe, ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        let client = IPIRClient::new_experimental(&rlwe, &ypir).unwrap();
+        let c1 = vec![vec![0; rlwe.d]];
+        let response = u64s_to_contiguous_bytes(&vec![0; rlwe.d], 20);
+        assert!(std::panic::catch_unwind(|| {
+            client.decode_response_simplepir_with_expected_phase_error([0; 32], &c1, &response, &[])
+        })
+        .is_err());
+        assert!(std::panic::catch_unwind(|| {
+            client.decode_response_simplepir_with_expected_phase_error(
+                [0; 32],
+                &c1,
+                &response,
+                &vec![rlwe.p; rlwe.d],
+            )
+        })
+        .is_err());
     }
 
     #[test]

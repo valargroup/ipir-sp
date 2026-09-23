@@ -53,15 +53,16 @@ fn reused_keys_recover_boundary_rows_across_sets_and_fresh_batches() {
                     &pre[slot],
                 )
                 .unwrap();
-            let (decoded, error) = batch.decode_with_margin(&c1[slot], &response);
             let expected: Vec<_> = (0..y.db_cols)
                 .map(|col| u64::from(value(row, col)))
                 .collect();
+            let (decoded, error) =
+                batch.decode_with_expected_phase_error(&c1[slot], &response, &expected);
             assert_eq!(decoded, expected);
             assert!(error < r.delta / 8);
             // A metadata mixup does not yield a valid row: the transport must
             // bind this data before decryption, not treat rounding as integrity.
-            let (wrong, _) = batch.decode_with_margin(&c1[(slot + 1) % 4], &response);
+            let (wrong, _) = batch.decode_with_rounding_residual(&c1[(slot + 1) % 4], &response);
             assert_ne!(wrong, expected);
             let (retry, _) = server
                 .perform_full_online_computation_simplepir_measured(
