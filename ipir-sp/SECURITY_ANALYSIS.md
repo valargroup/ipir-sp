@@ -170,3 +170,9 @@ additionally has the ChaCha20 replacement advantage and OS-randomness assumption
 certify arbitrary future snapshots. Applications using this profile must bind
 the profile ID to their wire protocol and cached preprocessing and enforce their
 chosen snapshot-specific correctness policy before publication.
+
+`P16Q48` and `P16Q49` keep the same plaintext, RLWE, gadget, and response
+parameters while raising the minimum query transport width. This reduces the
+query-rounding contribution to decryption noise. The certificate above remains
+evidence for its evaluated 46-bit schedules only; it is not a certificate for
+other snapshots or for the new profile IDs.

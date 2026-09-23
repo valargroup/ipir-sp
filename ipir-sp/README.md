@@ -112,12 +112,15 @@ and `IPIRClient::new_experimental`; those pairs have no production security clai
 
 `params_for_simplepir` remains the upstream-compatible 14-bit profile. Applications
 that need full-width `u16` plaintexts opt in with
-`params_for_simplepir_profile(..., SimplePirProfile::P16Q46)`. That profile keeps
-the ring, ciphertext modulus, Gaussian sampler, gadget, and 20-bit response
-transport unchanged, while using `p = 2^16` and at least 46 bits per transmitted
-query coefficient. The extra query bit is intentional: fixed-schedule certificates
+`params_for_simplepir_profile(..., SimplePirProfile::P16Q46)`, `P16Q48`, or
+`P16Q49`. These profiles keep the ring, ciphertext modulus, Gaussian sampler,
+gadget, and 20-bit response transport unchanged, while using `p = 2^16` and at
+least 46, 48, or 49 bits per transmitted query coefficient, respectively. The
+46-bit floor is intentional: fixed-schedule certificates
 for dense 8,192-row databases exhausted the conservative proof budget at 45 bits
-and achieved a weakest tested ideal-sampler bound of `2^-143` at 46 bits.
+and achieved a weakest tested ideal-sampler bound of `2^-143` at 46 bits. The
+48- and 49-bit profiles reduce query rounding noise but do not add new
+snapshot-specific certificates.
 
 Bind `SimplePirProfile::id()` into application manifests, cached artifacts, and
 client/server compatibility checks. Changing profiles requires re-encoding the

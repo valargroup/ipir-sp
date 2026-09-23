@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.0-rc.2 — 2026-09-23
+
+Second release candidate for `ipir-sp`. The `inspiring` and
+`simplepir-kernel` dependencies remain at `0.1.0-rc.1`.
+
+### Added
+
+- Pinned `P16Q48` and `P16Q49` profiles for 16-bit plaintexts with at least
+  48 or 49 query transport bits. Both reduce query rounding noise relative to
+  `P16Q46` without changing the RLWE or response parameters.
+- Parameter and production-flow coverage for the new profile IDs, query widths,
+  packed query lengths, and decryption margin.
+
+The historical correctness certificates cover only the evaluated 46-bit
+schedules. New snapshots still need snapshot-specific correctness evidence.
+
 ## 0.1.0-rc.1 — 2026-09-23
 
 First release candidate for the `inspiring`, `simplepir-kernel`, and `ipir-sp`
