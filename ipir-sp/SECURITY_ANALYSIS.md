@@ -1,6 +1,12 @@
 # Gaussian profile: security analysis and correctness bounds
 
 Assessed implementation: `eef8d55f551c616eda326265c86d486ed0dd3f1d` (PR #14).
+
+The correctness certificates below describe that historical decomposition.
+Exact top-digit decomposition changes the packing weights and public
+preprocessing. Their numerical failure bounds are stale until the original
+base-key-error weights are recomputed and the snapshot certificates are rerun.
+
 This note supports **conditional 128-bit classical single-target security under MATZOV,
 including attacker preprocessing**. This is a concrete-security assessment under
 stated assumptions, not an unconditional hardness proof or an external audit.
@@ -97,17 +103,19 @@ Here |mu| < 1/1024. The CDF-weighted quantity
 For x = (|X|+1/1024)/4, expand exp(x) through degree 128 and bound its
 remainder by term_129/(1-x/130), yielding the conservative constant 100.
 
-Let L_k be the actual canonical database-column sum, C_k its packing block's
-number of discarded top carries, and b the query precision. A deterministic
-budget for input noise, query rounding, carries, response rounding and encoding is
+With exact top-digit decomposition there is no discarded carry. Let L_k be the
+actual canonical database-column sum and b the query precision. The revised
+deterministic budget for input noise, query rounding, response rounding and
+encoding is
 
 ```text
 D_k = (65 + ceil(q/2^(b+1)) + 1) L_k
-      + 573438 * 65 * C_k + ceil(q/2^21) + 1 + (q mod p).
+      + ceil(q/2^21) + 1 + (q mod p).
 T_k = floor(Delta/2) - D_k - ceil(|mu sum_i W[k,i]|).
 ```
 
-The carry factor uses z^3 mod q = 573438. For T_k > 0, choose lambda = 2^-31
+Here `W[k,i]` must be computed from the revised exact digits, including the
+top digit, which can be as large as `z`. For T_k > 0, choose lambda = 2^-31
 and check lambda max_i |W[k,i]| <= 1/4. Chernoff and a union bound give
 
 ```text
@@ -117,10 +125,11 @@ Pr[any decoding failure] <= sum_k 2 exp(-lambda T_k
 
 Independence is required only for original sampler draws; query rounding uses
 a deterministic bound.
-Two fully inspected synthetic 28,672 x 32,768 snapshots satisfy a per-query bound
-of 2^-70 in this model, plus the implementation's PRG replacement term. Grouped
-weights were crosschecked against backend NTT packing and independently reviewed;
-certificate decisions use integer/rational arithmetic.
+Two fully inspected synthetic 28,672 x 32,768 snapshots satisfied a per-query
+bound of 2^-70 for the historical decomposition, plus the implementation's PRG
+replacement term. Those grouped weights were crosschecked against backend NTT
+packing and independently reviewed; certificate decisions used integer/rational
+arithmetic. This bound has not been revalidated for the exact decomposition.
 
 **Production limitation:** these are certificates for those exact synthetic
 snapshots. Dense maximum-value and larger dense-row fixtures remain uncovered by
@@ -151,10 +160,11 @@ the secret/error sampler, gadget parameters, and response precision unchanged.
 The documented RLWE privacy assumptions therefore remain the same; the main new
 risk is correctness because the plaintext decoding interval is four times smaller.
 
-The retained research evidence certifies six fixed public schedules at a weakest
-ideal-independent-sampler per-query failure bound of `2^-143`, unioned over all
-12,288 output coefficients. The implemented-system statement additionally has
-the ChaCha20 replacement advantage and OS-randomness assumption. This does not
+The retained research evidence certified six fixed public schedules under the
+historical decomposition at a weakest ideal-independent-sampler per-query failure
+bound of `2^-143`, unioned over all 12,288 output coefficients. It must be rerun
+for exact top-digit decomposition. The historical implemented-system statement
+additionally has the ChaCha20 replacement advantage and OS-randomness assumption. This does not
 certify arbitrary future snapshots. Applications using this profile must bind
 the profile ID to their wire protocol and cached preprocessing and enforce their
 chosen snapshot-specific correctness policy before publication.

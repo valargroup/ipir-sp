@@ -1,5 +1,5 @@
 use inspiring::automorph::{h, tau_g_pow};
-use inspiring::collapse::{collapse, collapse_one, CollapseState};
+use inspiring::collapse::{collapse, collapse_half, collapse_one, CollapseState};
 use inspiring::intermediate::{aggregate, transform};
 use inspiring::key_switching::{automorphic_image, ks_setup, KeySwitchingMatrix};
 use inspiring::{GadgetParams, LweCiphertext, RlweParams};
@@ -212,6 +212,36 @@ fn collapse_one_with_noiseless_key_switching_preserves_plaintext() {
     assert_eq!(
         decrypt_single_state(&params, &state.a[0], &state.b, &s0),
         messages
+    );
+}
+
+#[test]
+fn high_carry_multi_switch_collapse_preserves_zero_plaintext() {
+    let params = RlweParams::new(
+        8,
+        12289,
+        4,
+        3.2,
+        GadgetParams {
+            bits_per: 1,
+            ell: 14,
+        },
+    )
+    .unwrap();
+    let secret = [1, 0, 0, 0, 0, 0, 0, 0];
+    let keys = [
+        noiseless_ks(&params, &secret, &secret),
+        noiseless_ks(&params, &secret, &secret),
+    ];
+    let a = [params.q - 1, 0, 0, 0, 0, 0, 0, 0];
+    let mut state = CollapseState {
+        a: (0..3).map(|_| ntt_from_coeffs(&params, &a)).collect(),
+        b: ntt_from_coeffs(&params, &[3, 0, 0, 0, 0, 0, 0, 0]),
+    };
+    collapse_half(&mut state, &keys);
+    assert_eq!(
+        decrypt_single_state(&params, &state.a[0], &state.b, &secret),
+        vec![0; 8]
     );
 }
 

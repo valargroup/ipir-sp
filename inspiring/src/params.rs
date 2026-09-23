@@ -18,8 +18,11 @@ use crate::error::InspiringError;
 ///
 /// > `g_z = [1, z, z², …, z^{ℓ-1}]^⊤ ∈ Z_q^ℓ`,
 /// > `ℓ = ⌈log q / log z⌉`,
-/// > `g_z^{-1}: Z_q → Z^{1×ℓ}` returns digit decomposition with each digit
-/// > in `[-z/2, z/2)`.
+/// > `g_z^{-1}: Z_q → Z^{1×ℓ}` returns digit decomposition.
+///
+/// This implementation balances the lower `ℓ-1` digits and leaves the full
+/// quotient in the top digit (at most `z`) so reconstruction is exact modulo
+/// `q`, including a carry out of the nominal balanced width.
 ///
 /// We require `z = 2^bits_per` (a power of two) so that the underlying
 /// `spiral-rs` gadget — whose digit width is fixed at *bit-decomposition*
@@ -30,7 +33,7 @@ pub struct GadgetParams {
     /// `bits_per = log₂(z)`. Must equal what
     /// [`spiral_rs::gadget::get_bits_per`] would return for `(modulus, ℓ)`.
     pub bits_per: u32,
-    /// Number of digits `ℓ`. Must satisfy `z^ℓ ≥ q`.
+    /// Number of digits `ℓ`. Must satisfy `z^ℓ ≥ q`; the top digit may be `z`.
     pub ell: usize,
 }
 

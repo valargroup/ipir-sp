@@ -19,7 +19,7 @@
 //! - Built on Valar's [`spiral-rs`](https://github.com/valargroup/spiral-rs)
 //!   fork pinned to `rev = 6f5b66c6a5a639827c6486c59d31c7ec2d4399a8`.
 //! - Production posture: offline/online split (CRS model), full unit and
-//!   integration tests, statistical noise validation against Theorem 2,
+//!   integration tests and empirical decryption-margin checks,
 //!   benchmarks reproducing paper Table 5, CI, rustdoc.
 //!
 //! ## Crate map
