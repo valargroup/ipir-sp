@@ -16,7 +16,8 @@ and pass a reference to `IPIRClient::new`. Use its `rlwe()` and `ypir()` accesso
 for server setup. The old pair-based client constructor is replaced by
 `IPIRClient::new_experimental`, available only with `experimental-params` and
 returning a validation error for inconsistent pairs. Small test fixtures and
-benchmarks must opt into that feature. Both P14 and P16Q46 are pinned profiles;
+benchmarks must opt into that feature. P14, P16Q46, P16Q48, and P16Q49 are
+pinned profiles;
 this API boundary does not establish a 128-bit security claim for the single-CRT
 construction.
 

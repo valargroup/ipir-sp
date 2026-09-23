@@ -129,21 +129,13 @@ fn production_params_round_trip_recovers_the_target_row() {
 }
 
 #[test]
-fn p16_q46_profile_round_trip_has_decryption_margin() {
+fn p16_profiles_round_trip_with_decryption_margin() {
     const ROWS: u64 = 8_192;
     const TARGET: usize = ROWS as usize - 1;
-    let profile = ProductionSimplePirParams::new(ROWS, 2048 * 16, SimplePirProfile::P16Q46)
-        .expect("P16Q46 profile");
-    let (rlwe, ypir) = (profile.rlwe(), profile.ypir());
-    assert_eq!(ypir.p, 1 << 16);
-    assert_eq!(ypir.query_bits, 46);
-
-    let db: Vec<u16> = (0..ypir.db_rows)
-        .flat_map(|row| {
-            (0..ypir.db_cols).map(move |col| ((row * 31 + col * 17 + 5) % (1 << 16)) as u16)
-        })
+    let db: Vec<u16> = (0..ROWS as usize)
+        .flat_map(|row| (0..2048).map(move |col| ((row * 31 + col * 17 + 5) % (1 << 16)) as u16))
         .collect();
-    let expected: Vec<u64> = db[TARGET * ypir.db_cols..(TARGET + 1) * ypir.db_cols]
+    let expected: Vec<u64> = db[TARGET * 2048..(TARGET + 1) * 2048]
         .iter()
         .map(|value| u64::from(*value))
         .collect();
@@ -151,42 +143,56 @@ fn p16_q46_profile_round_trip_has_decryption_margin() {
         .iter()
         .any(|value| *value > u64::from(u16::MAX / 2)));
 
-    let server = YServer::from_profile(&profile, db.into_iter(), false, true);
-    let client = IPIRClient::new(&profile);
-    let setup = client.generate_public_query_setup_simplepir_from_seed(SETUP_SEED);
-    let offline = server.perform_offline_precomputation_simplepir(rlwe, setup.polys());
-    let preprocessed =
-        build_pack_preprocessed_blocks(rlwe, &offline.crs_blocks).expect("preprocessing builds");
-    let published_c1 = recover_published_c1(
-        &published_c1_rows(&preprocessed, rlwe.q),
-        rlwe.d,
-        ypir.db_cols / rlwe.d,
-        rlwe.q,
-    );
-    let top_keys = TopKeyImages::build(rlwe);
-    let (query, packing_keys, seed) = client.generate_fresh_query_simplepir(&setup, TARGET);
-    let query_bytes = query.to_switched_bytes(rlwe.q, ypir.query_bits);
-    let (response, _) = server
-        .perform_full_online_computation_simplepir_measured(
-            rlwe,
-            &query_bytes,
-            &packing_keys,
-            &top_keys,
-            &preprocessed,
-        )
-        .expect("online response");
-    let (decoded, max_error) = client.decode_response_simplepir_with_expected_phase_error(
-        seed,
-        &published_c1,
-        &response,
-        &expected,
-    );
-    assert_eq!(decoded, expected);
-    assert!(
-        max_error < rlwe.delta / 4,
-        "P16Q46 phase error too large: error {max_error} against delta/2 {}",
-        rlwe.delta / 2
-    );
+    for (selected, query_bits) in [
+        (SimplePirProfile::P16Q46, 46),
+        (SimplePirProfile::P16Q48, 48),
+        (SimplePirProfile::P16Q49, 49),
+    ] {
+        let profile =
+            ProductionSimplePirParams::new(ROWS, 2048 * 16, selected).expect("16-bit profile");
+        let (rlwe, ypir) = (profile.rlwe(), profile.ypir());
+        assert_eq!(ypir.p, 1 << 16);
+        assert_eq!(ypir.query_bits, query_bits);
+
+        let server = YServer::from_profile(&profile, db.iter().copied(), false, true);
+        let client = IPIRClient::new(&profile);
+        let setup = client.generate_public_query_setup_simplepir_from_seed(SETUP_SEED);
+        let offline = server.perform_offline_precomputation_simplepir(rlwe, setup.polys());
+        let preprocessed = build_pack_preprocessed_blocks(rlwe, &offline.crs_blocks)
+            .expect("preprocessing builds");
+        let published_c1 = recover_published_c1(
+            &published_c1_rows(&preprocessed, rlwe.q),
+            rlwe.d,
+            ypir.db_cols / rlwe.d,
+            rlwe.q,
+        );
+        let top_keys = TopKeyImages::build(rlwe);
+        let (query, packing_keys, seed) = client.generate_fresh_query_simplepir(&setup, TARGET);
+        let query_bytes = query.to_switched_bytes(rlwe.q, ypir.query_bits);
+        assert_eq!(query_bytes.len(), (ypir.db_rows * query_bits).div_ceil(8));
+        let (response, _) = server
+            .perform_full_online_computation_simplepir_measured(
+                rlwe,
+                &query_bytes,
+                &packing_keys,
+                &top_keys,
+                &preprocessed,
+            )
+            .expect("online response");
+        let (decoded, max_error) = client.decode_response_simplepir_with_expected_phase_error(
+            seed,
+            &published_c1,
+            &response,
+            &expected,
+        );
+        assert_eq!(decoded, expected, "profile {}", selected.id());
+        assert!(
+            max_error < rlwe.delta / 4,
+            "{} phase error too large: error {max_error} against delta/2 {}",
+            selected.id(),
+            rlwe.delta / 2
+        );
+    }
 }
 
 /// The switched query must be strictly cheaper than the full-width one, and the

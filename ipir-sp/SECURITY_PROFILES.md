@@ -10,12 +10,14 @@ new review; callers cannot supply an altered RLWE/transport pair to
 | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
 | `simplepir-p14-v1` | 2048 | 72057594037641217 | 16384 | 6.4 | `2^19`, 3 digits | `2^20`, 268369921 | Derived from `(q, p, db_rows)` |
 | `simplepir-p16-q46-v1` | 2048 | 72057594037641217 | 65536 | 6.4 | `2^19`, 3 digits | `2^20`, 268369921 | Derived, at least 46 |
+| `simplepir-p16-q48-v1` | 2048 | 72057594037641217 | 65536 | 6.4 | `2^19`, 3 digits | `2^20`, 268369921 | Derived, at least 48 |
+| `simplepir-p16-q49-v1` | 2048 | 72057594037641217 | 65536 | 6.4 | `2^19`, 3 digits | `2^20`, 268369921 | Derived, at least 49 |
 
 The constructor checks the RLWE, Spiral, transport, dimension, and cached
 arithmetic values before returning the opaque profile object. Tests reject a
 weak `sigma_chi`, altered transport values, inconsistent dimensions, stale
 cached values, and overflowing shapes. The production flow test exercises
-query and response processing with the pinned P14 parameters.
+query and response processing with P14 and all three pinned 16-bit profiles.
 
 These checks prevent accidental use of an effectively unencrypted query, but
 they do not establish a 128-bit security level for the single-CRT InspiRING
@@ -24,6 +26,10 @@ construction. The [security analysis](SECURITY_ANALYSIS.md) estimates about
 about 354 at `n = 2048`, `log q = 56`, `σ = 6.4`) the same instance costs
 about `2^103` classical and `2^94` quantum, so the 128-bit claim is specific to
 the MATZOV cost model and its margin is about three bits.
+
+The 48- and 49-bit profiles reduce query rounding error relative to P16Q46.
+The existing snapshot certificates apply only to the evaluated 46-bit schedules;
+new snapshots require their own correctness evidence.
 
 The query mask side is expanded by the client from the setup seed through the
 opaque `PublicQuerySetup` type; a server can choose the seed but cannot supply

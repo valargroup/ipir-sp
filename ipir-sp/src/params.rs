@@ -34,6 +34,10 @@ pub enum SimplePirProfile {
     P14,
     /// Full `u16` plaintexts with at least 46 query bits for dense snapshots.
     P16Q46,
+    /// Full `u16` plaintexts with at least 48 query bits.
+    P16Q48,
+    /// Full `u16` plaintexts with at least 49 query bits.
+    P16Q49,
 }
 
 impl SimplePirProfile {
@@ -42,6 +46,8 @@ impl SimplePirProfile {
         match self {
             Self::P14 => "simplepir-p14-v1",
             Self::P16Q46 => "simplepir-p16-q46-v1",
+            Self::P16Q48 => "simplepir-p16-q48-v1",
+            Self::P16Q49 => "simplepir-p16-q49-v1",
         }
     }
 
@@ -49,7 +55,7 @@ impl SimplePirProfile {
     pub const fn plaintext_bits(self) -> usize {
         match self {
             Self::P14 => 14,
-            Self::P16Q46 => 16,
+            Self::P16Q46 | Self::P16Q48 | Self::P16Q49 => 16,
         }
     }
 
@@ -63,6 +69,8 @@ impl SimplePirProfile {
         match self {
             Self::P14 => 1,
             Self::P16Q46 => 46,
+            Self::P16Q48 => 48,
+            Self::P16Q49 => 49,
         }
     }
 }
@@ -372,28 +380,36 @@ mod tests {
     }
 
     #[test]
-    fn p16_q46_profile_has_six_instances_and_33_record_capacity() {
+    fn p16_profiles_have_six_instances_and_33_record_capacity() {
         const RECORD_BYTES: u64 = 737;
         const RECORDS_PER_ROW: u64 = 33;
-        let (rlwe, ypir) = params_for_simplepir_profile(
-            8_192,
-            RECORD_BYTES * RECORDS_PER_ROW * 8,
-            SimplePirProfile::P16Q46,
-        )
-        .expect("valid capacity-expanded profile");
+        for (profile, id, query_bits) in [
+            (SimplePirProfile::P16Q46, "simplepir-p16-q46-v1", 46),
+            (SimplePirProfile::P16Q48, "simplepir-p16-q48-v1", 48),
+            (SimplePirProfile::P16Q49, "simplepir-p16-q49-v1", 49),
+        ] {
+            let (rlwe, ypir) =
+                params_for_simplepir_profile(8_192, RECORD_BYTES * RECORDS_PER_ROW * 8, profile)
+                    .expect("valid capacity-expanded profile");
 
-        assert_eq!(SimplePirProfile::P16Q46.id(), "simplepir-p16-q46-v1");
-        assert_eq!(rlwe.p, PLAINTEXT_MODULUS_16);
-        assert_eq!(ypir.p, PLAINTEXT_MODULUS_16);
-        assert_eq!(ypir.instances, 6);
-        assert_eq!(ypir.db_cols, 12_288);
-        assert_eq!(ypir.query_bits, 46);
-        assert_eq!(ypir.q_prime_1, 1 << 20);
+            assert_eq!(profile.id(), id);
+            assert_eq!(rlwe.p, PLAINTEXT_MODULUS_16);
+            assert_eq!(ypir.p, PLAINTEXT_MODULUS_16);
+            assert_eq!(ypir.instances, 6);
+            assert_eq!(ypir.db_cols, 12_288);
+            assert_eq!(ypir.query_bits, query_bits);
+            assert_eq!(ypir.q_prime_1, 1 << 20);
+        }
     }
 
     #[test]
     fn production_profiles_reject_weak_and_inconsistent_parts() {
-        for profile in [SimplePirProfile::P14, SimplePirProfile::P16Q46] {
+        for profile in [
+            SimplePirProfile::P14,
+            SimplePirProfile::P16Q46,
+            SimplePirProfile::P16Q48,
+            SimplePirProfile::P16Q49,
+        ] {
             let params =
                 ProductionSimplePirParams::new(8_192, 2048 * 16, profile).expect("pinned profile");
             assert_eq!(params.profile(), profile);
