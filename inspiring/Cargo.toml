@@ -1,11 +1,11 @@
 [package]
 name = "inspiring"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 edition = "2021"
 rust-version = "1.78"
 license = "MIT OR Apache-2.0"
 description = "InspiRING.Pack: a single-primitive ring-packing crate (eprint 2025/1352, Algorithm 1) on top of spiral-rs."
-repository = "https://github.com/<TBD>/inspiring"
+repository = "https://github.com/valargroup/ipir-sp"
 documentation = "https://docs.rs/inspiring"
 readme = "README.md"
 keywords = ["fhe", "lattice", "rlwe", "lwe", "pir"]

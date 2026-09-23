@@ -1,14 +1,15 @@
 [package]
 name = "ipir-sp"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 edition = "2021"
 rust-version = "1.78"
 license = "MIT OR Apache-2.0"
 description = "IPIR-SP glue crate using InspiRING.Pack as the ring-packing primitive."
+repository = "https://github.com/valargroup/ipir-sp"
 
 [dependencies]
-inspiring = { path = "../inspiring" }
-simplepir-kernel = { path = "../simplepir-kernel" }
+inspiring = { path = "../inspiring", version = "=0.1.0-rc.1" }
+simplepir-kernel = { path = "../simplepir-kernel", version = "=0.1.0-rc.1" }
 spiral-rs = { workspace = true }
 # Operating-system entropy for client seeds only. Public CRS expansion goes
 # through `sampling`, so the wire format does not depend on this version.

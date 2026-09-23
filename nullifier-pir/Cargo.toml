@@ -5,6 +5,7 @@ edition = "2021"
 rust-version = "1.78"
 license = "MIT OR Apache-2.0"
 description = "HTTP PIR server for 32-byte nullifier snapshots."
+publish = false
 
 [features]
 default = ["local-ipir"]

@@ -230,7 +230,7 @@ backend, pinned at the workspace root to Valar's fork:
 
 ```toml
 [workspace.dependencies]
-spiral-rs = { package = "valar-spiral-rs", git = "https://github.com/valargroup/spiral-rs.git", rev = "6f5b66c6a5a639827c6486c59d31c7ec2d4399a8" }
+spiral-rs = { package = "valar-spiral-rs", version = "=0.5.3-rc.1" }
 ```
 
 The fork keeps the scalar single-CRT multiply path correct and provides a
