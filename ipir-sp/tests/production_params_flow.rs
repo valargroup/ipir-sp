@@ -134,8 +134,8 @@ fn p16_q46_profile_round_trip_has_decryption_margin() {
 }
 
 #[test]
-fn p16_q49_largest_domain_round_trip_rejects_q46_wire() {
-    p16_round_trip(SimplePirProfile::P16Q49, 32768);
+fn p16_q48_largest_domain_round_trip_rejects_q46_wire() {
+    p16_round_trip(SimplePirProfile::P16Q48, 32768);
 }
 
 fn p16_round_trip(kind: SimplePirProfile, rows: u64) {
@@ -173,7 +173,7 @@ fn p16_round_trip(kind: SimplePirProfile, rows: u64) {
     let top_keys = TopKeyImages::build(rlwe);
     let (query, packing_keys, seed) = client.generate_fresh_query_simplepir(&setup, target);
     let query_bytes = query.to_switched_bytes(rlwe.q, ypir.query_bits);
-    if kind == SimplePirProfile::P16Q49 {
+    if kind == SimplePirProfile::P16Q48 {
         let old_wire = query.to_switched_bytes(rlwe.q, 46);
         assert!(server
             .perform_full_online_computation_simplepir_measured(
@@ -184,7 +184,7 @@ fn p16_round_trip(kind: SimplePirProfile, rows: u64) {
                 &preprocessed,
             )
             .is_err());
-        assert_eq!(query_bytes.len() - old_wire.len(), 12 * 1024);
+        assert_eq!(query_bytes.len() - old_wire.len(), 8 * 1024);
     }
     let (response, _) = server
         .perform_full_online_computation_simplepir_measured(

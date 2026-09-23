@@ -173,8 +173,8 @@ chosen snapshot-specific correctness policy before publication.
 
 ### Wider p16 query transport
 
-`SimplePirProfile::P16Q49` has identity `simplepir-p16-q49-v1` and raises the
-minimum query precision to 49 bits. It leaves all RLWE parameters, plaintext
+`SimplePirProfile::P16Q48` has identity `simplepir-p16-q48-v1` and raises the
+minimum query precision to 48 bits. It leaves all RLWE parameters, plaintext
 encoding, key generation, public setup, gadget decomposition, and response
 precision identical to P16Q46. The transmitted query is still deterministic
 modulus switching of the same full-modulus RLWE query; the existing privacy
@@ -187,7 +187,7 @@ increase. The exact finite-CDF sampler and packing-key tails must still be
 included, and the full-query union bound remains necessary. A wider query is
 not itself a certificate. Applications must qualify their supported database
 shapes and bind the new profile ID and exact parameters into protocol and cache
-identities before publication. Mixed 46/49-bit query bodies are incompatible.
+identities before publication. Mixed 46/48-bit query bodies are incompatible.
 
 Tests cover all 2K/4K/8K/16K/32K parameter shapes, rejection of altered precision,
 and an actual 32K client/server round trip that rejects the old 46-bit body.

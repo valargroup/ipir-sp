@@ -34,8 +34,8 @@ pub enum SimplePirProfile {
     P14,
     /// Full `u16` plaintexts with at least 46 query bits for dense snapshots.
     P16Q46,
-    /// Full `u16` plaintexts with at least 49 query bits; qualify each deployment.
-    P16Q49,
+    /// Full `u16` plaintexts with at least 48 query bits; qualify each deployment.
+    P16Q48,
 }
 
 impl SimplePirProfile {
@@ -44,7 +44,7 @@ impl SimplePirProfile {
         match self {
             Self::P14 => "simplepir-p14-v1",
             Self::P16Q46 => "simplepir-p16-q46-v1",
-            Self::P16Q49 => "simplepir-p16-q49-v1",
+            Self::P16Q48 => "simplepir-p16-q48-v1",
         }
     }
 
@@ -52,7 +52,7 @@ impl SimplePirProfile {
     pub const fn plaintext_bits(self) -> usize {
         match self {
             Self::P14 => 14,
-            Self::P16Q46 | Self::P16Q49 => 16,
+            Self::P16Q46 | Self::P16Q48 => 16,
         }
     }
 
@@ -66,7 +66,7 @@ impl SimplePirProfile {
         match self {
             Self::P14 => 1,
             Self::P16Q46 => 46,
-            Self::P16Q49 => 49,
+            Self::P16Q48 => 48,
         }
     }
 }
@@ -396,26 +396,26 @@ mod tests {
     }
 
     #[test]
-    fn q49_changes_only_transport_and_rejects_downgrade() {
-        assert_eq!(SimplePirProfile::P16Q49.id(), "simplepir-p16-q49-v1");
+    fn q48_changes_only_transport_and_rejects_downgrade() {
+        assert_eq!(SimplePirProfile::P16Q48.id(), "simplepir-p16-q48-v1");
         for rows in [2048, 4096, 8192, 16384, 32768] {
             let old = ProductionSimplePirParams::new(rows, 653 * 33 * 8, SimplePirProfile::P16Q46)
                 .unwrap();
-            let new = ProductionSimplePirParams::new(rows, 653 * 33 * 8, SimplePirProfile::P16Q49)
+            let new = ProductionSimplePirParams::new(rows, 653 * 33 * 8, SimplePirProfile::P16Q48)
                 .unwrap();
-            assert_eq!(new.ypir().query_bits, 49);
+            assert_eq!(new.ypir().query_bits, 48);
             assert_eq!(new.ypir().instances, 6);
             let mut expected = old.ypir().clone();
-            expected.query_bits = 49;
+            expected.query_bits = 48;
             assert_eq!(new.ypir(), &expected);
             assert!(
-                validate_profile_parts(old.rlwe(), new.ypir(), SimplePirProfile::P16Q49).is_ok()
+                validate_profile_parts(old.rlwe(), new.ypir(), SimplePirProfile::P16Q48).is_ok()
             );
-            for bits in [0, 46, 47, 48, 50, 57] {
+            for bits in [0, 46, 47, 49, 50, 57] {
                 let mut changed = new.ypir().clone();
                 changed.query_bits = bits;
                 assert!(
-                    validate_profile_parts(new.rlwe(), &changed, SimplePirProfile::P16Q49).is_err()
+                    validate_profile_parts(new.rlwe(), &changed, SimplePirProfile::P16Q48).is_err()
                 );
             }
             assert!(
@@ -429,7 +429,7 @@ mod tests {
         for profile in [
             SimplePirProfile::P14,
             SimplePirProfile::P16Q46,
-            SimplePirProfile::P16Q49,
+            SimplePirProfile::P16Q48,
         ] {
             let params =
                 ProductionSimplePirParams::new(8_192, 2048 * 16, profile).expect("pinned profile");
