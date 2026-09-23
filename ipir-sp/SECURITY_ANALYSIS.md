@@ -8,7 +8,9 @@ preprocessing. Their numerical failure bounds are stale until the original
 base-key-error weights are recomputed and the snapshot certificates are rerun.
 
 This note supports **conditional 128-bit classical single-target security under MATZOV,
-including attacker preprocessing**. This is a concrete-security assessment under
+including attacker preprocessing**. Under the core-SVP metric the same instance is
+about 103 bits classical and 94 bits quantum (BKZ block size about 354), so the
+128-bit statement is tied to the MATZOV cost model. This is a concrete-security assessment under
 stated assumptions, not an unconditional hardness proof or an external audit.
 Merging the sampler change does not certify every production snapshot.
 

@@ -23,7 +23,6 @@ spiral-rs = { workspace = true }
 # Deterministic PRNG. spiral-rs already pulls in rand_chacha 0.3 transitively,
 # but we list it explicitly to make our own use a first-class dependency.
 rand_chacha = "0.3.1"
-rand = "0.8.5"
 rayon = "1"
 
 # Discrete-Gaussian sampling, NTT, polynomial arithmetic, and ChaCha20 RNG all

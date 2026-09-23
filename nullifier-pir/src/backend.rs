@@ -139,7 +139,8 @@ impl LocalIpirBackend {
         };
         let offline_query_polys =
             client.generate_public_query_setup_simplepir_from_seed(seed_from_u64(setup_seed));
-        let offline = server.perform_offline_precomputation_simplepir(rlwe, &offline_query_polys);
+        let offline =
+            server.perform_offline_precomputation_simplepir(rlwe, offline_query_polys.polys());
         let pack_preprocessed = build_pack_preprocessed_blocks(rlwe, &offline.crs_blocks)
             .context("build local ipir-sp pack preprocessing")?;
         let top_key_images = inspiring::TopKeyImages::build(rlwe);

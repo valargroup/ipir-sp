@@ -440,6 +440,7 @@ fn measure_uploads(fixture: &BenchFixture<'_>) -> UploadMeasurements {
         .expect("packing keys serialize")
         .len();
     let offline_query_polys_bytes = offline_query_polys
+        .polys()
         .iter()
         .map(|poly| serialize_u64s_le(poly).len())
         .sum();

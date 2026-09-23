@@ -16,7 +16,7 @@ use criterion::{black_box, criterion_group, criterion_main, BatchSize, Benchmark
 use inspiring::automorph::{h, tau_g_pow};
 use inspiring::key_switching::ks_setup;
 use inspiring::{pack, GadgetParams, LweBatch, LweCiphertext, PackPreprocessed, RlweParams};
-use rand::SeedableRng;
+use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use spiral_rs::poly::{from_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw};
 

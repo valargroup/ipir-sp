@@ -45,7 +45,7 @@ fn main() {
     let mut cache_bytes = 0;
     for (slot, set) in pool.sets().iter().enumerate() {
         let started = Instant::now();
-        let offline = server.perform_offline_precomputation_simplepir(&r, set);
+        let offline = server.perform_offline_precomputation_simplepir(&r, set.polys());
         let p = build_pack_preprocessed_blocks(&r, &offline.crs_blocks).unwrap();
         let bytes = published_c1_rows(&p, r.q);
         public_bytes += bytes.len();

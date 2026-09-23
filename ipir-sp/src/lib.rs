@@ -12,10 +12,11 @@ pub mod bits;
 pub mod client;
 pub mod modulus_switch;
 pub mod params;
+pub mod sampling;
 pub mod serialize;
 pub mod server;
 
-pub use client::{IPIRClient, IPIRSeed, IPIRSimpleQuery};
+pub use client::{IPIRClient, IPIRSeed, IPIRSimpleQuery, PublicQuerySetup};
 pub use params::{
     params_for_simplepir, params_for_simplepir_profile, ProductionSimplePirParams,
     SimplePirProfile, YpirSchemeParams,

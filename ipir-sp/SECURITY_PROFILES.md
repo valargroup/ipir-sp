@@ -19,7 +19,18 @@ query and response processing with the pinned P14 parameters.
 
 These checks prevent accidental use of an effectively unencrypted query, but
 they do not establish a 128-bit security level for the single-CRT InspiRING
-construction. The repository's [parameter discussion](../README.md#what-the-parameters-assume)
+construction. The [security analysis](SECURITY_ANALYSIS.md) estimates about
+`2^131` for the cheapest attack under MATZOV. Under core-SVP (BKZ block size
+about 354 at `n = 2048`, `log q = 56`, `σ = 6.4`) the same instance costs
+about `2^103` classical and `2^94` quantum, so the 128-bit claim is specific to
+the MATZOV cost model and its margin is about three bits.
+
+The query mask side is expanded by the client from the setup seed through the
+opaque `PublicQuerySetup` type; a server can choose the seed but cannot supply
+the polynomials. Responses are unauthenticated: a server that answers against
+a modified database learns about one bit of the target per query from any
+client behaviour that depends on the decoded row. Both are outside the
+passive-server model above and must be addressed by the application. The repository's [parameter discussion](../README.md#what-the-parameters-assume)
 and [InspiRING checklist](../inspiring/SECURITY.md#parameter-checklist)
 describe the current analysis and the remaining lattice-estimator and
 composition review. Treat a change in sampler, RLWE modulus, gadget, plaintext

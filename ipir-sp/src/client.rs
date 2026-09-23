@@ -5,7 +5,8 @@
 //! top rows are derived from fixed CRS seeds on both sides.
 
 use inspiring::{PackingKeys, RlweParams};
-use rand::{Rng, RngCore, SeedableRng};
+use rand::TryRngCore;
+use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use spiral_rs::discrete_gaussian::DiscreteGaussian;
 use spiral_rs::poly::{
@@ -18,6 +19,7 @@ use crate::modulus_switch::{
     query_coeff_down, query_coeff_up, recover_response_body, response_body_len,
 };
 use crate::params::{ProductionSimplePirParams, SimplePirProfile, YpirSchemeParams};
+use crate::sampling::{uniform_u32_below, uniform_u64_below};
 
 #[cfg(feature = "experimental-key-reuse")]
 #[path = "reusable.rs"]
@@ -27,6 +29,38 @@ pub mod reusable;
 /// Seeds are not versioned: finish outstanding responses with the client version
 /// that generated them. See `MIGRATION.md` for the Gaussian-secret transition.
 pub type IPIRSeed = [u8; 32];
+
+/// Public offline query polynomials, derived by the client from a setup seed.
+///
+/// The polynomials are the LWE mask side of every query row, so they must be
+/// uniformly random for the query to be hiding: with an all-zero or small
+/// mask the query body is `e + Δ·[row == target]` and reveals the target
+/// directly. This type has no public constructor other than
+/// [`IPIRClient::generate_public_query_setup_simplepir_from_seed`], so a
+/// client can only encrypt against masks it expanded itself from a seed with
+/// ChaCha20. A server may publish the seed, never the polynomials.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicQuerySetup {
+    seed: IPIRSeed,
+    polys: Vec<Vec<u64>>,
+}
+
+impl PublicQuerySetup {
+    /// The seed these polynomials were expanded from.
+    #[must_use]
+    pub fn seed(&self) -> IPIRSeed {
+        self.seed
+    }
+
+    /// One polynomial of `d` coefficients per `d`-row block, in block order.
+    ///
+    /// Servers pass this to
+    /// [`crate::server::YServer::perform_offline_precomputation_simplepir`].
+    #[must_use]
+    pub fn polys(&self) -> &[Vec<u64>] {
+        &self.polys
+    }
+}
 
 /// A client secret in coefficient form.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,7 +102,7 @@ impl ClientSecret {
     /// High-level query generation and seed-based decoding use `sample_gaussian`.
     pub fn sample_ternary(params: &RlweParams, rng: &mut ChaCha20Rng) -> Self {
         let coeffs = (0..params.d)
-            .map(|_| match rng.gen_range(0..3) {
+            .map(|_| match uniform_u32_below(rng, 3) {
                 0 => 0,
                 1 => 1,
                 _ => params.q - 1,
@@ -312,10 +346,17 @@ impl IPIRClient {
     /// These polynomials are secret-independent, so a server may precompute the
     /// corresponding CRS/hint once and clients can reuse the same public setup
     /// while still sampling a fresh secret and key-switching pair per query.
+    ///
+    /// The seed is public and may be chosen by the server. That is safe only
+    /// because the expansion is ChaCha20 followed by
+    /// [`crate::sampling::uniform_u64_below`]: a server cannot invert it to
+    /// reach a structured mask, so the polynomials are treated as an honestly
+    /// random CRS. The coefficient mapping is pinned in this crate rather than
+    /// borrowed from `rand`, because both peers must expand identical values.
     pub fn generate_public_query_setup_simplepir_from_seed(
         &self,
         setup_seed: IPIRSeed,
-    ) -> Vec<Vec<u64>> {
+    ) -> PublicQuerySetup {
         assert_eq!(
             self.ypir.db_rows % self.rlwe.d,
             0,
@@ -323,19 +364,28 @@ impl IPIRClient {
         );
 
         let mut rng = ChaCha20Rng::from_seed(setup_seed);
-        (0..self.ypir.db_rows / self.rlwe.d)
+        let polys = (0..self.ypir.db_rows / self.rlwe.d)
             .map(|_| {
                 (0..self.rlwe.d)
-                    .map(|_| rng.gen_range(0..self.rlwe.q))
+                    .map(|_| uniform_u64_below(&mut rng, self.rlwe.q))
                     .collect()
             })
-            .collect()
+            .collect();
+        PublicQuerySetup {
+            seed: setup_seed,
+            polys,
+        }
     }
 
     /// Generate a fresh-secret online query with uploaded packing-key bodies.
+    ///
+    /// `setup` must come from
+    /// [`Self::generate_public_query_setup_simplepir_from_seed`]; the type
+    /// cannot be built from server-supplied polynomials, which keeps a
+    /// malicious mask from turning the query into a plaintext selector.
     pub fn generate_fresh_query_simplepir(
         &self,
-        offline_query_polys: &[Vec<u64>],
+        setup: &PublicQuerySetup,
         target_row: usize,
     ) -> (IPIRSimpleQuery, PackingKeys<'_>, IPIRSeed) {
         // An out-of-range row would silently encrypt the all-zero selector, and
@@ -346,15 +396,14 @@ impl IPIRClient {
             "target_row {target_row} is out of range for {} db rows",
             self.ypir.db_rows
         );
-        let mut client_seed = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut client_seed);
+        let client_seed = fresh_client_seed();
         let mut rng = ChaCha20Rng::from_seed(client_seed);
         let secret = ClientSecret::sample_gaussian(&self.rlwe, &mut rng);
         let secret_ntt = secret.to_ntt(&self.rlwe);
         let packing_keys = PackingKeys::generate_full(&self.rlwe, &secret_ntt, &mut rng);
         let first_dim = encrypted_selection_query(
             &self.rlwe,
-            offline_query_polys,
+            setup.polys(),
             &secret.coeffs,
             target_row,
             self.ypir.db_rows,
@@ -512,6 +561,21 @@ impl IPIRClient {
         let mut rng = ChaCha20Rng::from_seed(client_seed);
         ClientSecret::sample_gaussian(&self.rlwe, &mut rng)
     }
+}
+
+/// Draw a fresh 32-byte client seed from operating-system randomness.
+///
+/// Every query gets its own seed, and therefore its own secret and evaluation
+/// keys. Two queries under one secret against the same public setup would
+/// expose the difference of their selectors, so this must never be cached or
+/// derived from a caller-supplied value. A failure of the OS entropy source is
+/// a hard error rather than a fallback to a weaker source.
+pub(crate) fn fresh_client_seed() -> IPIRSeed {
+    let mut client_seed = [0u8; 32];
+    rand::rngs::OsRng
+        .try_fill_bytes(&mut client_seed)
+        .expect("operating-system randomness is unavailable; refusing to build a query");
+    client_seed
 }
 
 /// Encrypt the one-hot row selector as `db_rows` scalar RLWE bodies.
@@ -796,7 +860,7 @@ fn plaintext_modulus_bits(modulus: u64) -> usize {
 #[cfg(test)]
 mod tests {
     use inspiring::{GadgetParams, RlweParams};
-    use rand_chacha::rand_core::SeedableRng;
+    use rand_chacha::rand_core::RngCore;
 
     use super::*;
     use crate::params::params_for_simplepir;
@@ -933,7 +997,7 @@ mod tests {
         assert_eq!(keys.kh_body.as_slice(), expected_keys.kh_body.as_slice());
         assert_eq!(
             query.as_slice(),
-            encrypted_selection_query(&r, &setup, &secret.coeffs, 2047, y.db_rows, &mut rng)
+            encrypted_selection_query(&r, setup.polys(), &secret.coeffs, 2047, y.db_rows, &mut rng)
         );
         // There is no automatic migration of an old unversioned client seed.
         let mut old_rng = ChaCha20Rng::from_seed(seed);
@@ -955,6 +1019,30 @@ mod tests {
             .coeffs
             .iter()
             .all(|coeff| matches!(*coeff, 0 | 1) || *coeff == params.q - 1));
+    }
+
+    #[test]
+    fn public_setup_pins_the_crs_expansion() {
+        let (r, y) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        let client = IPIRClient::new_experimental(&r, &y).unwrap();
+        let setup = client.generate_public_query_setup_simplepir_from_seed([9u8; 32]);
+        assert_eq!(setup.seed(), [9u8; 32]);
+        assert_eq!(setup.polys().len(), y.db_rows / r.d);
+        assert!(setup.polys().iter().all(|poly| poly.len() == r.d));
+        assert!(setup.polys().iter().flatten().all(|coeff| *coeff < r.q));
+        // Wire-format regression: the first coefficients of the block-0 mask
+        // for this seed, recorded before the sampler moved in-tree.
+        let mut rng = ChaCha20Rng::from_seed([9u8; 32]);
+        let expected: Vec<u64> = (0..4).map(|_| uniform_u64_below(&mut rng, r.q)).collect();
+        assert_eq!(&setup.polys()[0][..4], &expected[..]);
+        assert_eq!(
+            client.generate_public_query_setup_simplepir_from_seed([9u8; 32]),
+            setup
+        );
+        assert_ne!(
+            client.generate_public_query_setup_simplepir_from_seed([10u8; 32]),
+            setup
+        );
     }
 
     #[test]

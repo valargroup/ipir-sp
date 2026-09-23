@@ -82,6 +82,18 @@ cargo run -p ipir-sp --features http_client --bin client -- 0 16384 131072
 Use the same `--setup-seed` on both commands so the client query matches the
 server's precomputed setup.
 
+## Public query setup
+
+Both peers expand the offline query polynomials from the setup seed with
+ChaCha20 and `sampling::uniform_u64_below`, a pinned rejection sampler that
+reproduces the historical `rand` 0.8 `gen_range(0..q)` mapping. The mapping is
+part of the wire format: a client in another language must reproduce it
+exactly, and a `rand` upgrade cannot change it.
+`generate_public_query_setup_simplepir_from_seed` returns an opaque
+`PublicQuerySetup`; `generate_fresh_query_simplepir` accepts only that type,
+so a client cannot encrypt against polynomials handed to it by a server.
+Servers read `PublicQuerySetup::polys` for their offline precomputation.
+
 ## Client secret distribution
 
 High-level query generation and decoding use centred discrete-Gaussian secrets

@@ -28,7 +28,7 @@ fn reused_keys_recover_boundary_rows_across_sets_and_fresh_batches() {
         .sets()
         .iter()
         .map(|set| {
-            let offline = server.perform_offline_precomputation_simplepir(&r, set);
+            let offline = server.perform_offline_precomputation_simplepir(&r, set.polys());
             build_pack_preprocessed_blocks(&r, &offline.crs_blocks).unwrap()
         })
         .collect();

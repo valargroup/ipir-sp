@@ -1227,7 +1227,6 @@ name = "inspiring"
 version = "0.1.0"
 dependencies = [
  "criterion",
- "rand 0.8.6",
  "rand_chacha 0.3.1",
  "rayon",
  "serde_json",
@@ -1248,7 +1247,7 @@ dependencies = [
  "fastrand",
  "inspiring",
  "log",
- "rand 0.8.6",
+ "rand 0.9.4",
  "rand_chacha 0.3.1",
  "rayon",
  "reqwest",
@@ -2137,7 +2136,6 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "inspiring",
- "rand 0.8.6",
  "rand_chacha 0.3.1",
  "rayon",
  "valar-spiral-rs",

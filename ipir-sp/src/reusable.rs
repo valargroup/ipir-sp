@@ -5,12 +5,14 @@
 //! Callers may retry only the immutable bytes returned by `next_query`.
 //! Public setup must be authenticated/pinned by a future transport integration.
 
+use rand_chacha::rand_core::RngCore;
+
 use super::*;
 
 /// Immutable public query matrices, reusable across clients and fresh batches.
 pub struct QueryPool {
     client: IPIRClient,
-    sets: Vec<Vec<Vec<u64>>>,
+    sets: Vec<PublicQuerySetup>,
 }
 
 impl QueryPool {
@@ -39,14 +41,13 @@ impl QueryPool {
     pub fn client(&self) -> &IPIRClient {
         &self.client
     }
-    pub fn sets(&self) -> &[Vec<Vec<u64>>] {
+    pub fn sets(&self) -> &[PublicQuerySetup] {
         &self.sets
     }
 
     /// Create a new, process-local batch. Dropping it permanently abandons slots.
     pub fn start_batch(&self) -> ReusableBatch<'_> {
-        let mut client_seed = [0; 32];
-        rand::rngs::OsRng.fill_bytes(&mut client_seed);
+        let client_seed = fresh_client_seed();
         let mut rng = ChaCha20Rng::from_seed(client_seed);
         let secret = ClientSecret::sample_gaussian(&self.client.rlwe, &mut rng);
         let keys = PackingKeys::generate_full(
@@ -109,7 +110,7 @@ impl ReusableBatch<'_> {
         self.next += 1;
         let query = encrypted_selection_query(
             &client.rlwe,
-            &self.pool.sets[slot],
+            self.pool.sets[slot].polys(),
             &self.secret.coeffs,
             row,
             client.ypir.db_rows,
@@ -177,7 +178,7 @@ mod tests {
             .unwrap();
             assert_eq!(pool.sets(), same.sets());
             assert_eq!(
-                &pool.sets()[0][0][..4],
+                &pool.sets()[0].polys()[0][..4],
                 &[
                     9_164_527_206_802_959,
                     5_084_643_010_587_079,
@@ -223,8 +224,8 @@ mod tests {
         let a = client.generate_public_query_setup_simplepir_from_seed([9; 32]);
         let mut rng = ChaCha20Rng::from_seed([11; 32]);
         let secret = ClientSecret::sample_gaussian(&r, &mut rng);
-        let x = encrypted_selection_query(&r, &a, &secret.coeffs, 0, y.db_rows, &mut rng);
-        let z = encrypted_selection_query(&r, &a, &secret.coeffs, 2047, y.db_rows, &mut rng);
+        let x = encrypted_selection_query(&r, a.polys(), &secret.coeffs, 0, y.db_rows, &mut rng);
+        let z = encrypted_selection_query(&r, a.polys(), &secret.coeffs, 2047, y.db_rows, &mut rng);
         // Attack the actual switched wire representation, including rounding.
         let wire = |v| {
             IPIRSimpleQuery::from_switched_bytes(

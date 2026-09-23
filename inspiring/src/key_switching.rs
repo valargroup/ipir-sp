@@ -329,7 +329,7 @@ mod tests {
     use super::*;
     use crate::automorph::tau_g_pow;
     use crate::params::GadgetParams;
-    use rand::SeedableRng;
+    use rand_chacha::rand_core::SeedableRng;
     use spiral_rs::gadget::gadget_invert_alloc;
     use spiral_rs::poly::PolyMatrix;
 

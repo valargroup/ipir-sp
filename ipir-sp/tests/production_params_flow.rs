@@ -48,7 +48,8 @@ fn production_params_round_trip_recovers_the_target_row() {
     let client = IPIRClient::new(&profile);
 
     let offline_query_polys = client.generate_public_query_setup_simplepir_from_seed(SETUP_SEED);
-    let offline = server.perform_offline_precomputation_simplepir(&rlwe, &offline_query_polys);
+    let offline =
+        server.perform_offline_precomputation_simplepir(&rlwe, offline_query_polys.polys());
     let preprocessed =
         build_pack_preprocessed_blocks(&rlwe, &offline.crs_blocks).expect("preprocessing builds");
 
@@ -153,7 +154,7 @@ fn p16_q46_profile_round_trip_has_decryption_margin() {
     let server = YServer::from_profile(&profile, db.into_iter(), false, true);
     let client = IPIRClient::new(&profile);
     let setup = client.generate_public_query_setup_simplepir_from_seed(SETUP_SEED);
-    let offline = server.perform_offline_precomputation_simplepir(rlwe, &setup);
+    let offline = server.perform_offline_precomputation_simplepir(rlwe, setup.polys());
     let preprocessed =
         build_pack_preprocessed_blocks(rlwe, &offline.crs_blocks).expect("preprocessing builds");
     let published_c1 = recover_published_c1(

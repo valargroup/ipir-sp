@@ -10,7 +10,9 @@ description = "IPIR-SP glue crate using InspiRING.Pack as the ring-packing primi
 inspiring = { path = "../inspiring" }
 simplepir-kernel = { path = "../simplepir-kernel" }
 spiral-rs = { workspace = true }
-rand = { version = "0.8.5", features = ["small_rng"] }
+# Operating-system entropy for client seeds only. Public CRS expansion goes
+# through `sampling`, so the wire format does not depend on this version.
+rand = { version = "0.9", default-features = false, features = ["os_rng"] }
 rand_chacha = "0.3.1"
 log = "0.4.20"
 env_logger = "0.11.1"

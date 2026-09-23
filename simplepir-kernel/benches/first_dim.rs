@@ -15,8 +15,7 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use inspiring::{GadgetParams, RlweParams};
-use rand::Rng;
-use rand_chacha::rand_core::SeedableRng;
+use rand_chacha::rand_core::{RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use simplepir_kernel::{ChunkedSplitKernel, FirstDimKernel};
 
@@ -62,10 +61,10 @@ fn bench_first_dim(c: &mut Criterion) {
     );
 
     let db: Vec<u16> = (0..rows * cols)
-        .map(|_| rng.gen_range(0..(1 << 14)))
+        .map(|_| (rng.next_u64() % (1 << 14)) as u16)
         .collect();
     let element_max = db.iter().map(|value| u64::from(*value)).max().unwrap_or(0);
-    let query: Vec<u64> = (0..rows).map(|_| rng.gen_range(0..rlwe.q)).collect();
+    let query: Vec<u64> = (0..rows).map(|_| rng.next_u64() % rlwe.q).collect();
     let mut out = vec![0u64; cols];
 
     let mut group = c.benchmark_group("first_dim");

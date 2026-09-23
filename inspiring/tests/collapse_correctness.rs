@@ -3,7 +3,7 @@ use inspiring::collapse::{collapse, collapse_half, collapse_one, CollapseState};
 use inspiring::intermediate::{aggregate, transform};
 use inspiring::key_switching::{automorphic_image, ks_setup, KeySwitchingMatrix};
 use inspiring::{GadgetParams, LweCiphertext, RlweParams};
-use rand::SeedableRng;
+use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use spiral_rs::poly::{from_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw};
 

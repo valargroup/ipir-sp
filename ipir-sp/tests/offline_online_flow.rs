@@ -383,7 +383,8 @@ fn ipir_client_facade_matches_server_full_online_shape() {
     let client =
         IPIRClient::new_experimental(&rlwe, &ypir).expect("consistent experimental parameters");
     let offline_query_polys = client.generate_public_query_setup_simplepir_from_seed([9u8; 32]);
-    let offline = server.perform_offline_precomputation_simplepir(&rlwe, &offline_query_polys);
+    let offline =
+        server.perform_offline_precomputation_simplepir(&rlwe, offline_query_polys.polys());
     let (query, packing_keys, client_seed) =
         client.generate_fresh_query_simplepir(&offline_query_polys, 6);
     let pre = build_pack_preprocessed_blocks(&rlwe, &offline.crs_blocks)

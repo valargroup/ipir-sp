@@ -349,7 +349,7 @@ mod tests {
         let mut rng = ChaCha20Rng::seed_from_u64(0x5157);
 
         for _ in 0..20_000 {
-            let coeff = rand::Rng::gen_range(&mut rng, 0..q);
+            let coeff = crate::sampling::uniform_u64_below(&mut rng, q);
             let down = query_coeff_down(coeff, q, bits);
             assert!(
                 down < (1 << bits),
