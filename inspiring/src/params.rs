@@ -83,6 +83,9 @@ impl RlweParams {
     /// - `gadget.bits_per` matches what `spiral_rs::gadget::get_bits_per`
     ///   would return — see `docs/spiral-rs-mapping.md` §2.
     ///
+    /// This is a low-level arithmetic constructor for research and tests. It
+    /// does not establish a security level. Production IPIR clients must use a
+    /// pinned `ipir_sp::ProductionSimplePirParams` profile instead.
     pub fn new(
         d: usize,
         q: u64,

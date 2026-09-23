@@ -1,6 +1,6 @@
 //! Parameter mapping from YPIR's SimplePIR scenarios to `inspiring`.
 
-use inspiring::{GadgetParams, RlweParams};
+use inspiring::{GadgetParams, InspiringError, RlweParams};
 use serde::{Deserialize, Serialize};
 
 /// Table-5 row-2 ring degree.
@@ -67,6 +67,52 @@ impl SimplePirProfile {
     }
 }
 
+/// A pinned SimplePIR profile and its validated database shape.
+///
+/// Its fields cannot be replaced independently after construction. This is the
+/// parameter type accepted by the production client.
+#[derive(Debug, Clone)]
+pub struct ProductionSimplePirParams {
+    profile: SimplePirProfile,
+    rlwe: RlweParams,
+    ypir: YpirSchemeParams,
+}
+
+impl ProductionSimplePirParams {
+    /// Construct one of the versioned IPIR-SP profiles for a database shape.
+    pub fn new(
+        num_items: u64,
+        item_size_bits: u64,
+        profile: SimplePirProfile,
+    ) -> Result<Self, InspiringError> {
+        let (rlwe, ypir) = build_simplepir_params(num_items, item_size_bits, profile)?;
+        validate_profile_parts(&rlwe, &ypir, profile)?;
+        Ok(Self {
+            profile,
+            rlwe,
+            ypir,
+        })
+    }
+
+    /// Versioned profile identifier.
+    #[must_use]
+    pub const fn profile(&self) -> SimplePirProfile {
+        self.profile
+    }
+
+    /// Read-only RLWE parameters.
+    #[must_use]
+    pub fn rlwe(&self) -> &RlweParams {
+        &self.rlwe
+    }
+
+    /// Read-only transport and database parameters.
+    #[must_use]
+    pub fn ypir(&self) -> &YpirSchemeParams {
+        &self.ypir
+    }
+}
+
 /// YPIR-specific knobs that live outside `inspiring::RlweParams`.
 ///
 /// This mirrors the JSON-derived `spiral_rs::params::Params` fields used by
@@ -81,6 +127,8 @@ impl SimplePirProfile {
 ///
 /// Unlike YPIR's original two-CRT RLWE side, `inspiring` receives a separate
 /// single-CRT [`RlweParams`] with the 56-bit modulus in [`SINGLE_CRT_Q`].
+/// Public fields and deserialization support low-level research and transport
+/// inspection. Production clients accept [`ProductionSimplePirParams`] only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct YpirSchemeParams {
     /// Requested logical database rows.
@@ -137,25 +185,50 @@ pub fn params_for_simplepir_profile(
     item_size_bits: u64,
     profile: SimplePirProfile,
 ) -> Result<(RlweParams, YpirSchemeParams), inspiring::InspiringError> {
+    let params = ProductionSimplePirParams::new(num_items, item_size_bits, profile)?;
+    Ok((params.rlwe, params.ypir))
+}
+
+fn build_simplepir_params(
+    num_items: u64,
+    item_size_bits: u64,
+    profile: SimplePirProfile,
+) -> Result<(RlweParams, YpirSchemeParams), InspiringError> {
     let plaintext_bits = profile.plaintext_bits();
     let plaintext_modulus = profile.plaintext_modulus();
-    assert!(
-        item_size_bits >= (POLY_LEN * plaintext_bits) as u64,
-        "SimplePIR expects items at least one plaintext polynomial"
-    );
-    assert!(
-        num_items >= POLY_LEN as u64,
-        "YPIR SimplePIR expects at least poly_len rows"
-    );
+    if item_size_bits < (POLY_LEN * plaintext_bits) as u64 || num_items < POLY_LEN as u64 {
+        return Err(InspiringError::InvalidParams(
+            "SimplePIR requires at least one polynomial of rows and item bits".into(),
+        ));
+    }
 
     // The first dimension only needs a whole number of RLWE blocks; YPIR's
     // power-of-two padding costs up to 2x of both the database and the upload
     // for no benefit here. At the production nullifier shape it was 15%.
-    let db_rows = num_items.div_ceil(POLY_LEN as u64) * POLY_LEN as u64;
+    let db_rows = num_items
+        .checked_add(POLY_LEN as u64 - 1)
+        .and_then(|n| n.checked_div(POLY_LEN as u64))
+        .and_then(|n| n.checked_mul(POLY_LEN as u64))
+        .ok_or_else(|| InspiringError::InvalidParams("database row count overflows".into()))?;
+    let db_rows_usize = usize::try_from(db_rows)
+        .map_err(|_| InspiringError::InvalidParams("database rows exceed usize".into()))?;
     // Retained for YPIR wire-compatibility reporting only; nothing on the IPIR
     // path consumes it, so it is derived from the padded power of two.
-    let db_dim_1 = db_rows.next_power_of_two().trailing_zeros() as usize - 11;
-    let instances = item_size_bits.div_ceil((POLY_LEN * plaintext_bits) as u64) as usize;
+    let db_dim_1 = db_rows
+        .checked_next_power_of_two()
+        .ok_or_else(|| InspiringError::InvalidParams("database dimension overflows".into()))?
+        .trailing_zeros() as usize
+        - 11;
+    let chunk_bits = (POLY_LEN * plaintext_bits) as u64;
+    let instances_u64 = item_size_bits / chunk_bits + u64::from(item_size_bits % chunk_bits != 0);
+    let instances = usize::try_from(instances_u64)
+        .map_err(|_| InspiringError::InvalidParams("instance count exceeds usize".into()))?;
+    let db_cols = instances
+        .checked_mul(POLY_LEN)
+        .ok_or_else(|| InspiringError::InvalidParams("database column count overflows".into()))?;
+    db_rows_usize
+        .checked_mul(db_cols)
+        .ok_or_else(|| InspiringError::InvalidParams("database element count overflows".into()))?;
 
     let rlwe = RlweParams::new(
         POLY_LEN,
@@ -175,8 +248,8 @@ pub fn params_for_simplepir_profile(
         db_dim_1,
         db_dim_2: 1,
         instances,
-        db_rows: db_rows as usize,
-        db_cols: instances * POLY_LEN,
+        db_rows: db_rows_usize,
+        db_cols,
         p: plaintext_modulus,
         q_prime_1: Q_PRIME_1,
         q_prime_2: Q_PRIME_2,
@@ -186,12 +259,80 @@ pub fn params_for_simplepir_profile(
         query_bits: crate::modulus_switch::query_modulus_bits(
             SINGLE_CRT_Q,
             plaintext_modulus,
-            db_rows as usize,
+            db_rows_usize,
         )
         .max(profile.minimum_query_bits()),
     };
 
     Ok((rlwe, ypir))
+}
+
+pub(crate) fn validate_profile_parts(
+    rlwe: &RlweParams,
+    ypir: &YpirSchemeParams,
+    profile: SimplePirProfile,
+) -> Result<(), InspiringError> {
+    let invalid =
+        || InspiringError::InvalidParams("inconsistent SimplePIR profile parameters".into());
+    let expected_rows = ypir
+        .num_items
+        .checked_add(POLY_LEN as u64 - 1)
+        .map(|n| n / POLY_LEN as u64 * POLY_LEN as u64)
+        .and_then(|n| usize::try_from(n).ok())
+        .ok_or_else(invalid)?;
+    if expected_rows < POLY_LEN {
+        return Err(invalid());
+    }
+    let chunk_bits = (POLY_LEN * profile.plaintext_bits()) as u64;
+    let instances =
+        ypir.item_size_bits / chunk_bits + u64::from(ypir.item_size_bits % chunk_bits != 0);
+    let instances = usize::try_from(instances).map_err(|_| invalid())?;
+    let expected_cols = instances.checked_mul(POLY_LEN).ok_or_else(invalid)?;
+    let expected_dim = expected_rows
+        .checked_next_power_of_two()
+        .ok_or_else(invalid)?
+        .trailing_zeros() as usize
+        - 11;
+    let expected_bits = crate::modulus_switch::query_modulus_bits(
+        SINGLE_CRT_Q,
+        profile.plaintext_modulus(),
+        expected_rows,
+    )
+    .max(profile.minimum_query_bits());
+    if rlwe.d != POLY_LEN
+        || rlwe.q != SINGLE_CRT_Q
+        || rlwe.p != profile.plaintext_modulus()
+        || rlwe.sigma_chi.to_bits() != 6.4f64.to_bits()
+        || rlwe.gadget.bits_per != GADGET_BITS_PER
+        || rlwe.gadget.ell != GADGET_ELL
+        || rlwe.delta != rlwe.q / rlwe.p
+        || (u128::from(rlwe.d as u64) * u128::from(rlwe.d_inv)) % u128::from(rlwe.q) != 1
+        || rlwe.spiral.poly_len != rlwe.d
+        || rlwe.spiral.modulus != rlwe.q
+        || rlwe.spiral.pt_modulus != rlwe.p
+        || rlwe.spiral.noise_width.to_bits()
+            != (rlwe.sigma_chi * std::f64::consts::TAU.sqrt()).to_bits()
+        || ypir.num_items < POLY_LEN as u64
+        || ypir.item_size_bits < chunk_bits
+        || ypir.poly_len != rlwe.d
+        || ypir.p != rlwe.p
+        || ypir.db_dim_1 != expected_dim
+        || ypir.db_dim_2 != 1
+        || ypir.instances != instances
+        || ypir.db_rows != expected_rows
+        || ypir.db_cols != expected_cols
+        || ypir.db_rows % rlwe.d != 0
+        || ypir.db_cols % rlwe.d != 0
+        || ypir.q_prime_1 != Q_PRIME_1
+        || ypir.q_prime_2 != Q_PRIME_2
+        || ypir.q2_bits != Q2_BITS
+        || ypir.t_exp_left != T_EXP_LEFT
+        || ypir.t_exp_right != T_EXP_RIGHT
+        || ypir.query_bits != expected_bits
+    {
+        return Err(invalid());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -248,5 +389,42 @@ mod tests {
         assert_eq!(ypir.db_cols, 12_288);
         assert_eq!(ypir.query_bits, 46);
         assert_eq!(ypir.q_prime_1, 1 << 20);
+    }
+
+    #[test]
+    fn production_profiles_reject_weak_and_inconsistent_parts() {
+        for profile in [SimplePirProfile::P14, SimplePirProfile::P16Q46] {
+            let params =
+                ProductionSimplePirParams::new(8_192, 2048 * 16, profile).expect("pinned profile");
+            assert_eq!(params.profile(), profile);
+            let mut rlwe = params.rlwe().clone();
+            let mut ypir = params.ypir().clone();
+
+            rlwe.sigma_chi = 0.01;
+            assert!(validate_profile_parts(&rlwe, &ypir, profile).is_err());
+            rlwe = params.rlwe().clone();
+            rlwe.delta += 1;
+            assert!(validate_profile_parts(&rlwe, &ypir, profile).is_err());
+            rlwe = params.rlwe().clone();
+            rlwe.spiral.noise_width = 0.01;
+            assert!(validate_profile_parts(&rlwe, &ypir, profile).is_err());
+            rlwe = params.rlwe().clone();
+            ypir.query_bits -= 1;
+            assert!(validate_profile_parts(&rlwe, &ypir, profile).is_err());
+            ypir = params.ypir().clone();
+            ypir.db_cols += POLY_LEN;
+            assert!(validate_profile_parts(&rlwe, &ypir, profile).is_err());
+            ypir = params.ypir().clone();
+            ypir.p = 4;
+            assert!(validate_profile_parts(&rlwe, &ypir, profile).is_err());
+        }
+    }
+
+    #[test]
+    fn production_profile_rejects_bad_shapes_without_panicking() {
+        for (rows, bits) in [(0, 2048 * 14), (2048, 1), (u64::MAX, 2048 * 14)] {
+            assert!(ProductionSimplePirParams::new(rows, bits, SimplePirProfile::P14).is_err());
+        }
+        assert!(ProductionSimplePirParams::new(2048, u64::MAX, SimplePirProfile::P14).is_err());
     }
 }

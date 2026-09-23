@@ -252,7 +252,7 @@ Per-crate Criterion benchmarks:
 
 ```bash
 cargo bench -p inspiring --bench pack
-cargo bench -p ipir-sp --bench end_to_end
+cargo bench -p ipir-sp --bench end_to_end --features experimental-params
 ```
 
 The default `ipir-sp` benchmark uses a small `d = 64` development profile.

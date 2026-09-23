@@ -52,32 +52,21 @@ embedded as `pack_pub_params` bytes in every online request.
 
 ```rust
 use ipir_sp::client::IPIRClient;
-use ipir_sp::server::{build_pack_preprocessed_blocks, YServer};
-use ipir_sp::params_for_simplepir;
+use ipir_sp::server::YServer;
+use ipir_sp::{ProductionSimplePirParams, SimplePirProfile};
 
-let (rlwe, ypir) = params_for_simplepir(1 << 14, 16_384 * 8)?;
+let profile = ProductionSimplePirParams::new(1 << 14, 16_384 * 8, SimplePirProfile::P14)?;
+let (rlwe, ypir) = (profile.rlwe(), profile.ypir());
 let db = vec![0u16; ypir.db_rows * ypir.db_cols];
 let server = YServer::new(ypir.clone(), db.into_iter(), false, true);
-let client = IPIRClient::new(&rlwe, &ypir);
+let client = IPIRClient::new(&profile);
 
-let setup = client.generate_setup_simplepir();
+let setup = client.generate_public_query_setup_simplepir_from_seed([7; 32]);
 let offline = server.perform_offline_precomputation_simplepir(
-    &rlwe,
-    &setup.offline_query_polys,
+    rlwe,
+    &setup,
 );
-let (query, client_seed) = client.generate_query_simplepir(&setup, 0);
-let preprocessed = build_pack_preprocessed_blocks(
-    &rlwe,
-    &offline.crs_blocks,
-    &setup.key_pair,
-)?;
-
-let response = server.perform_full_online_computation_simplepir(
-    &rlwe,
-    &query.to_bytes(),
-    &preprocessed,
-)?;
-let _item = client.decode_response_simplepir(client_seed, &response);
+let (query, keys, seed) = client.generate_fresh_query_simplepir(&setup, 0);
 # Ok::<(), inspiring::InspiringError>(())
 ```
 
@@ -102,6 +91,12 @@ YPIR's Gaussian convention. The pinned sampler receives width
 interpretation of old client seeds.
 
 ## Versioned plaintext profiles
+
+`ProductionSimplePirParams::new` pins the RLWE tuple and transport settings for
+the selected profile; its read-only accessors keep the pair together. The
+production `IPIRClient::new` accepts only this type. `IPIRClient::from_db_sz`
+selects P14. Arbitrary client pairs require the `experimental-params` feature
+and `IPIRClient::new_experimental`; those pairs have no production security claim.
 
 `params_for_simplepir` remains the upstream-compatible 14-bit profile. Applications
 that need full-width `u16` plaintexts opt in with
@@ -137,7 +132,7 @@ small deterministic fixtures, single-CRT response switching, and the linear
 Criterion benchmarks live in `benches/end_to_end.rs`:
 
 ```bash
-cargo bench -p ipir-sp --bench end_to_end
+cargo bench -p ipir-sp --bench end_to_end --features experimental-params
 ```
 
 The default benchmark uses a smaller development profile. Set

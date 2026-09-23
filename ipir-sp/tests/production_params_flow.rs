@@ -15,6 +15,7 @@ use ipir_sp::client::IPIRClient;
 use ipir_sp::modulus_switch::recover_published_c1;
 use ipir_sp::params::params_for_simplepir;
 use ipir_sp::server::{build_pack_preprocessed_blocks, published_c1_rows, YServer};
+use ipir_sp::{ProductionSimplePirParams, SimplePirProfile};
 
 /// The deployed row count, so the derived query width and the rounding term
 /// it controls are exactly production's. Only the column count is reduced, and
@@ -41,8 +42,10 @@ fn production_params_round_trip_recovers_the_target_row() {
             (0..ypir.db_cols).map(move |col| ((row * 31 + col * 17 + 5) % ypir.p as usize) as u16)
         })
         .collect();
-    let server = YServer::new(ypir.clone(), db.iter().copied(), false, true);
-    let client = IPIRClient::new(&rlwe, &ypir);
+    let profile = ProductionSimplePirParams::new(ROWS, 2048 * 14, SimplePirProfile::P14)
+        .expect("production profile");
+    let server = YServer::from_profile(&profile, db.iter().copied(), false, true);
+    let client = IPIRClient::new(&profile);
 
     let offline_query_polys = client.generate_public_query_setup_simplepir_from_seed(SETUP_SEED);
     let offline = server.perform_offline_precomputation_simplepir(&rlwe, &offline_query_polys);
@@ -120,6 +123,63 @@ fn production_params_round_trip_recovers_the_target_row() {
         "decryption margin too thin: error 2^{} against delta/2 = 2^{}",
         bits(worst_error),
         bits(threshold)
+    );
+}
+
+#[test]
+fn p16_q46_profile_round_trip_has_decryption_margin() {
+    const ROWS: u64 = 8_192;
+    const TARGET: usize = ROWS as usize - 1;
+    let profile = ProductionSimplePirParams::new(ROWS, 2048 * 16, SimplePirProfile::P16Q46)
+        .expect("P16Q46 profile");
+    let (rlwe, ypir) = (profile.rlwe(), profile.ypir());
+    assert_eq!(ypir.p, 1 << 16);
+    assert_eq!(ypir.query_bits, 46);
+
+    let db: Vec<u16> = (0..ypir.db_rows)
+        .flat_map(|row| {
+            (0..ypir.db_cols).map(move |col| ((row * 31 + col * 17 + 5) % (1 << 16)) as u16)
+        })
+        .collect();
+    let expected: Vec<u64> = db[TARGET * ypir.db_cols..(TARGET + 1) * ypir.db_cols]
+        .iter()
+        .map(|value| u64::from(*value))
+        .collect();
+    assert!(expected
+        .iter()
+        .any(|value| *value > u64::from(u16::MAX / 2)));
+
+    let server = YServer::from_profile(&profile, db.into_iter(), false, true);
+    let client = IPIRClient::new(&profile);
+    let setup = client.generate_public_query_setup_simplepir_from_seed(SETUP_SEED);
+    let offline = server.perform_offline_precomputation_simplepir(rlwe, &setup);
+    let preprocessed =
+        build_pack_preprocessed_blocks(rlwe, &offline.crs_blocks).expect("preprocessing builds");
+    let published_c1 = recover_published_c1(
+        &published_c1_rows(&preprocessed, rlwe.q),
+        rlwe.d,
+        ypir.db_cols / rlwe.d,
+        rlwe.q,
+    );
+    let top_keys = TopKeyImages::build(rlwe);
+    let (query, packing_keys, seed) = client.generate_fresh_query_simplepir(&setup, TARGET);
+    let query_bytes = query.to_switched_bytes(rlwe.q, ypir.query_bits);
+    let (response, _) = server
+        .perform_full_online_computation_simplepir_measured(
+            rlwe,
+            &query_bytes,
+            &packing_keys,
+            &top_keys,
+            &preprocessed,
+        )
+        .expect("online response");
+    let (decoded, max_error) =
+        client.decode_response_simplepir_with_margin(seed, &published_c1, &response);
+    assert_eq!(decoded, expected);
+    assert!(
+        max_error < rlwe.delta / 4,
+        "P16Q46 decryption margin too thin: error {max_error} against delta/2 {}",
+        rlwe.delta / 2
     );
 }
 

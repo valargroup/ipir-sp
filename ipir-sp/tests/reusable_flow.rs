@@ -1,4 +1,5 @@
 #![cfg(feature = "experimental-key-reuse")]
+#![cfg(feature = "experimental-params")]
 
 use inspiring::TopKeyImages;
 use ipir_sp::client::reusable::QueryPool;
@@ -10,7 +11,12 @@ use ipir_sp::{params_for_simplepir, IPIRClient, IPIRServer};
 #[test]
 fn reused_keys_recover_boundary_rows_across_sets_and_fresh_batches() {
     let (r, y) = params_for_simplepir(4096, 2048 * 14).unwrap();
-    let pool = QueryPool::new(IPIRClient::new(&r, &y), [0x72; 32], 4).unwrap();
+    let pool = QueryPool::new(
+        IPIRClient::new_experimental(&r, &y).expect("consistent experimental parameters"),
+        [0x72; 32],
+        4,
+    )
+    .unwrap();
     let value = |row: usize, col: usize| ((row * 31 + col * 17 + 5) % y.p as usize) as u16;
     let server = IPIRServer::new_auto_kernel(
         y.clone(),

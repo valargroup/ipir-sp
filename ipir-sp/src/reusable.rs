@@ -134,13 +134,24 @@ impl ReusableBatch<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::params::params_for_simplepir;
 
     #[test]
     fn pool_slots_are_unique_bounded_and_retries_are_immutable() {
         let (r, y) = params_for_simplepir(2048, 2048 * 14).unwrap();
         for count in [4, 8, 16] {
-            let pool = QueryPool::new(IPIRClient::new(&r, &y), [7; 32], count).unwrap();
-            let same = QueryPool::new(IPIRClient::new(&r, &y), [7; 32], count).unwrap();
+            let pool = QueryPool::new(
+                IPIRClient::new_experimental(&r, &y).expect("consistent experimental parameters"),
+                [7; 32],
+                count,
+            )
+            .unwrap();
+            let same = QueryPool::new(
+                IPIRClient::new_experimental(&r, &y).expect("consistent experimental parameters"),
+                [7; 32],
+                count,
+            )
+            .unwrap();
             assert_eq!(pool.sets(), same.sets());
             assert_eq!(
                 &pool.sets()[0][0][..4],
@@ -156,7 +167,12 @@ mod tests {
                     assert_ne!(pool.sets()[i], pool.sets()[j]);
                 }
             }
-            assert!(QueryPool::new(IPIRClient::new(&r, &y), [7; 32], 3).is_err());
+            assert!(QueryPool::new(
+                IPIRClient::new_experimental(&r, &y).expect("consistent experimental parameters"),
+                [7; 32],
+                3
+            )
+            .is_err());
             let mut batch = pool.start_batch();
             assert!(batch.next_query(2048).is_err());
             for slot in 0..count {
@@ -179,7 +195,8 @@ mod tests {
     #[test]
     fn same_matrix_same_secret_exposes_selector_difference() {
         let (r, y) = params_for_simplepir(2048, 2048 * 14).unwrap();
-        let client = IPIRClient::new(&r, &y);
+        let client =
+            IPIRClient::new_experimental(&r, &y).expect("consistent experimental parameters");
         let a = client.generate_public_query_setup_simplepir_from_seed([9; 32]);
         let mut rng = ChaCha20Rng::from_seed([11; 32]);
         let secret = ClientSecret::sample_gaussian(&r, &mut rng);

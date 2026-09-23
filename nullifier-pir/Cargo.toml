@@ -11,6 +11,7 @@ default = ["local-ipir"]
 local-ipir = []
 ypir-artifact = ["dep:ypir", "dep:ypir-spiral"]
 debug-query-index = []
+experimental-params = ["ipir-sp/experimental-params"]
 
 [dependencies]
 actix-cors = "0.7.0"
@@ -29,3 +30,4 @@ ypir-spiral = { package = "spiral-rs", git = "https://github.com/menonsamir/spir
 
 [dev-dependencies]
 tempfile = "3.10"
+ipir-sp = { path = "../ipir-sp", features = ["experimental-params"] }

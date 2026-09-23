@@ -22,7 +22,12 @@ fn main() {
     let batches = args.get(3).copied().unwrap_or(3);
     assert!(batches > 0 && cols % 2048 == 0);
     let (r, y) = params_for_simplepir(rows as u64, (cols * 14) as u64).unwrap();
-    let pool = QueryPool::new(IPIRClient::new(&r, &y), [0x72; 32], count).unwrap();
+    let pool = QueryPool::new(
+        IPIRClient::new_experimental(&r, &y).expect("consistent experimental parameters"),
+        [0x72; 32],
+        count,
+    )
+    .unwrap();
     let value = |row: usize, col: usize| ((row * 31 + col * 17 + 5) % y.p as usize) as u16;
     let started = Instant::now();
     let server = IPIRServer::new_auto_kernel(

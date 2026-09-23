@@ -9,11 +9,11 @@ use inspiring::{QueryPackPreprocessed, RlweParams, TopKeyImages};
 #[cfg(feature = "http_server")]
 use ipir_sp::client::IPIRClient;
 #[cfg(feature = "http_server")]
-use ipir_sp::params_for_simplepir;
-#[cfg(feature = "http_server")]
 use ipir_sp::serialize::{deserialize_packing_keys, serialized_packing_keys_len};
 #[cfg(feature = "http_server")]
 use ipir_sp::server::{build_pack_preprocessed_blocks, published_c1_rows, IPIRServer};
+#[cfg(feature = "http_server")]
+use ipir_sp::{ProductionSimplePirParams, SimplePirProfile};
 
 #[cfg(feature = "http_server")]
 #[derive(Parser, Debug)]
@@ -107,15 +107,20 @@ fn seed_from_u64(value: u64) -> [u8; 32] {
 async fn main() -> std::io::Result<()> {
     let args = Args::parse();
     let item_size_bits = args.item_size_bits.unwrap_or(16_384 * 8);
-    let (rlwe, ypir) =
-        params_for_simplepir(args.num_items as u64, item_size_bits as u64).expect("valid params");
-    let client = Box::leak(Box::new(IPIRClient::new(&rlwe, &ypir)));
+    let profile = ProductionSimplePirParams::new(
+        args.num_items as u64,
+        item_size_bits as u64,
+        SimplePirProfile::P14,
+    )
+    .expect("valid params");
+    let ypir = profile.ypir().clone();
+    let client = Box::leak(Box::new(IPIRClient::new(&profile)));
     let setup =
         client.generate_public_query_setup_simplepir_from_seed(seed_from_u64(args.setup_seed));
 
     let pt_modulus = ypir.p;
     let db = (0..ypir.db_rows * ypir.db_cols).map(|idx| (idx as u64 % pt_modulus) as u16);
-    let server = IPIRServer::<u16>::new_auto_kernel(ypir.clone(), db, false, true);
+    let server = IPIRServer::<u16>::new_auto_kernel_from_profile(&profile, db, false, true);
     let offline = server.perform_offline_precomputation_simplepir(client.rlwe_params(), &setup);
     let preprocessed = build_pack_preprocessed_blocks(client.rlwe_params(), &offline.crs_blocks)
         .expect("preprocessing builds");

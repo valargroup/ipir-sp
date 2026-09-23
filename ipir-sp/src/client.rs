@@ -17,7 +17,7 @@ use crate::modulus_switch::modulus_bits;
 use crate::modulus_switch::{
     query_coeff_down, query_coeff_up, recover_response_body, response_body_len,
 };
-use crate::params::{params_for_simplepir, YpirSchemeParams};
+use crate::params::{ProductionSimplePirParams, SimplePirProfile, YpirSchemeParams};
 
 #[cfg(feature = "experimental-key-reuse")]
 #[path = "reusable.rs"]
@@ -205,21 +205,94 @@ impl IPIRSimpleQuery {
 }
 
 impl IPIRClient {
-    /// Build a client from explicit IPIR-SP parameters.
+    /// Build a client from a pinned, validated production profile.
+    ///
+    /// A raw parameter pair is deliberately not accepted:
+    ///
+    /// ```compile_fail
+    /// use ipir_sp::{params_for_simplepir, IPIRClient};
+    /// let (rlwe, ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+    /// let _client = IPIRClient::new(&rlwe, &ypir);
+    /// ```
     #[must_use]
-    pub fn new(rlwe: &RlweParams, ypir: &YpirSchemeParams) -> Self {
+    pub fn new(params: &ProductionSimplePirParams) -> Self {
         Self {
+            rlwe: params.rlwe().clone(),
+            ypir: params.ypir().clone(),
+        }
+    }
+
+    /// Build a client from arbitrary research parameters. This API makes no
+    /// query-privacy claim and is unavailable in ordinary builds.
+    #[cfg(any(test, feature = "experimental-params"))]
+    pub fn new_experimental(
+        rlwe: &RlweParams,
+        ypir: &YpirSchemeParams,
+    ) -> Result<Self, inspiring::InspiringError> {
+        if rlwe.d < 2
+            || !rlwe.d.is_power_of_two()
+            || rlwe.q < 3
+            || rlwe.q % 2 == 0
+            || rlwe.p < 2
+            || rlwe.p > rlwe.q
+            || !rlwe.sigma_chi.is_finite()
+            || rlwe.sigma_chi <= 0.0
+            || rlwe.d != ypir.poly_len
+            || rlwe.p != ypir.p
+            || ypir.num_items == 0
+            || ypir.num_items > ypir.db_rows as u64
+            || ypir.item_size_bits == 0
+            || ypir.db_rows == 0
+            || ypir.db_rows % rlwe.d != 0
+            || ypir.db_cols == 0
+            || ypir.db_cols % rlwe.d != 0
+            || ypir.db_rows.checked_mul(ypir.db_cols).is_none()
+            || rlwe.delta != rlwe.q / rlwe.p
+            || (u128::from(rlwe.d as u64) * u128::from(rlwe.d_inv)) % u128::from(rlwe.q) != 1
+            || rlwe.spiral.poly_len != rlwe.d
+            || rlwe.spiral.modulus != rlwe.q
+            || rlwe.spiral.pt_modulus != rlwe.p
+            || rlwe.spiral.noise_width.to_bits()
+                != (rlwe.sigma_chi * std::f64::consts::TAU.sqrt()).to_bits()
+            || ypir.instances.checked_mul(ypir.poly_len) != Some(ypir.db_cols)
+            || ypir.q_prime_1 < 2
+            || ypir.q_prime_2 < ypir.q_prime_1
+            || ypir.q_prime_2 > rlwe.q
+            || ypir.q2_bits == 0
+            || ypir.q2_bits > crate::modulus_switch::modulus_bits(ypir.q_prime_2)
+            || ypir.t_exp_left == 0
+            || ypir.t_exp_right == 0
+            || ypir.query_bits == 0
+            || ypir.query_bits > crate::modulus_switch::modulus_bits(rlwe.q)
+        {
+            return Err(inspiring::InspiringError::InvalidParams(
+                "inconsistent experimental IPIR parameters".into(),
+            ));
+        }
+        Ok(Self {
             rlwe: rlwe.clone(),
             ypir: ypir.clone(),
-        }
+        })
+    }
+
+    /// Build a client for an explicit production profile and database shape.
+    pub fn from_profile(
+        num_items: u64,
+        item_size_bits: u64,
+        profile: SimplePirProfile,
+    ) -> Result<Self, inspiring::InspiringError> {
+        Ok(Self::new(&ProductionSimplePirParams::new(
+            num_items,
+            item_size_bits,
+            profile,
+        )?))
     }
 
     /// Build a client from database shape, mirroring `ypir::YPIRClient::from_db_sz`.
     #[must_use]
     pub fn from_db_sz(num_items: u64, item_size_bits: u64) -> Self {
-        let (rlwe, ypir) =
-            params_for_simplepir(num_items, item_size_bits).expect("valid SimplePIR parameters");
-        Self { rlwe, ypir }
+        Self::from_profile(num_items, item_size_bits, SimplePirProfile::P14)
+            .expect("valid SimplePIR parameters")
     }
 
     /// Return the RLWE parameters used by the packing layer.
@@ -667,6 +740,7 @@ mod tests {
     use rand_chacha::rand_core::SeedableRng;
 
     use super::*;
+    use crate::params::params_for_simplepir;
 
     fn params() -> RlweParams {
         RlweParams::new(
@@ -788,7 +862,8 @@ mod tests {
     #[test]
     fn fresh_query_seed_replays_gaussian_secret_keys_and_query() {
         let (r, y) = params_for_simplepir(2048, 2048 * 14).unwrap();
-        let client = IPIRClient::new(&r, &y);
+        let client =
+            IPIRClient::new_experimental(&r, &y).expect("consistent experimental parameters");
         let setup = client.generate_public_query_setup_simplepir_from_seed([0x42; 32]);
         let (query, keys, seed) = client.generate_fresh_query_simplepir(&setup, 2047);
         let mut rng = ChaCha20Rng::from_seed(seed);
@@ -845,7 +920,8 @@ mod tests {
             // query at full precision.
             query_bits: 14,
         };
-        let client = IPIRClient::new(&params, &ypir);
+        let client = IPIRClient::new_experimental(&params, &ypir)
+            .expect("consistent experimental parameters");
         let offline_query_polys = client.generate_public_query_setup_simplepir_from_seed([9u8; 32]);
 
         let (query, packing_keys, client_seed) =
@@ -857,6 +933,25 @@ mod tests {
         assert_eq!(packing_keys.kg_body.cols, params.gadget.ell);
         assert_eq!(packing_keys.kh_body.rows, 1);
         assert_eq!(packing_keys.kh_body.cols, params.gadget.ell);
+    }
+
+    #[test]
+    fn experimental_client_rejects_inconsistent_pair() {
+        let (rlwe, mut ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        ypir.p = 4;
+        assert!(IPIRClient::new_experimental(&rlwe, &ypir).is_err());
+        let (_, mut ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        ypir.db_cols += rlwe.d;
+        assert!(IPIRClient::new_experimental(&rlwe, &ypir).is_err());
+        let (mut rlwe, ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        rlwe.d = 0;
+        assert!(IPIRClient::new_experimental(&rlwe, &ypir).is_err());
+        let (rlwe, mut ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        ypir.q_prime_1 = 1;
+        assert!(IPIRClient::new_experimental(&rlwe, &ypir).is_err());
+        ypir.q_prime_1 = 1 << 20;
+        ypir.q_prime_2 = 1;
+        assert!(IPIRClient::new_experimental(&rlwe, &ypir).is_err());
     }
 
     #[test]
