@@ -24,8 +24,8 @@ The native path implements the ring FFT compiler, the integer-lift transform,
 public-mask key-switch trace, compact signed matrix storage, scalar/AVX2/AVX-512
 dot products, and an exact NTT/CRT remainder. Public leftover transforms are
 cached offline; a checked public coefficient bound selects two auxiliary primes
-when sufficient, retaining the generic three-prime path otherwise. It does not require an NTT
-at the power-of-two ciphertext modulus. There is no schoolbook fallback in the
+when sufficient, retaining the generic three-prime path otherwise. It does not require an NTT at the power-of-two
+ciphertext modulus. There is no schoolbook fallback in the
 native online path. Rust 1.89 is required for stable AVX-512 intrinsics.
 
 The integrated server uses an interleaved 16-column database layout on AVX-512

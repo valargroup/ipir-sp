@@ -272,7 +272,8 @@ pub struct NativeTiming {
     pub serialization: Duration,
 }
 
-/// Immutable column-major database and compiled public preprocessing.
+/// Immutable database and compiled public preprocessing. Supported SIMD hosts
+/// retain byte-plane tiles; other hosts retain the column-major input layout.
 pub struct NativeServer {
     setup: NativePublicSetup,
     db: Vec<u16>,

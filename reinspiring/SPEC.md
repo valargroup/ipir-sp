@@ -52,8 +52,7 @@ For q=2^54, ell=2 discards 16 bits; ell=3 discards none.
 
 The mask trace collapses each half in reverse powers-of-five order, followed
 by the final h=-1 switch. A limb's recorded digits are compiled against the
-corresponding automorphism of the base kg body. The final kh digits are retained
-as polynomial coefficients. Native keys and preprocessing carry a setup digest.
+corresponding automorphism of the base kg body. The final kh digits are transformed offline for the leftover product. Native keys and preprocessing carry a setup digest.
 
 ## Exact lifted products and storage
 
@@ -70,12 +69,30 @@ the bound covers an arbitrary sum of limbs. Invalid dimensions/noncanonical
 coefficients are rejected. The legacy single-prime helper now rejects insufficient
 capacity instead of silently performing a schoolbook fallback.
 
+A cached public operand with maximum absolute coefficient B uses only the first
+two primes when their product exceeds 2*d*B*floor(q/2). The check is strict and
+performed independently per limb. This covers a full-width uploaded operand;
+no bound is inferred from secret or query data. Larger public operands retain
+all three primes. Public left transforms are retained offline, so online packing
+only transforms the uploaded right operand and the product.
+
 Native H' uses i32 when every centered entry fits, otherwise i64. Its dimensions
-and words are private. The 32-bit path dispatches to AVX2 on supported x86 hosts;
-other hosts and wide power-of-two matrices use wrapping scalar arithmetic. The low 64 bits
-of each dot product suffice because q divides 2^64. Vector tails and negative
-coefficients are tested against scalar integer arithmetic. Parallelism follows
-the caller's Rayon pool; no global thread-count override is made by the library.
+and words are private. The i32 path dispatches to AVX-512 or AVX2 on supported
+x86 hosts, with a wrapping scalar fallback. On AVX-512, the shared operand is
+split as y=l+2^32*h modulo 2^64, with l a signed i32 and h a carry-adjusted u32.
+Signed 32x32-to-64 products compute the low term; the high term only needs its
+low 32 bits. All sums wrap, which is exact because q divides 2^64. Tails,
+negative coefficients and carry boundaries are checked against scalar integer
+arithmetic. Parallelism follows the caller's Rayon pool.
+
+For the IPIR-SP database scan, AVX-512 VNNI uses signed radix-256 query digits
+and unsigned database bytes. Each 16-column tile stores four rows per column,
+with separate 64-byte low/high planes. Preprocessing changes layout without
+expanding the u16 database. Each signed i32 accumulator contains at most 65,536
+products of magnitude 255*128, strictly below 2^31; shifting and summing their
+signed values reconstructs the exact dot product modulo q. The last high-byte
+term has weight 2^(8*ceil(log2(q)/8)) and vanishes modulo q. Shape-incompatible
+or unsupported hosts retain the ordinary column layout and exact word kernels.
 
 The odd-q adapter also stores H' in compact signed words. For i32 matrices it
 splits each uploaded coefficient into four 16-bit limbs. Each partial dot product
