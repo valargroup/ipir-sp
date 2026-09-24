@@ -75,3 +75,10 @@ f6665536e87dd7e53a2a17f60b3f4f661e565ece12b368aec81c8306e4af95c2  cuda_bench
 c3875ae2192858173d7c6c19d8d8e954da1d22afac95809311a6b3faf93e6fc4  cuda hardware tests
 a9478886008984ff4d21c15de307176deeef1b6a6c1cb9f0cd0b4642c39e43d8  production profile tests
 ```
+
+The follow-up hardening commit `4ad4174` rejects device ordinals before signed
+32-bit conversion and invalidates an old upload before context binding on
+replacement. [All three kernel tests were rerun on the GPU](hardening-tests.log),
+including the new ordinal regression, and passed. CUDA arithmetic and the timed
+benchmark path are unchanged. The rerun kernel-test binary SHA-256 is
+`0ffae835b3dcc4a5a3af0851a000fd6107355c692e7ccbc9493bfafb00fdab2b`.

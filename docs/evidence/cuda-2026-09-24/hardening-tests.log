@@ -1,0 +1,8 @@
+
+running 3 tests
+test oversized_device_ordinal_fails_before_loading_cuda ... ok
+test exact_arithmetic_and_snapshot_replacement ... ok
+test concurrent_calls_and_errors ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
