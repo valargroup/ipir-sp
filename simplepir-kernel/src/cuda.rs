@@ -30,6 +30,9 @@ pub struct CudaKernel {
 impl CudaKernel {
     /// Open a device and compile exact arithmetic kernels, without CPU fallback.
     pub fn new(device: usize) -> Result<Self, KernelError> {
+        if device > i32::MAX as usize {
+            return Err(error("device ordinal exceeds CUDA's signed 32-bit range"));
+        }
         // SAFETY: these probes only load the vendor libraries.
         if !unsafe { cudarc::driver::sys::is_culib_present() }
             || !unsafe { cudarc::nvrtc::sys::is_culib_present() }
@@ -53,12 +56,12 @@ impl FirstDimKernel<u16> for CudaKernel {
             .expect("CUDA preparation failed");
     }
     fn try_prepare(&mut self, db: &[u16], rows: usize, cols: usize) -> Result<(), KernelError> {
-        self.stream.context().bind_to_thread().map_err(error)?;
         // A failed replacement must not leave the old snapshot usable.
         *self
             .prepared
             .get_mut()
             .map_err(|_| error("state lock poisoned"))? = None;
+        self.stream.context().bind_to_thread().map_err(error)?;
         if rows.checked_mul(cols) != Some(db.len()) {
             return Err(error("database shape mismatch"));
         }

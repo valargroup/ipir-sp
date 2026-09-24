@@ -140,3 +140,12 @@ fn concurrent_calls_and_errors() {
         .is_err());
     assert!(CudaKernel::new(usize::MAX).is_err());
 }
+
+#[test]
+fn oversized_device_ordinal_fails_before_loading_cuda() {
+    assert!(
+        matches!(CudaKernel::new(i32::MAX as usize + 1), Err(e) if e.to_string().contains("ordinal"))
+    );
+    #[cfg(target_pointer_width = "64")]
+    assert!(matches!(CudaKernel::new(1usize << 32), Err(e) if e.to_string().contains("ordinal")));
+}
