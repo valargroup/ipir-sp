@@ -78,12 +78,11 @@ only transforms the uploaded right operand and the product.
 
 Native H' uses i32 when every centered entry fits, otherwise i64. Its dimensions
 and words are private. The i32 path dispatches to AVX-512 or AVX2 on supported
-x86 hosts, with a wrapping scalar fallback. On AVX-512, the shared operand is
-split as y=l+2^32*h modulo 2^64, with l a signed i32 and h a carry-adjusted u32.
-Signed 32x32-to-64 products compute the low term; the high term only needs its
-low 32 bits. All sums wrap, which is exact because q divides 2^64. Tails,
-negative coefficients and carry boundaries are checked against scalar integer
-arithmetic. Parallelism follows the caller's Rayon pool.
+x86 hosts, with a wrapping scalar fallback. AVX-512 processes eight signed
+coefficients per vector with four independent accumulators. All sums wrap,
+which is exact because q divides 2^64. Tails, negative coefficients and carry
+boundaries are checked against scalar integer arithmetic. Parallelism follows
+the caller's Rayon pool.
 
 For the IPIR-SP database scan, AVX-512 VNNI uses signed radix-256 query digits
 and unsigned database bytes. Each 16-column tile stores four rows per column,

@@ -80,10 +80,11 @@ impl NativeMatrix {
             return self.multiply_odd(y);
         }
         let mut out = vec![0; self.rows];
-        let prepared = crate::native_kernel::PreparedI32Query::new(y);
         out.par_iter_mut().enumerate().for_each(|(r, dst)| {
             *dst = match &self.words {
-                Words::Narrow(x) => prepared.dot(&x[r * self.cols..(r + 1) * self.cols]),
+                Words::Narrow(x) => {
+                    crate::native_kernel::dot_i32(&x[r * self.cols..(r + 1) * self.cols], y)
+                }
                 Words::Wide(x) => x[r * self.cols..(r + 1) * self.cols]
                     .iter()
                     .zip(y)

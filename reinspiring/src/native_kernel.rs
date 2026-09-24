@@ -2,44 +2,6 @@
 #![allow(unsafe_code)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
-/// Signed low 32-bit digits and carry-adjusted high words, prepared once per
-/// matrix operand. Exact even for full-width u64 inputs modulo 2^64.
-pub(crate) struct PreparedI32Query<'a> {
-    words: &'a [u64],
-    #[cfg(target_arch = "x86_64")]
-    split: Option<(Vec<i32>, Vec<u32>)>,
-}
-impl<'a> PreparedI32Query<'a> {
-    pub(crate) fn new(words: &'a [u64]) -> Self {
-        #[cfg(target_arch = "x86_64")]
-        let split = if std::is_x86_feature_detected!("avx512f") {
-            Some((
-                words.iter().map(|&x| x as u32 as i32).collect(),
-                words
-                    .iter()
-                    .map(|&x| ((x >> 32) as u32).wrapping_add((x as u32) >> 31))
-                    .collect(),
-            ))
-        } else {
-            None
-        };
-        Self {
-            words,
-            #[cfg(target_arch = "x86_64")]
-            split,
-        }
-    }
-    pub(crate) fn dot(&self, a: &[i32]) -> u64 {
-        assert_eq!(a.len(), self.words.len());
-        #[cfg(target_arch = "x86_64")]
-        if let Some((lo, hi)) = &self.split {
-            // SAFETY: constructor checks AVX-512F and builds equal-length limbs.
-            return unsafe { x86::i32_split_dot(a, self.words, lo, hi) };
-        }
-        dot_i32(a, self.words)
-    }
-}
-
 /// Query decomposition shared by every database column. Signed radix-256 digits
 /// allow exact byte dot products with AVX-512 VNNI; no query precision is lost.
 /// The result remains an integer product modulo the validated power-of-two q.
@@ -216,31 +178,6 @@ fn scalar_i32(a: &[i32], b: &[u64]) -> u64 {
 #[cfg(target_arch = "x86_64")]
 mod x86 {
     use std::arch::x86_64::*;
-    #[target_feature(enable = "avx512f")]
-    pub(super) unsafe fn i32_split_dot(a: &[i32], b: &[u64], lo: &[i32], hi: &[u32]) -> u64 {
-        let end = a.len() / 16 * 16;
-        let mut even = _mm512_setzero_si512();
-        let mut odd = _mm512_setzero_si512();
-        let mut high = _mm512_setzero_si512();
-        for i in (0..end).step_by(16) {
-            // SAFETY: equal-length slices; complete unaligned vectors only.
-            unsafe {
-                let x = _mm512_loadu_si512(a.as_ptr().add(i).cast());
-                let l = _mm512_loadu_si512(lo.as_ptr().add(i).cast());
-                let h = _mm512_loadu_si512(hi.as_ptr().add(i).cast());
-                even = _mm512_add_epi64(even, _mm512_mul_epi32(x, l));
-                odd = _mm512_add_epi64(
-                    odd,
-                    _mm512_mul_epi32(_mm512_srli_epi64::<32>(x), _mm512_srli_epi64::<32>(l)),
-                );
-                high = _mm512_add_epi32(high, _mm512_mullo_epi32(x, h));
-            }
-        }
-        let low = _mm512_reduce_add_epi64(_mm512_add_epi64(even, odd)) as u64;
-        let high = (_mm512_reduce_add_epi32(high) as u32 as u64) << 32;
-        low.wrapping_add(high)
-            .wrapping_add(super::scalar_i32(&a[end..], &b[end..]))
-    }
     #[target_feature(enable = "avx512f,avx512dq,avx512bw,avx512vnni")]
     pub(super) unsafe fn interleaved_vnni(
         db: &[u16],
@@ -565,7 +502,6 @@ mod tests {
                 })
                 .collect();
             assert_eq!(dot_i32(&a, &b), scalar_i32(&a, &b));
-            assert_eq!(PreparedI32Query::new(&b).dot(&a), scalar_i32(&a, &b));
             let c: Vec<_> = (0..n).map(|i| u16::MAX.wrapping_sub(i as u16)).collect();
             let expected = c.iter().zip(&b).fold(0u64, |s, (&a, &b)| {
                 s.wrapping_add((a as u64).wrapping_mul(b))
