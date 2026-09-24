@@ -223,10 +223,16 @@ mod tests {
         }
         let pre = QueryPackPreprocessed::build(&p, &to_ntt_alloc(&raw)).unwrap();
         let top = TopKeyImages::build(&p);
-        let keys = PackingKeys {
+        let mut keys = PackingKeys {
             kg_body: PolyMatrixNTT::zero(&p.spiral, 1, p.gadget.ell),
             kh_body: PolyMatrixNTT::zero(&p.spiral, 1, p.gadget.ell),
         };
+        for (i, n) in keys.kg_body.as_mut_slice().iter_mut().enumerate() {
+            *n = (i as u64 + 11) % p.q;
+        }
+        for (i, n) in keys.kh_body.as_mut_slice().iter_mut().enumerate() {
+            *n = (i as u64 + 23) % p.q;
+        }
         let values = vec![3; p.d];
         let expected = pre.pack_b(&values, &keys, &top).unwrap();
         let mut bytes = Vec::new();
@@ -238,17 +244,48 @@ mod tests {
         let mut copy = Vec::new();
         write(&mut copy, &p, &loaded, &images).unwrap();
         assert_eq!(bytes, copy);
+        fn mapped(bytes: &[u8]) -> memmap2::Mmap {
+            let mut map = memmap2::MmapMut::map_anon(bytes.len().max(1)).unwrap();
+            map[..bytes.len()].copy_from_slice(bytes);
+            map.make_read_only().unwrap()
+        }
+        let direct = MappedPrepared::new(mapped(&bytes), &p, 1, 0).unwrap();
+        assert_eq!(
+            direct.pack(&values, &keys).unwrap()[0].inner.as_slice(),
+            expected.inner.as_slice()
+        );
+        let next = vec![7; p.d];
+        assert_eq!(
+            direct.pack(&next, &keys).unwrap()[0].inner.as_slice(),
+            loaded[0]
+                .pack_b(&next, &keys, &images)
+                .unwrap()
+                .inner
+                .as_slice()
+        );
+        assert!(direct.pack(&[], &keys).is_err());
+        let mut invalid_values = values.clone();
+        invalid_values[0] = p.q;
+        assert!(direct.pack(&invalid_values, &keys).is_err());
+        assert!(MappedPrepared::new(mapped(&bytes), &p, 2, 0).is_err());
+
         for n in [0, 16, 72, bytes.len() - 1] {
             assert!(read(&mut &bytes[..n], &p, 1).is_err());
+            assert!(MappedPrepared::new(mapped(&bytes[..n]), &p, 1, 0).is_err());
         }
         let mut extra = bytes.clone();
         extra.push(0);
         assert!(read(&mut extra.as_slice(), &p, 1).is_err());
+        assert!(MappedPrepared::new(mapped(&extra), &p, 1, 0).is_err());
         assert!(read(&mut bytes.as_slice(), &p, 2).is_err());
         for offset in [0, 16, 72, bytes.len() - 8] {
             let mut bad = bytes.clone();
             bad[offset..offset + 8].fill(255);
             assert!(read(&mut bad.as_slice(), &p, 1).is_err());
+            assert!(MappedPrepared::new(mapped(&bad), &p, 1, 0).is_err());
         }
     }
 }
+
+mod mapped;
+pub use mapped::MappedPrepared;

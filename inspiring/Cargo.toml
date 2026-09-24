@@ -29,6 +29,8 @@ rayon = "1"
 # come from spiral-rs; we do not need a separate crypto stack.
 
 thiserror = "1.0"
+memmap2 = "0.9"
+bytemuck = "1"
 
 [dev-dependencies]
 # Phase 9 tests: byte-equality with the Python oracle requires a JSON parser.
