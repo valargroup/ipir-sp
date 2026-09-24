@@ -1,0 +1,11 @@
+initialization_ms=595.459
+shape=32768x12288, db_bytes=805306368, upload_ms=73.728, cpu_avx512=false, cpu_threads=8
+repeat=0, cpu_wall_ms_per_query=36.539
+repeat=0, callers=1, queries=100, gpu_wall_ms_per_query=4.455, kernel_ms=4.356, request_latency_ms=4.438
+repeat=0, callers=4, queries=100, gpu_wall_ms_per_query=4.515, kernel_ms=4.407, request_latency_ms=12.001
+repeat=1, cpu_wall_ms_per_query=36.333
+repeat=1, callers=1, queries=100, gpu_wall_ms_per_query=4.473, kernel_ms=4.381, request_latency_ms=4.461
+repeat=1, callers=4, queries=100, gpu_wall_ms_per_query=4.555, kernel_ms=4.450, request_latency_ms=11.363
+repeat=2, cpu_wall_ms_per_query=36.980
+repeat=2, callers=1, queries=100, gpu_wall_ms_per_query=4.471, kernel_ms=4.379, request_latency_ms=4.457
+repeat=2, callers=4, queries=100, gpu_wall_ms_per_query=4.563, kernel_ms=4.463, request_latency_ms=11.920
