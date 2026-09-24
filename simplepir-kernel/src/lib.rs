@@ -22,7 +22,7 @@ pub mod chunked;
 pub mod scalar;
 
 pub use avx512::U16Avx512Kernel;
-pub use backend::{FirstDimKernel, ToU64};
+pub use backend::{FirstDimKernel, KernelError, ToU64};
 pub use chunked::ChunkedSplitKernel;
 pub use scalar::ScalarKernel;
 
@@ -44,3 +44,6 @@ pub fn band_cols<T>(rows_padded: usize, cols: usize) -> usize {
 
     by_size.min(by_threads).clamp(1, cols)
 }
+
+#[cfg(feature = "cuda")]
+pub mod cuda;

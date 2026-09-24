@@ -29,6 +29,7 @@ reqwest = { version = "0.12", features = ["blocking"], optional = true }
 
 [features]
 default = []
+cuda = ["simplepir-kernel/cuda"]
 experimental-key-reuse = []
 experimental-params = []
 http_server = ["dep:actix-cors", "dep:actix-web"]
