@@ -1,0 +1,53 @@
+{
+  "baseline_source": "b308543",
+  "baseline_arithmetic": "cf6a83c471fb78d1ef7cba0ed7b237dbc5e6ed66",
+  "primary_source": "6c1aabca59ca096a716db2015a78f51ca3efdaac",
+  "main_base": "1d8aea3",
+  "host": {
+    "id": 603320067,
+    "region": "ams3",
+    "size": "g-8vcpu-32gb-intel",
+    "vcpus": 8,
+    "ram_gib": 32,
+    "cpu": "Intel Xeon Gold 6548N"
+  },
+  "build": {
+    "rust": "1.89.0",
+    "RUSTFLAGS": "-C target-cpu=native"
+  },
+  "primary_fixture": {
+    "degree": 2048,
+    "blocks": 16,
+    "q_bits": 54,
+    "p_bits": 14,
+    "gadget_bits": 19,
+    "limbs": 2,
+    "sampler": "Gaussian"
+  },
+  "full_database": {
+    "rows": 28672,
+    "columns": 32768,
+    "element_bytes": 2,
+    "bytes": 1879048192
+  },
+  "papers": [
+    {
+      "url": "https://eprint.iacr.org/2026/1934",
+      "pdf_sha256": "7b5d6b0d331176a0bceb9cc563582caa7627ace2c1604cd933d61a2c0fcd9d2f",
+      "comparison": "Table 5; single-threaded results, not a matched implementation baseline"
+    },
+    {
+      "url": "https://eprint.iacr.org/2025/1352",
+      "pdf_sha256": "a10fbb996f2abda0b18853c2e484bb8171846011bfd56719c9f1aaacfd3918ef",
+      "comparison": "Table 5; single-threaded results, not a matched implementation baseline"
+    }
+  ],
+  "initial_28bit_source": "88660669f548ed33988220cdb13f5d9469dd33c8",
+  "final_run_directories": {
+    "initial_28bit": "raw-final",
+    "final_27_28bit": "raw-final27",
+    "eight_row": "raw-final8"
+  },
+  "four_row_source": "abb6a96804dbef6f5b14cb4e23f97e6645df5938",
+  "four_row_source_diff_sha256": "217cc66f7655173155bc2938c559d59c1cc0032845d4ace2f4079e5adcc38941"
+}

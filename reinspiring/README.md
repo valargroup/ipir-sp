@@ -28,6 +28,31 @@ when sufficient, retaining the generic three-prime path otherwise. It does not r
 ciphertext modulus. There is no schoolbook fallback in the
 native online path. Rust 1.89 is required for stable AVX-512 intrinsics.
 
+Packing coefficient storage is selected from the actual public coefficient
+range. AVX-512/VBMI hosts use signed 27- or 28-bit storage when every coefficient fits
+and the matrix geometry supports the four-row kernel; other matrices retain
+signed 32- or 64-bit storage. Compression changes neither coefficients nor
+cryptographic parameters. The kernel shares uploaded-key vector loads across eight rows, with a four-row
+fallback when required by the matrix geometry. All CPU dispatch has exact portable fallbacks.
+
+For a separate packing worker, call `prepare_keys` once per request, share the
+immutable result across blocks, and call `prepare_pack` for each block. This
+computes the matrix and leftover contributions before the database scan ends.
+Call `PendingNativePack::finish` with that block's scan body when it arrives.
+The dispatcher must bind setup, snapshot, request, and block identity across the
+two machines; the low-level split API does not provide a network protocol or
+request authentication. `NativeServer::respond` uses request-local prepared
+keys and retains the existing response binding, but executes the stages
+sequentially on its own host.
+
+`NativePreprocessed::build_batch` and `NativeServer::build_with_concurrency`
+accept an explicit maximum number of preprocessing blocks in flight. Each block
+uses the current Rayon pool; larger batches trade peak scratch memory for setup
+throughput. `NativeServer::build` retains sequential block construction. Input
+mask storage owned by the caller is additional to scratch and retained packing
+material. See the [packing measurements](../bench-results/2026-09-24-reinspiring-packing/README.md)
+for the measured concurrency and memory tradeoff.
+
 The integrated server uses an interleaved 16-column database layout on AVX-512
 VNNI hosts. Signed radix-256 query digits and unsigned database bytes produce
 exact dot products modulo q, with no loss of query precision. Each accumulator

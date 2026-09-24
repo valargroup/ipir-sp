@@ -1,0 +1,104 @@
+{
+  "source": "6c1aabca59ca096a716db2015a78f51ca3efdaac",
+  "trials_ms": {
+    "tiles-ell3-final27": 13.373156,
+    "tiles-ell3-tiles16": 13.050984999999999,
+    "tiles-ell3-tiles8": 12.9705875,
+    "tiles-single-final27": 0.9248689999999999,
+    "tiles-single-tiles16": 0.8959509999999999,
+    "tiles-single-tiles8": 0.9014854999999999,
+    "tiles-trial-final27-r1": 8.639639500000001,
+    "tiles-trial-final27-r2": 8.4045355,
+    "tiles-trial-final27-r3": 8.6786165,
+    "tiles-trial-tiles16-r1": 8.066847,
+    "tiles-trial-tiles16-r2": 8.256363,
+    "tiles-trial-tiles16-r3": 8.5851185,
+    "tiles-trial-tiles8-r1": 8.056924500000001,
+    "tiles-trial-tiles8-r2": 8.074492,
+    "tiles-trial-tiles8-r3": 8.387549
+  },
+  "e2e_runs": [
+    {
+      "setup_s": 17.692773515,
+      "coefficient_bytes": 454295680,
+      "packing_ms": 7.859730000000001,
+      "matvec_ms": 34.47066,
+      "server_ms": 44.354226
+    },
+    {
+      "setup_s": 18.679086058,
+      "coefficient_bytes": 454295680,
+      "packing_ms": 7.932884,
+      "matvec_ms": 34.942946,
+      "server_ms": 44.908991
+    },
+    {
+      "setup_s": 18.100966432,
+      "coefficient_bytes": 454295680,
+      "packing_ms": 7.935623,
+      "matvec_ms": 34.766626,
+      "server_ms": 44.773098
+    }
+  ],
+  "e2e_medians": {
+    "setup_s": 18.100966432,
+    "coefficient_bytes": 454295680,
+    "packing_ms": 7.932884,
+    "matvec_ms": 34.766626,
+    "server_ms": 44.773098
+  },
+  "compare_runs_ms": {
+    "reinspiring_odd": [
+      4.43909,
+      4.389994,
+      4.3267495
+    ],
+    "native_l3_leftover": [
+      0.7118085,
+      0.7039964999999999,
+      0.7138154999999999
+    ],
+    "native_l2_matrix": [
+      0.40718600000000005,
+      0.418875,
+      0.42049800000000004
+    ],
+    "native_l2_pack": [
+      0.922875,
+      0.9273534999999999,
+      0.9198005
+    ],
+    "native_l3_matrix": [
+      0.602292,
+      0.587638,
+      0.6166925000000001
+    ],
+    "inspiring_odd": [
+      2.3336509999999997,
+      2.389146,
+      2.369365
+    ],
+    "native_l3_pack": [
+      1.3534709999999999,
+      1.3464269999999998,
+      1.3486420000000001
+    ],
+    "native_l2_leftover": [
+      0.46820799999999996,
+      0.46283450000000004,
+      0.468652
+    ]
+  },
+  "compare_medians_ms": {
+    "reinspiring_odd": 4.389994,
+    "native_l3_leftover": 0.7118085,
+    "native_l2_matrix": 0.418875,
+    "native_l2_pack": 0.922875,
+    "native_l3_matrix": 0.602292,
+    "inspiring_odd": 2.369365,
+    "native_l3_pack": 1.3486420000000001,
+    "native_l2_leftover": 0.46820799999999996
+  },
+  "exact_trial_files": 15,
+  "exact_ciphertext_sample_sets": 90
+}

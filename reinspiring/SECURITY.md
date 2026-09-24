@@ -106,3 +106,33 @@ Still required before production activation:
 
 No deployment or default-backend change is part of this refresh. Benchmark
 performance is not evidence that these approval gates have been met.
+
+## Packing performance invariants
+
+The packing optimizations do not change decomposition, rounding, ciphertext
+moduli, samplers, or wire precision. Signed 27- or 28-bit storage is selected only after
+checking every public matrix coefficient against [-2^26, 2^26-1] for 27 bits,
+or [-2^27, 2^27-1] for 28 bits; the decoder
+sign-extends the exact value. Packed row kernels compute the same wrapping u64
+sum, whose low bits equal the desired result modulo the native power-of-two q.
+Fallback storage retains out-of-range coefficients exactly.
+
+Integer mask aggregation starts with i64 only while the public bound
+`stage_length * (q-1) <= i64::MAX` holds. It widens to i128 before any stage that
+could exceed that bound. D.1 division is performed on the signed integer result
+before reduction modulo q; reducing earlier would change the algorithm.
+
+Cached online leftover products are combined before CRT reconstruction only
+when twice the bound on their entire signed sum is strictly smaller than the
+product of the two auxiliary primes. Otherwise each product is reconstructed
+separately. Request-wide key transforms select enough primes from the profile's
+public digit bound, independently of the first block's actual coefficients.
+
+Prepared key bodies are public uploaded ciphertexts and request-local data.
+They can be shared immutably across blocks from the same setup. The split
+packing API borrows the corresponding preprocessing block and consumes its
+pending result when adding a scan body, but does not authenticate that body's
+request or block identity. A distributed dispatcher must enforce those bindings;
+it must not treat a matching setup ID as a matching request. The integrated
+server keeps these objects local to a single validated request and preserves
+its existing request-hash response binding.

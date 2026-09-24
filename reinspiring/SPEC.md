@@ -38,8 +38,9 @@ These are arithmetic/allocation limits, not security approval for every tuple.
 The paper research configuration is d=2048, q=2^54, p=2^14, base=2^19.
 
 D.2 aggregation uses an integer ring FFT. Its exact integer coefficients can
-exceed u64 (d*q=2^65 in the paper configuration), so they are stored in i128.
-For each odd exponent, the aggregated mask is divided by d with mathematical
+exceed u64 (d*q=2^65 in the paper configuration). Stages use i64 only while
+`stage_length*(q-1) <= i64::MAX`; the transform widens to i128 before the first
+stage exceeding that public bound. For each odd exponent, the aggregated mask is divided by d with mathematical
 floor, then reduced modulo q, as in D.1. Reducing modulo q *before* division is
 incorrect. The integer lift of an embedded negative coefficient remains negative.
 No d inverse modulo q is used.
@@ -63,9 +64,11 @@ modulus limit. Their product Q fits i128 and exceeds d*q² at supported inputs.
 
 Operands use centered lifts. A negacyclic coefficient has absolute value at
 most d*q²/4. Consequently Q>d*q² suffices for unique signed reconstruction.
-Garner CRT reconstructs each individual polynomial product before reduction
-modulo q. Limb products are summed only *after* reduction; this avoids assuming
-the bound covers an arbitrary sum of limbs. Invalid dimensions/noncanonical
+The generic Garner CRT path reconstructs each individual polynomial product
+before reduction modulo q. The cached native path may combine limb products in
+two auxiliary rings only if `2*d*floor(q/2)*sum(B_i) < p0*p1`, with B_i the
+public centered maximum of each left limb. Otherwise it retains per-product
+reconstruction; a per-product bound is never treated as a full-sum bound. Invalid dimensions/noncanonical
 coefficients are rejected. The legacy single-prime helper now rejects insufficient
 capacity instead of silently performing a schoolbook fallback.
 
@@ -73,13 +76,21 @@ A cached public operand with maximum absolute coefficient B uses only the first
 two primes when their product exceeds 2*d*B*floor(q/2). The check is strict and
 performed independently per limb. This covers a full-width uploaded operand;
 no bound is inferred from secret or query data. Larger public operands retain
-all three primes. Public left transforms are retained offline, so online packing
-only transforms the uploaded right operand and the product.
+all three primes. Public left transforms are retained offline. Uploaded right
+transforms can be prepared once per request and shared across blocks: their
+prime count is chosen from the profile-wide digit bound, not the first block's
+actual coefficients. In the checked two-prime full-sum case, each block needs
+only two inverse transforms regardless of limb count.
 
-Native H' uses i32 when every centered entry fits, otherwise i64. Its dimensions
-and words are private. The i32 path dispatches to AVX-512 or AVX2 on supported
-x86 hosts, with a wrapping scalar fallback. AVX-512 processes eight signed
-coefficients per vector with four independent accumulators. All sums wrap,
+Native H' stores each centered entry exactly: signed 27- or 28-bit packed storage
+when its range and geometry permit AVX-512/VBMI decoding, otherwise i32 when
+all entries fit, otherwise i64. Its dimensions and words are private. Packed
+storage requires a power-of-two modulus, rows divisible by four, and columns
+divisible by eight; eight extra bytes bound SIMD and scalar decoding loads. The i32
+path dispatches to AVX-512 or AVX2 on supported x86 hosts, with a wrapping scalar
+fallback. The packed AVX-512 kernel processes eight coefficients per vector and
+eight rows together, with four-row fallback when needed by the row count. It
+shares uploaded-key loads while keeping sixteen independent accumulators. All sums wrap,
 which is exact because q divides 2^64. Tails, negative coefficients and carry
 boundaries are checked against scalar integer arithmetic. Parallelism follows
 the caller's Rayon pool.
@@ -129,9 +140,13 @@ proofs of database honesty. Existing InspiRING wire formats remain unchanged.
 The server uses the existing IPIR-SP polynomial-block first dimension: public
 hint columns are sums of negacyclic database/query-mask products, and online
 answers are column-major u16-by-u64 dot products. It preprocesses output blocks
-sequentially to bound memory, while parallelizing columns and online blocks.
-This implementation prioritizes correctness of the native hint path; it does
-not yet cache every transformed public hint operand across columns.
+sequentially by default to bound memory, while parallelizing columns and online
+blocks. Explicit bounded block concurrency is available for offline throughput.
+The public query-mask transforms are cached across hint columns. Packing can
+compute H'y and the leftover before scan output is available; a consuming finish
+step adds the matching scan body. Distributed request/block association remains
+the dispatcher's responsibility; the integrated server retains its request
+binding and executes scan and packing sequentially.
 
 ## Validation and comparison contract
 

@@ -1,0 +1,4 @@
+   Compiling simplepir-kernel v0.1.0-rc.1 (/root/optimized/simplepir-kernel)
+   Compiling ipir-sp v0.1.0-rc.2 (/root/optimized/ipir-sp)
+    Finished `bench` profile [optimized] target(s) in 13.01s
+  Executable benches/end_to_end.rs (target/release/deps/end_to_end-6e9b9d6e25f2e87f)
