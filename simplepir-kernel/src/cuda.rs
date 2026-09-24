@@ -168,7 +168,11 @@ impl CudaKernel {
             .memcpy_htod(query, &mut s.query)
             .map_err(error)?;
         let start = if timed {
-            Some(self.stream.record_event(None).map_err(error)?)
+            Some(
+                self.stream
+                    .record_event(Some(cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT))
+                    .map_err(error)?,
+            )
         } else {
             None
         };
@@ -206,7 +210,11 @@ impl CudaKernel {
         }
         .map_err(error)?;
         let end = if timed {
-            Some(self.stream.record_event(None).map_err(error)?)
+            Some(
+                self.stream
+                    .record_event(Some(cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT))
+                    .map_err(error)?,
+            )
         } else {
             None
         };
