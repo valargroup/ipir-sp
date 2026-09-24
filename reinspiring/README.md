@@ -21,10 +21,19 @@ It does not replace any existing production profile or the default backend.
 See [SECURITY.md](SECURITY.md) for assumptions, bounds and release gates.
 
 The native path implements the ring FFT compiler, the integer-lift transform,
-public-mask key-switch trace, compact signed matrix storage, scalar/AVX2 dot
-products, and an exact three-prime NTT/CRT remainder. It does not require an NTT
+public-mask key-switch trace, compact signed matrix storage, scalar/AVX2/AVX-512
+dot products, and an exact NTT/CRT remainder. Public leftover transforms are
+cached offline; a checked public coefficient bound selects two auxiliary primes
+when sufficient, retaining the generic three-prime path otherwise. It does not require an NTT
 at the power-of-two ciphertext modulus. There is no schoolbook fallback in the
-native online path.
+native online path. Rust 1.89 is required for stable AVX-512 intrinsics.
+
+The integrated server uses an interleaved 16-column database layout on AVX-512
+VNNI hosts. Signed radix-256 query digits and unsigned database bytes produce
+exact dot products modulo q, with no loss of query precision. Each accumulator
+window is limited to 65,536 rows, so even full-range u16 database entries cannot
+overflow the signed 32-bit byte accumulators. Other CPUs retain exact word
+kernels. The layout conversion is offline and retains the same database size.
 
 ```sh
 cargo test -p reinspiring --release

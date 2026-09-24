@@ -276,12 +276,13 @@ pub struct NativeTiming {
 pub struct NativeServer {
     setup: NativePublicSetup,
     db: Vec<u16>,
+    interleaved: bool,
     pre: Vec<NativePreprocessed>,
 }
 impl NativeServer {
     /// Build all public preprocessing; the database must contain canonical Z_p values.
     /// Process output blocks sequentially to bound peak scratch memory.
-    pub fn build(setup: NativePublicSetup, db: Vec<u16>) -> Result<Self, ReinspiringError> {
+    pub fn build(setup: NativePublicSetup, mut db: Vec<u16>) -> Result<Self, ReinspiringError> {
         let p = &setup.profile;
         let d = p.pack.d();
         let q = p.pack.q();
@@ -309,7 +310,20 @@ impl NativeServer {
                 .collect();
             pre.push(NativePreprocessed::build(&setup.packing, &masks?)?);
         }
-        Ok(Self { setup, db, pre })
+        let interleaved = p.rows % 4 == 0
+            && p.cols % 16 == 0
+            && reinspiring::native_kernel::PreparedU16Query::supports_interleaved();
+        if interleaved {
+            db.par_chunks_mut(p.rows * 16).for_each(|band| {
+                reinspiring::native_kernel::PreparedU16Query::interleave_columns(band, p.rows)
+            });
+        }
+        Ok(Self {
+            setup,
+            db,
+            interleaved,
+            pre,
+        })
     }
     /// Publish setup-bound c1 rows.
     pub fn published(&self) -> NativePublished {
@@ -352,13 +366,21 @@ impl NativeServer {
             q,
             p.query_bits,
         );
+        let prepared_query = reinspiring::native_kernel::PreparedU16Query::new(&query, q)?;
         let deserialize = start.elapsed();
         let t = Instant::now();
-        let intermediate: Vec<_> = self
-            .db
-            .par_chunks_exact(p.rows)
-            .map(|col| reinspiring::native_kernel::dot_u16(col, &query) & (q - 1))
-            .collect();
+        let mut intermediate = vec![0; p.cols];
+        if self.interleaved {
+            intermediate
+                .par_chunks_mut(16)
+                .zip(self.db.par_chunks(p.rows * 16))
+                .for_each(|(out, db)| prepared_query.multiply_interleaved(db, out));
+        } else {
+            intermediate
+                .par_iter_mut()
+                .zip(self.db.par_chunks_exact(p.rows))
+                .for_each(|(out, col)| *out = prepared_query.dot(col));
+        }
         let matrix_vector = t.elapsed();
         let t = Instant::now();
         let packed: Result<Vec<_>, _> = self

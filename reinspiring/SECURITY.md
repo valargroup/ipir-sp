@@ -19,7 +19,10 @@ multi-target fleet-wide work bound. Transport digests are public consistency
 checks, not MACs. Applications must not expose secret-dependent response-validation
 behaviour to a malicious server.
 
-The three-prime arithmetic uses the pinned Spiral NTT. CRT reconstruction and
+The lifted arithmetic uses the pinned Spiral NTT. Generic products retain three
+primes. Cached public operands may use two only when their product exceeds
+`2*d*max_abs(public_operand)*floor(q/2)`; limbs are reconstructed separately.
+Prime selection depends only on public preprocessing, never on a client secret. CRT reconstruction and
 coefficient conversions have not received a constant-time machine-code audit;
 local timing/cache adversaries are excluded from the current claim. The Gaussian
 sampler uses the dependency's fixed CDF scan, not its variable-time fast sampler.

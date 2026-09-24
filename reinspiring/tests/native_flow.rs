@@ -29,6 +29,61 @@ fn crt_matches_schoolbook_signed_and_boundary_inputs() {
     }
 }
 #[test]
+fn cached_public_lifts_match_schoolbook_and_generic_at_capacity_boundaries() {
+    for d in [2, 16, 64] {
+        for q in [12289, 1 << 54, 1 << 56] {
+            let ctx = LiftContext::new(d, q).unwrap();
+            // Small public digits select two primes; full-width selects three.
+            // Include signed endpoints, zero and multi-limb accumulation.
+            let threshold = ((4398046568449u128 * 4398046666753u128 - 1)
+                / (2 * d as u128 * (q / 2) as u128))
+                .min((q / 2 - 1) as u128) as u64;
+            for bound in [0, 1, (1 << 18).min(q / 2), threshold, threshold + 1, q / 2] {
+                let a: Vec<Vec<_>> = (0..3)
+                    .map(|j| {
+                        (0..d)
+                            .map(|i| {
+                                if (i + j) % 2 == 0 {
+                                    bound
+                                } else {
+                                    (q - bound) % q
+                                }
+                            })
+                            .collect()
+                    })
+                    .collect();
+                let b: Vec<Vec<_>> = (0..3)
+                    .map(|j| {
+                        (0..d)
+                            .map(|i| [0, q - 1, q / 2, q / 2 + 1][(i + j) % 4])
+                            .collect()
+                    })
+                    .collect();
+                let cached = ctx.prepare_public(&a).unwrap();
+                let mut expected = vec![0; d];
+                for (a, b) in a.iter().zip(&b) {
+                    for (dst, x) in expected.iter_mut().zip(schoolbook_negacyclic(a, b, q)) {
+                        *dst = (*dst + x) % q;
+                    }
+                }
+                assert_eq!(ctx.sum_prepared(&cached, &b).unwrap(), expected);
+                assert_eq!(
+                    ctx.sum_prepared(&cached, &b).unwrap(),
+                    ctx.sum(&a, &b).unwrap()
+                );
+                assert!(ctx.sum_prepared(&cached, &b[..2]).is_err());
+                assert!(LiftContext::new(d, q - 1)
+                    .unwrap()
+                    .sum_prepared(&cached, &b)
+                    .is_err());
+            }
+            assert!(ctx.prepare_public(&[]).is_err());
+            assert!(ctx.prepare_public(&[vec![q; d]]).is_err());
+        }
+    }
+}
+
+#[test]
 fn compile_fft_handles_arbitrary_odd_and_repeated_exponents() {
     for q in [12289, 1 << 54] {
         for d in [4, 8, 16] {

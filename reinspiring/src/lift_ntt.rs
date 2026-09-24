@@ -23,6 +23,21 @@ pub struct LiftContext {
     inverses: [u64; 2],
 }
 
+/// Offline transforms of a public left operand. The prime count is selected
+/// from its public coefficient bound, never from a client secret.
+pub struct PreparedLiftOperand {
+    d: usize,
+    q: u64,
+    // limb, prime, NTT coefficient; immutable and independent of request data.
+    transforms: Vec<Vec<Vec<u64>>>,
+}
+impl PreparedLiftOperand {
+    /// Heap bytes retained by the public NTT coefficients.
+    pub fn storage_bytes(&self) -> usize {
+        self.transforms.iter().flatten().map(|x| x.len() * 8).sum()
+    }
+}
+
 impl LiftContext {
     /// Construct for d in 2..=4096 and q in 2..=2^56.
     pub fn new(d: usize, q: u64) -> Result<Self, ReinspiringError> {
@@ -107,6 +122,100 @@ impl LiftContext {
                 signed.rem_euclid(self.q as i128) as u64
             })
             .collect())
+    }
+
+    /// Cache transforms of public polynomials. For each product, signed integer
+    /// coefficients are bounded by d*max_abs(left)*floor(q/2). Choose two primes
+    /// only when their product strictly exceeds twice that bound. Three primes
+    /// retain the generic exact-product bound. Reconstruct limbs separately.
+    pub fn prepare_public(&self, a: &[Vec<u64>]) -> Result<PreparedLiftOperand, ReinspiringError> {
+        if a.is_empty() {
+            return Err(ReinspiringError::LweShape("empty prepared operand".into()));
+        }
+        let mut transforms = Vec::with_capacity(a.len());
+        for poly in a {
+            self.validate(poly)?;
+            let max = poly
+                .iter()
+                .map(|&x| centered(x, self.q).unsigned_abs())
+                .max()
+                .unwrap();
+            let bound = 2 * self.d as u128 * max * (self.q / 2) as u128;
+            let count = if (PRIMES[0] as u128) * (PRIMES[1] as u128) > bound {
+                2
+            } else {
+                3
+            };
+            let mut primes = Vec::with_capacity(count);
+            for params in &self.params[..count] {
+                let mut raw = PolyMatrixRaw::zero(params, 1, 1);
+                for (dst, &x) in raw.as_mut_slice().iter_mut().zip(poly) {
+                    *dst = centered(x, self.q).rem_euclid(params.modulus as i128) as u64;
+                }
+                primes.push(to_ntt_alloc(&raw).as_slice().to_vec());
+            }
+            transforms.push(primes);
+        }
+        Ok(PreparedLiftOperand {
+            d: self.d,
+            q: self.q,
+            transforms,
+        })
+    }
+
+    /// Exact sum with offline public transforms and capacity-checked CRT. Uploaded
+    /// bodies remain full-width; no approximate arithmetic or modulus switch.
+    pub fn sum_prepared(
+        &self,
+        a: &PreparedLiftOperand,
+        b: &[Vec<u64>],
+    ) -> Result<Vec<u64>, ReinspiringError> {
+        if a.d != self.d || a.q != self.q || a.transforms.len() != b.len() {
+            return Err(ReinspiringError::LweShape(
+                "prepared operand mismatch".into(),
+            ));
+        }
+        let mut result = vec![0u64; self.d];
+        for (primes, poly) in a.transforms.iter().zip(b) {
+            self.validate(poly)?;
+            let mut residues = Vec::with_capacity(primes.len());
+            for (params, lhs) in self.params.iter().zip(primes) {
+                let mut left = PolyMatrixNTT::zero(params, 1, 1);
+                left.as_mut_slice().copy_from_slice(lhs);
+                let mut right = PolyMatrixRaw::zero(params, 1, 1);
+                for (dst, &x) in right.as_mut_slice().iter_mut().zip(poly) {
+                    *dst = centered(x, self.q).rem_euclid(params.modulus as i128) as u64;
+                }
+                let mut out = PolyMatrixNTT::zero(params, 1, 1);
+                multiply(&mut out, &left, &to_ntt_alloc(&right));
+                residues.push(from_ntt_alloc(&out).as_slice().to_vec());
+            }
+            let product = PRIMES[..primes.len()]
+                .iter()
+                .map(|&p| p as u128)
+                .product::<u128>();
+            for (i, dst) in result.iter_mut().enumerate() {
+                let mut x = residues[0][i] as u128;
+                let mut m = PRIMES[0] as u128;
+                for j in 1..primes.len() {
+                    let p = PRIMES[j] as u128;
+                    let delta = (residues[j][i] as u128 + p - x % p) % p;
+                    x += m * (delta * self.inverses[j - 1] as u128 % p);
+                    m *= p;
+                }
+                let signed = if x > product / 2 {
+                    x as i128 - product as i128
+                } else {
+                    x as i128
+                };
+                *dst = if self.q.is_power_of_two() {
+                    dst.wrapping_add(signed as u64) & (self.q - 1)
+                } else {
+                    (*dst + signed.rem_euclid(self.q as i128) as u64) % self.q
+                };
+            }
+        }
+        Ok(result)
     }
 
     /// Sum independent exact products, reducing each one before accumulation.

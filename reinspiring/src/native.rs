@@ -6,7 +6,7 @@
 use crate::{
     compile::{collapse_kg_exponents, compile_fast, tau_coeffs},
     error::ReinspiringError,
-    lift_ntt::{centered, LiftContext},
+    lift_ntt::{centered, LiftContext, PreparedLiftOperand},
     matrix::PackingMatrix,
     native_matrix::NativeMatrix,
 };
@@ -415,7 +415,7 @@ pub struct NativePreprocessed {
     id: [u8; 32],
     a: Vec<u64>,
     h: NativeMatrix,
-    leftover: Vec<Vec<u64>>,
+    leftover: PreparedLiftOperand,
     lift: LiftContext,
 }
 impl NativePreprocessed {
@@ -488,7 +488,7 @@ impl NativePreprocessed {
             id: setup.id,
             a,
             h,
-            leftover: last,
+            leftover: lift.prepare_public(&last)?,
             lift,
         })
     }
@@ -500,7 +500,7 @@ impl NativePreprocessed {
         }
         let y: Vec<_> = keys.kg.iter().flatten().copied().collect();
         let mut out = self.h.multiply(&y)?;
-        let leftover = self.lift.sum(&self.leftover, &keys.kh)?;
+        let leftover = self.lift.sum_prepared(&self.leftover, &keys.kh)?;
         for i in 0..self.params.d {
             out[i] = (out[i] + leftover[i] + b[i]) & (self.params.q - 1);
         }
@@ -519,11 +519,11 @@ impl NativePreprocessed {
         if keys.id != self.id {
             return Err(invalid("packing setup mismatch"));
         }
-        self.lift.sum(&self.leftover, &keys.kh)
+        self.lift.sum_prepared(&self.leftover, &keys.kh)
     }
     /// Retained coefficient storage, excluding auxiliary NTT tables and headers.
     pub fn coefficient_bytes(&self) -> usize {
-        self.h.storage_bytes() + (self.leftover.len() + 1) * self.params.d * 8
+        self.h.storage_bytes() + self.leftover.storage_bytes() + self.params.d * 8
     }
     /// Published c1 row; independent of the client's secret and uploaded bodies.
     pub fn mask(&self) -> &[u64] {
