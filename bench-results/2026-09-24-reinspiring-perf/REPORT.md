@@ -114,7 +114,7 @@ The retained-source repeat at `2e19774` measured:
 | Native two-limb full pack | 2.162 | 0.954 |
 | Native three-limb full pack | 4.781 | 1.483 |
 
-Thus native two-limb packing is **4.52× faster on one worker** and **2.45× faster
+Thus native two-limb packing is **4.52× faster on one worker** and **2.44× faster
 on eight**, compared with actual main on the same host/build settings. Standalone
 matrices can stay in cache; the integrated stage traverses sixteen distinct
 matrices, so multiplying a hot single-pack time by sixteen is not a latency model.
