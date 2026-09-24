@@ -203,14 +203,19 @@ pub(crate) fn read_packed<const BITS: usize>(a: &[u8], index: usize) -> i32 {
     let word = u64::from_le_bytes(a[offset..offset + 8].try_into().unwrap());
     ((((word >> shift) << (64 - BITS)) as i64) >> (64 - BITS)) as i32
 }
-pub(crate) fn dot_packed_rows4<const BITS: usize>(a: &[u8], stride: usize, b: &[u64]) -> [u64; 4] {
+pub(crate) fn dot_packed_rows<const BITS: usize, const ROWS: usize, const GROUPS: usize>(
+    a: &[u8],
+    stride: usize,
+    b: &[u64],
+) -> [u64; ROWS] {
     assert!(BITS == 27 || BITS == 28);
+    assert!(matches!(ROWS, 4 | 8 | 16) && ROWS * GROUPS == 16);
     assert_eq!(stride * 8, b.len() * BITS);
-    assert!(a.len() >= 4 * stride + 8);
+    assert!(a.len() >= ROWS * stride + 8);
     #[cfg(target_arch = "x86_64")]
     if supports_packed() {
-        // SAFETY: features checked, four complete rows plus eight padding bytes.
-        return unsafe { x86::packed_rows4_512::<BITS>(a, stride, b) };
+        // SAFETY: features checked, ROWS complete rows plus eight padding bytes.
+        return unsafe { x86::packed_rows_512::<BITS, ROWS, GROUPS>(a, stride, b) };
     }
     std::array::from_fn(|r| {
         b.iter().enumerate().fold(0u64, |sum, (i, &y)| {
@@ -224,11 +229,15 @@ pub(crate) fn dot_packed_rows4<const BITS: usize>(a: &[u8], stride: usize, b: &[
 mod x86 {
     use std::arch::x86_64::*;
     #[target_feature(enable = "avx512f,avx512dq,avx512bw,avx512vbmi")]
-    pub(super) unsafe fn packed_rows4_512<const BITS: usize>(
+    pub(super) unsafe fn packed_rows_512<
+        const BITS: usize,
+        const ROWS: usize,
+        const GROUPS: usize,
+    >(
         a: &[u8],
         stride: usize,
         b: &[u64],
-    ) -> [u64; 4] {
+    ) -> [u64; ROWS] {
         let mut indices = [0u8; 64];
         for lane in 0..8 {
             for byte in 0..5 {
@@ -249,10 +258,11 @@ mod x86 {
             0,
         );
         let n = b.len();
-        let end = n / 32 * 32;
-        let mut sums = [[_mm512_setzero_si512(); 4]; 4];
-        for i in (0..end).step_by(32) {
-            for j in 0..4 {
+        let width = 8 * GROUPS;
+        let end = n / width * width;
+        let mut sums = [[_mm512_setzero_si512(); GROUPS]; ROWS];
+        for i in (0..end).step_by(width) {
+            for j in 0..GROUPS {
                 // SAFETY: i+j*8+8<=end<=n.
                 let y = unsafe { _mm512_loadu_si512(b.as_ptr().add(i + j * 8).cast()) };
                 for (r, row) in sums.iter_mut().enumerate() {
@@ -275,10 +285,9 @@ mod x86 {
             }
         }
         std::array::from_fn(|r| {
-            let sum = _mm512_add_epi64(
-                _mm512_add_epi64(sums[r][0], sums[r][1]),
-                _mm512_add_epi64(sums[r][2], sums[r][3]),
-            );
+            let sum = sums[r]
+                .iter()
+                .fold(_mm512_setzero_si512(), |sum, &v| _mm512_add_epi64(sum, v));
             let mut words = [0u64; 8];
             // SAFETY: the destination holds one complete vector.
             unsafe {
@@ -637,11 +646,11 @@ mod tests {
     }
     #[test]
     fn packed_widths_match_scalar_at_signed_bounds_and_vector_tails() {
-        fn check<const BITS: usize>() {
+        fn check<const BITS: usize, const ROWS: usize, const GROUPS: usize>() {
             for n in (8..=160).step_by(8) {
                 let stride = n / 8 * BITS;
-                let mut bytes = vec![0u8; 4 * stride + 8];
-                let a: Vec<i32> = (0..4 * n)
+                let mut bytes = vec![0u8; ROWS * stride + 8];
+                let a: Vec<i32> = (0..ROWS * n)
                     .map(|i| {
                         [
                             -(1 << (BITS - 1)),
@@ -668,14 +677,18 @@ mod tests {
                     .collect();
                 let expected = std::array::from_fn(|r| scalar_i32(&a[r * n..(r + 1) * n], &b));
                 assert_eq!(
-                    dot_packed_rows4::<BITS>(&bytes, stride, &b),
+                    dot_packed_rows::<BITS, ROWS, GROUPS>(&bytes, stride, &b),
                     expected,
                     "bits={BITS},n={n}"
                 );
             }
         }
-        check::<27>();
-        check::<28>();
+        check::<27, 4, 4>();
+        check::<28, 4, 4>();
+        check::<27, 8, 2>();
+        check::<28, 8, 2>();
+        check::<27, 16, 1>();
+        check::<28, 16, 1>();
     }
     #[test]
     fn dispatched_kernels_match_scalar_with_signs_overflow_and_tails() {

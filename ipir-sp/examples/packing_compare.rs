@@ -58,9 +58,24 @@ fn main() {
     let a = pre.pack_b(&b, &keys, &top).unwrap();
     let c = reinspiring::pack(&b, &keys, &rein).unwrap();
     assert_eq!(a.inner.as_slice(), c.inner.as_slice());
+    let inspiring_coeff_bytes = (pre.collapse_a_final_ntt.as_slice().len()
+        + pre
+            .digits_ntt
+            .iter()
+            .map(|x| x.as_slice().len())
+            .sum::<usize>())
+        * 8;
+    let inspiring_shared_top_coeff_bytes = (top.kh_top.as_slice().len()
+        + top
+            .kg_top_left
+            .iter()
+            .chain(&top.kg_top_right)
+            .map(|x| x.as_slice().len())
+            .sum::<usize>())
+        * 8;
     println!(
         "{}",
-        serde_json::json!({"kind":"setup","backend":"odd","d":d,"inspiring_s":inspiring_s,"compile_s":compile_s,"matrix_bytes":rein.matrix_storage_bytes()})
+        serde_json::json!({"kind":"setup","backend":"odd","d":d,"inspiring_s":inspiring_s,"compile_s":compile_s,"matrix_bytes":rein.matrix_storage_bytes(),"inspiring_coeff_bytes":inspiring_coeff_bytes,"inspiring_shared_top_coeff_bytes":inspiring_shared_top_coeff_bytes})
     );
     measure("inspiring_odd", || {
         pre.pack_b(black_box(&b), &keys, &top).unwrap()

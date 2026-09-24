@@ -2,6 +2,8 @@
 use crate::{error::ReinspiringError, lift_ntt::centered, matrix::PackingMatrix};
 use rayon::prelude::*;
 
+const PACKED_TILE_ROWS: usize = 8;
+
 enum Words {
     Narrow(Vec<i32>),
     Packed { bits: usize, data: Vec<u8> },
@@ -199,17 +201,26 @@ impl NativeMatrix {
         let mut out = vec![0; self.rows];
         if let Words::Packed { bits, data: x } = &self.words {
             let stride = self.cols / 8 * bits;
-            out.par_chunks_mut(4).enumerate().for_each(|(tile, dst)| {
-                let bytes = &x[tile * 4 * stride..tile * 4 * stride + 4 * stride + 8];
-                let sums = if *bits == 27 {
-                    crate::native_kernel::dot_packed_rows4::<27>(bytes, stride, y)
-                } else {
-                    crate::native_kernel::dot_packed_rows4::<28>(bytes, stride, y)
-                };
-                for (dst, sum) in dst.iter_mut().zip(sums) {
-                    *dst = sum & (self.q - 1);
-                }
-            });
+            let tile_rows = if self.rows % PACKED_TILE_ROWS == 0 {
+                PACKED_TILE_ROWS
+            } else {
+                4
+            };
+            out.par_chunks_mut(tile_rows)
+                .enumerate()
+                .for_each(|(tile, dst)| {
+                    let bytes = &x[tile * tile_rows * stride
+                        ..tile * tile_rows * stride + tile_rows * stride + 8];
+                    match (*bits, tile_rows) {
+                        (27, 4) => packed_tile::<27, 4, 4>(bytes, stride, y, dst, self.q - 1),
+                        (28, 4) => packed_tile::<28, 4, 4>(bytes, stride, y, dst, self.q - 1),
+                        (27, 8) => packed_tile::<27, 8, 2>(bytes, stride, y, dst, self.q - 1),
+                        (28, 8) => packed_tile::<28, 8, 2>(bytes, stride, y, dst, self.q - 1),
+                        (27, 16) => packed_tile::<27, 16, 1>(bytes, stride, y, dst, self.q - 1),
+                        (28, 16) => packed_tile::<28, 16, 1>(bytes, stride, y, dst, self.q - 1),
+                        _ => unreachable!("validated packed width and row tile"),
+                    }
+                });
             return Ok(out);
         }
         if let Words::Narrow(x) = &self.words {
@@ -280,60 +291,80 @@ impl NativeMatrix {
     }
 }
 
+fn packed_tile<const BITS: usize, const ROWS: usize, const GROUPS: usize>(
+    x: &[u8],
+    stride: usize,
+    y: &[u64],
+    out: &mut [u64],
+    mask: u64,
+) {
+    for (dst, sum) in
+        out.iter_mut()
+            .zip(crate::native_kernel::dot_packed_rows::<BITS, ROWS, GROUPS>(
+                x, stride, y,
+            ))
+    {
+        *dst = sum & mask;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn blocks_roundtrip_and_multiply_at_storage_boundaries() {
         let q = 1u64 << 54;
-        for bound in [
-            1i64 << 26,
-            (1 << 26) + 1,
-            1i64 << 27,
-            (1 << 27) + 1,
-            1 << 31,
-            (1 << 31) + 1,
-        ] {
-            let mut blocks = vec![];
-            for cols in [3, 5, 8] {
-                let mut m = PackingMatrix::zero(8, cols, q);
-                for (i, x) in m.data.iter_mut().enumerate() {
-                    *x =
-                        ([bound - 1, -bound, 0, 1, -1][i % 5] as i128).rem_euclid(q as i128) as u64;
+        for rows in [4, 8, 12, 16, 20, 32] {
+            for bound in [
+                1i64 << 26,
+                (1 << 26) + 1,
+                1i64 << 27,
+                (1 << 27) + 1,
+                1 << 31,
+                (1 << 31) + 1,
+            ] {
+                let mut blocks = vec![];
+                for cols in [3, 5, 8] {
+                    let mut m = PackingMatrix::zero(rows, cols, q);
+                    for (i, x) in m.data.iter_mut().enumerate() {
+                        *x = ([bound - 1, -bound, 0, 1, -1][i % 5] as i128).rem_euclid(q as i128)
+                            as u64;
+                    }
+                    blocks.push(m);
                 }
-                blocks.push(m);
-            }
-            let expected: Vec<_> = (0..8)
-                .flat_map(|r| {
-                    blocks
-                        .iter()
-                        .flat_map(move |m| m.data[r * m.cols..(r + 1) * m.cols].iter().copied())
-                })
-                .collect();
-            let m = NativeMatrix::from_blocks(blocks).unwrap();
-            assert_eq!(m.to_compiled().data, expected);
-            let y: Vec<_> = (0..16)
-                .map(|i| [q - 1, 0, q / 2, 12345678][i % 4])
-                .collect();
-            let sums: Vec<_> = expected
-                .chunks(16)
-                .map(|row| {
-                    row.iter()
-                        .zip(&y)
-                        .fold(0u64, |s, (&a, &b)| s.wrapping_add(a.wrapping_mul(b)))
-                        & (q - 1)
-                })
-                .collect();
-            assert_eq!(m.multiply(&y).unwrap(), sums);
-            if bound > (1 << 27) {
-                assert!(!matches!(m.words, Words::Packed { .. }));
-            } else if crate::native_kernel::supports_packed() {
-                let expected_bits = if bound <= (1 << 26) { 27 } else { 28 };
-                assert!(matches!(m.words, Words::Packed {bits,..} if bits==expected_bits));
-                assert_eq!(m.storage_bytes(), 8 * 16 * expected_bits / 8 + 8);
+                let expected: Vec<_> = (0..rows)
+                    .flat_map(|r| {
+                        blocks
+                            .iter()
+                            .flat_map(move |m| m.data[r * m.cols..(r + 1) * m.cols].iter().copied())
+                    })
+                    .collect();
+                let m = NativeMatrix::from_blocks(blocks).unwrap();
+                assert_eq!(m.to_compiled().data, expected);
+                let y: Vec<_> = (0..16)
+                    .map(|i| [q - 1, 0, q / 2, 12345678][i % 4])
+                    .collect();
+                let sums: Vec<_> = expected
+                    .chunks(16)
+                    .map(|row| {
+                        row.iter()
+                            .zip(&y)
+                            .fold(0u64, |s, (&a, &b)| s.wrapping_add(a.wrapping_mul(b)))
+                            & (q - 1)
+                    })
+                    .collect();
+                assert_eq!(m.multiply(&y).unwrap(), sums);
+                if bound > (1 << 27) {
+                    assert!(!matches!(m.words, Words::Packed { .. }));
+                } else if crate::native_kernel::supports_packed() {
+                    let expected_bits = if bound <= (1 << 26) { 27 } else { 28 };
+                    assert!(matches!(m.words, Words::Packed {bits,..} if bits==expected_bits));
+                    assert_eq!(m.storage_bytes(), rows * 16 * expected_bits / 8 + 8);
+                }
             }
         }
     }
+
     #[test]
     fn blocks_reject_malformed_and_mismatched_shapes() {
         assert!(NativeMatrix::from_blocks(vec![]).is_err());
