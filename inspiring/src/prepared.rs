@@ -285,6 +285,71 @@ mod tests {
             assert!(MappedPrepared::new(mapped(&bad), &p, 1, 0).is_err());
         }
     }
+    #[test]
+    fn mapped_production_multiblock_and_boundaries_match_owned() {
+        let p = RlweParams::new(
+            2048,
+            72_057_594_037_641_217,
+            1 << 16,
+            6.4,
+            GadgetParams {
+                bits_per: 19,
+                ell: 3,
+            },
+        )
+        .unwrap();
+        // Public canonical matrices suffice for execution equivalence. The HTTP
+        // integration separately checks real encrypted wallet answers and CRS.
+        let mut pre = Vec::new();
+        for block in 0..2 {
+            let mut c1 = PolyMatrixNTT::zero(&p.spiral, 1, 1);
+            c1.as_mut_slice().fill(block + 1);
+            let mut digits = Vec::new();
+            for i in 0..p.d - 1 {
+                let mut m = PolyMatrixNTT::zero(&p.spiral, p.gadget.ell, 1);
+                m.as_mut_slice().fill((i as u64 + block + 1) % p.q);
+                digits.push(m);
+            }
+            pre.push(QueryPackPreprocessed {
+                params: &p,
+                collapse_a_final_ntt: c1,
+                digits_ntt: digits,
+            });
+        }
+        let top = TopKeyImages::build(&p);
+        let mut keys = PackingKeys {
+            kg_body: PolyMatrixNTT::zero(&p.spiral, 1, p.gadget.ell),
+            kh_body: PolyMatrixNTT::zero(&p.spiral, 1, p.gadget.ell),
+        };
+        keys.kg_body.as_mut_slice().fill(p.q - 1);
+        keys.kh_body.as_mut_slice().fill(13);
+        let values: Vec<_> = (0..2 * p.d)
+            .map(|i| if i % 2 == 0 { 0 } else { p.q - 1 })
+            .collect();
+        let expected: Vec<_> = pre
+            .iter()
+            .zip(values.chunks(p.d))
+            .map(|(b, v)| b.pack_b(v, &keys, &top).unwrap())
+            .collect();
+        let mut encoded = Vec::new();
+        write(&mut encoded, &p, &pre, &top).unwrap();
+        let mut anon = memmap2::MmapMut::map_anon(encoded.len() + 8).unwrap();
+        anon[8..].copy_from_slice(&encoded);
+        let mapped = MappedPrepared::new(anon.make_read_only().unwrap(), &p, 2, 8).unwrap();
+        for _ in 0..3 {
+            let actual = mapped.pack(&values, &keys).unwrap();
+            for (a, b) in actual.iter().zip(&expected) {
+                assert_eq!(a.inner.as_slice(), b.inner.as_slice());
+            }
+        }
+        keys.kh_body.as_mut_slice()[0] = p.q;
+        assert!(mapped.pack(&values, &keys).is_err());
+        keys.kh_body = PolyMatrixNTT::zero(&p.spiral, 2, p.gadget.ell);
+        assert!(mapped.pack(&values, &keys).is_err());
+        let mut unaligned = memmap2::MmapMut::map_anon(encoded.len() + 1).unwrap();
+        unaligned[1..].copy_from_slice(&encoded);
+        assert!(MappedPrepared::new(unaligned.make_read_only().unwrap(), &p, 2, 1).is_err());
+    }
 }
 
 mod mapped;

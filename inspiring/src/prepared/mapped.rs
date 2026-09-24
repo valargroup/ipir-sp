@@ -153,6 +153,20 @@ impl<'a> MappedPrepared<'a> {
             ));
         }
         keys.validate(self.params)?;
+        for body in [&keys.kg_body, &keys.kh_body] {
+            let expected = self.params.gadget.ell * self.params.d * self.params.spiral.crt_count;
+            if body.as_slice().len() != expected
+                || body.as_slice().iter().enumerate().any(|(i, &n)| {
+                    n >= self.params.spiral.moduli
+                        [(i / self.params.d) % self.params.spiral.crt_count]
+                })
+            {
+                return Err(InspiringError::PreprocessMismatch(
+                    "noncanonical mapped packing key".into(),
+                ));
+            }
+        }
+
         let lanes = self.params.d * self.params.spiral.crt_count;
         self.blocks
             .par_iter()
