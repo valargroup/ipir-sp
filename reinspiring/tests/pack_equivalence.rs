@@ -57,7 +57,7 @@ fn reinspiring_matches_pack_b_tiny_naive() {
         .collect();
 
     let expected = pre.pack_b(&b, &keys, &top).expect("inspiring pack_b");
-    // lift_q unused on schoolbook leftover path; pick any odd prime > d q^2 roughly
+    // Legacy lift hint; the remainder uses its validated multi-prime context.
     let lift_q = 1_000_003u64;
     let rp = preprocess_from_inspiring(&pre, lift_q, CompileAlgo::Naive).expect("compile");
     let actual = pack(&b, &keys, &rp).expect("reinspiring pack");
@@ -93,4 +93,36 @@ fn compile_naive_and_fast_agree() {
     let ct_n = pack(&b, &keys, &naive).unwrap();
     let ct_f = pack(&b, &keys, &fast).unwrap();
     assert_eq!(ct_n.inner.as_slice(), ct_f.inner.as_slice());
+}
+
+#[test]
+fn degree_two_has_only_the_final_h_switch() {
+    let p = RlweParams::new(
+        2,
+        12289,
+        4,
+        3.2,
+        GadgetParams {
+            bits_per: 3,
+            ell: 5,
+        },
+    )
+    .unwrap();
+    let pre = QueryPackPreprocessed::build(&p, &crs(&p)).unwrap();
+    let mut secret = PolyMatrixRaw::zero(&p.spiral, 1, 1);
+    secret.get_poly_mut(0, 0)[0] = 1;
+    let keys = PackingKeys::generate_full(
+        &p,
+        &to_ntt_alloc(&secret),
+        &mut ChaCha20Rng::from_seed([7; 32]),
+    );
+    let top = TopKeyImages::build(&p);
+    let expected = pre.pack_b(&[17, 19], &keys, &top).unwrap();
+    for algo in [CompileAlgo::Fast, CompileAlgo::Naive] {
+        let rp = preprocess_from_inspiring(&pre, 12289, algo).unwrap();
+        assert_eq!(
+            pack(&[17, 19], &keys, &rp).unwrap().inner.as_slice(),
+            expected.inner.as_slice()
+        );
+    }
 }

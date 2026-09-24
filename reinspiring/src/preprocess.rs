@@ -20,7 +20,7 @@ pub struct ReinspiringPreprocessed<'a> {
     /// Final RLWE `c1` (= `ã`) in NTT form, shared with inspiring.
     pub(crate) a_tilde_ntt: PolyMatrixNTT<'a>,
     /// Compiled packing matrix `H' ∈ Z_q^{d × ℓd}`.
-    pub(crate) h_prime: PackingMatrix,
+    pub(crate) h_prime: crate::native_matrix::NativeMatrix,
     /// Coefficient-form leftover limbs `t''_j` (length `ℓ`).
     pub(crate) t_double_prime: Vec<Vec<u64>>,
     pub(crate) lift: crate::lift_ntt::LiftContext,
@@ -31,8 +31,12 @@ impl<'a> ReinspiringPreprocessed<'a> {
         self.inspiring_params
     }
     /// Compiled matrix, exposed read-only for diagnostics.
-    pub fn matrix(&self) -> &PackingMatrix {
-        &self.h_prime
+    pub fn matrix(&self) -> PackingMatrix {
+        self.h_prime.to_compiled()
+    }
+    /// Retained compiled matrix word storage.
+    pub fn matrix_storage_bytes(&self) -> usize {
+        self.h_prime.storage_bytes()
     }
     /// Validated ReinspiRING parameter view.
     pub fn params(&self) -> &ReinspiringParams {
@@ -98,6 +102,9 @@ pub fn preprocess_from_inspiring<'a>(
                 .iter()
                 .map(|step| step[limb].clone())
                 .collect();
+            if d == 2 {
+                return Ok(PackingMatrix::zero(d, d, q));
+            }
             match algo {
                 CompileAlgo::Naive => compile_naive_fused(&ts, &exponents, q),
                 CompileAlgo::Fast => compile_fast(&ts, &exponents, q),
@@ -111,7 +118,7 @@ pub fn preprocess_from_inspiring<'a>(
         params: rp,
         inspiring_params: ip,
         a_tilde_ntt: clone_ntt(&pre.collapse_a_final_ntt),
-        h_prime,
+        h_prime: crate::native_matrix::NativeMatrix::from_compiled(h_prime)?,
         t_double_prime,
     })
 }
@@ -161,9 +168,13 @@ pub fn preprocess_from_digits<'a>(
     let mut blocks = Vec::with_capacity(ell);
     for limb in 0..ell {
         let ts: Vec<Vec<u64>> = t_kg_steps.iter().map(|step| step[limb].clone()).collect();
-        let block = match algo {
-            CompileAlgo::Naive => compile_naive_fused(&ts, &exponents, q)?,
-            CompileAlgo::Fast => compile_fast(&ts, &exponents, q)?,
+        let block = if d == 2 {
+            PackingMatrix::zero(d, d, q)
+        } else {
+            match algo {
+                CompileAlgo::Naive => compile_naive_fused(&ts, &exponents, q)?,
+                CompileAlgo::Fast => compile_fast(&ts, &exponents, q)?,
+            }
         };
         blocks.push(block);
     }
@@ -172,7 +183,9 @@ pub fn preprocess_from_digits<'a>(
         params: rp,
         inspiring_params,
         a_tilde_ntt,
-        h_prime: PackingMatrix::hstack(&blocks)?,
+        h_prime: crate::native_matrix::NativeMatrix::from_compiled(PackingMatrix::hstack(
+            &blocks,
+        )?)?,
         t_double_prime,
     })
 }

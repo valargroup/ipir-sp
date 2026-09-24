@@ -52,7 +52,7 @@ fn native_encryption_to_decryption_both_samplers_and_limb_counts() {
         SecretDistribution::Gaussian,
         SecretDistribution::TernaryResearch,
     ] {
-        for d in [4, 8, 16, 64] {
+        for d in [2, 4, 8, 16, 64] {
             for ell in [2, 3] {
                 roundtrip(d, ell, sampler);
             }
@@ -123,6 +123,55 @@ fn decomposition_reconstructs_with_documented_rounding_error() {
                 } else {
                     1 << (p.dropped_bits() - 1)
                 }
+            );
+        }
+    }
+}
+
+#[test]
+fn compact_matrix_matches_wide_oracle_at_all_storage_and_modulus_boundaries() {
+    use reinspiring::{matrix::PackingMatrix, native_matrix::NativeMatrix};
+    for q in [12289, (1 << 54), 72_057_594_037_641_217] {
+        for cols in [1, 3, 8, 511, 6144] {
+            let mut m = PackingMatrix::zero(3, cols, q);
+            for (i, x) in m.data.iter_mut().enumerate() {
+                *x = match i % 5 {
+                    0 => q - 1,
+                    1 => 1,
+                    2 => (i32::MAX as u64).min(q - 1),
+                    3 => q / 2,
+                    _ => 0,
+                };
+            }
+            let y: Vec<_> = (0..cols).map(|i| q - 1 - i as u64 % (q - 1)).collect();
+            let expected: Vec<_> = (0..3)
+                .map(|r| {
+                    m.data[r * cols..(r + 1) * cols]
+                        .iter()
+                        .zip(&y)
+                        .fold(0u128, |s, (&a, &b)| (s + a as u128 * b as u128) % q as u128)
+                        as u64
+                })
+                .collect();
+            assert_eq!(
+                NativeMatrix::from_compiled(m)
+                    .unwrap()
+                    .multiply(&y)
+                    .unwrap(),
+                expected
+            );
+            let mut m = PackingMatrix::zero(2, cols, q);
+            for (i, x) in m.data.iter_mut().enumerate() {
+                *x = if i % 2 == 0 { q - 123 } else { 17 };
+            }
+            let mut expected = vec![0; 2];
+            m.matvec(&y, &mut expected).unwrap();
+            assert_eq!(
+                NativeMatrix::from_compiled(m)
+                    .unwrap()
+                    .multiply(&y)
+                    .unwrap(),
+                expected
             );
         }
     }

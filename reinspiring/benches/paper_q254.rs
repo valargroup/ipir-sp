@@ -3,6 +3,8 @@
 //! ReinsPIRe §5.1 / Table 5: `d=2048`, `q=2^54`, `σ=6.4`, `ℓ=2`, `z=2^19`.
 //! Paper reports `H'·y ≈ 13.6 ms` (and leftover ≈ 1.2 ms) for `ℓ=2`.
 //!
+//! Synthetic arithmetic microbenchmark, not a complete encrypted query.
+//! Use `ipir-sp` example `packing_compare` for complete verified packing.
 //! This microbench measures the coefficient matvec under that modulus (free
 //! reduction via bitmask). Full online Pack also needs lifted-NTT leftover
 //! (`Q > d q²`); that path is now an exact three-prime NTT/CRT product and is timed separately.
@@ -31,7 +33,7 @@ const BITS_PER: u32 = 19;
 const PAPER_H_PRIME_Y_MS: f64 = 13.6;
 
 fn paper_params() -> ReinspiringParams {
-    // lift_q is unused on the schoolbook leftover path; any odd prime works.
+    // Legacy lift hint; the actual leftover engine validates its own CRT primes.
     ReinspiringParams::new(
         D,
         Q,

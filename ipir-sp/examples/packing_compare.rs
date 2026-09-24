@@ -60,7 +60,7 @@ fn main() {
     assert_eq!(a.inner.as_slice(), c.inner.as_slice());
     println!(
         "{}",
-        serde_json::json!({"kind":"setup","backend":"odd","d":d,"inspiring_s":inspiring_s,"compile_s":compile_s,"matrix_bytes":rein.matrix().data.len()*8})
+        serde_json::json!({"kind":"setup","backend":"odd","d":d,"inspiring_s":inspiring_s,"compile_s":compile_s,"matrix_bytes":rein.matrix_storage_bytes()})
     );
     measure("inspiring_odd", || {
         pre.pack_b(black_box(&b), &keys, &top).unwrap()

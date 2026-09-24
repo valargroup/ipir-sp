@@ -191,11 +191,16 @@ and [`inspiring/README.md`](inspiring/README.md) for the crate-level layout.
 
 ### `reinspiring/` — ReinspiRING.Pack
 
-Coefficient-domain compilation of InspiRING's online sum (ePrint 2026/1934,
-Algorithm 2). For odd NTT-friendly moduli it is byte-equal to
-`inspiring::QueryPackPreprocessed::pack_b`. Select it from `ipir-sp` via
-[`PackBackend::Reinspiring`](ipir-sp/src/pack_backend.rs). See
-[`reinspiring/SPEC.md`](reinspiring/SPEC.md).
+The refreshed implementation includes an exact odd-modulus adapter and a
+complete native power-of-two packing path: ring-FFT compilation, the D.1/D.2
+transform, signed approximate gadgets, compact matrices, and lifted NTT/CRT
+products. Native IPIR-SP integration is opt-in with `native-reinspiring` and
+uses a separate experimental Gaussian profile and versioned wire format.
+
+See the [implementation contract](reinspiring/SPEC.md),
+[production approval gates](reinspiring/SECURITY.md), and
+[comparison against main and both papers](bench-results/2026-09-24-reinspiring-native/REPORT.md).
+The native profile does not replace the default production backend.
 
 ### `ipir-sp/` — IPIR+SP integration
 

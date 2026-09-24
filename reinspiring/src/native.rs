@@ -196,6 +196,12 @@ pub struct NativeSecret {
     params: NativeParams,
     coeffs: Vec<u64>,
 }
+impl Drop for NativeSecret {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.coeffs.zeroize();
+    }
+}
 impl NativeSecret {
     /// Sample a fresh secret from a cryptographic RNG; caller must seed it securely.
     pub fn sample(params: &NativeParams, rng: &mut ChaCha20Rng) -> Self {

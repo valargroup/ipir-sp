@@ -72,10 +72,18 @@ capacity instead of silently performing a schoolbook fallback.
 
 Native H' uses i32 when every centered entry fits, otherwise i64. Its dimensions
 and words are private. The 32-bit path dispatches to AVX2 on supported x86 hosts;
-other hosts and wide matrices use wrapping scalar arithmetic. The low 64 bits
+other hosts and wide power-of-two matrices use wrapping scalar arithmetic. The low 64 bits
 of each dot product suffice because q divides 2^64. Vector tails and negative
 coefficients are tested against scalar integer arithmetic. Parallelism follows
 the caller's Rayon pool; no global thread-count override is made by the library.
+
+The odd-q adapter also stores H' in compact signed words. For i32 matrices it
+splits each uploaded coefficient into four 16-bit limbs. Each partial dot product
+has absolute value below 2^63 (at most 32768 entries), so the SIMD low-word sum
+recovers an exact signed i64. An i128 accumulator recombines the four shifted
+partials before reducing modulo q once per row. Wider matrices use an exact i128
+scalar path. `matrix()` materializes canonical diagnostic words on demand rather
+than retaining a duplicate u64 matrix.
 
 ## IPIR-SP interface and transport
 

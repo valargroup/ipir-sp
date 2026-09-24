@@ -47,3 +47,33 @@ fn native_ipir_full_wire_roundtrip_and_binding_rejections() {
         }
     }
 }
+
+#[test]
+fn immutable_server_handles_concurrent_fresh_queries() {
+    let p = NativeParams::new(8, 54, 14, 19, 2, SecretDistribution::Gaussian).unwrap();
+    let setup = NativePublicSetup::new(NativeProfile::new(p, 16, 16).unwrap(), [3; 32], [4; 32]);
+    let db = (0..16)
+        .flat_map(|c| (0..16).map(move |r| (c * 17 + r) as u16))
+        .collect();
+    let server = NativeServer::build(setup, db).unwrap();
+    let published = server.published();
+    std::thread::scope(|scope| {
+        for row in [0, 7, 8, 15] {
+            let server = &server;
+            let published = &published;
+            scope.spawn(move || {
+                let request = NativeRequest::generate_with_rng(
+                    server.setup(),
+                    row,
+                    &mut ChaCha20Rng::seed_from_u64(row as u64 + 10),
+                )
+                .unwrap();
+                let response = server.respond(request.bytes()).unwrap().0;
+                assert_eq!(
+                    request.decode(published, &response).unwrap(),
+                    (0..16).map(|c| (c * 17 + row) as u64).collect::<Vec<_>>()
+                );
+            });
+        }
+    });
+}

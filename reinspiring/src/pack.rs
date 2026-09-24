@@ -36,8 +36,7 @@ pub fn pack<'a>(
         y.extend(limb.iter().map(|c| c % q));
     }
 
-    let mut c2 = vec![0u64; d];
-    pre.h_prime.matvec(&y, &mut c2)?;
+    let mut c2 = pre.h_prime.multiply(&y)?;
 
     let z = pre.lift.sum(&pre.t_double_prime, &y_prime_limbs)?;
     for i in 0..d {

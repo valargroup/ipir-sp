@@ -261,9 +261,9 @@ pub fn compile_fast_ring_fft(
         ));
     }
     for p in p_hat {
-        if p.len() != d {
+        if p.len() != d || p.iter().any(|&x| x >= q) {
             return Err(ReinspiringError::PreprocessMismatch(
-                "compile_fast_ring_fft: coefficient poly degree mismatch".into(),
+                "compile_fast_ring_fft: noncanonical coefficient or degree mismatch".into(),
             ));
         }
     }
