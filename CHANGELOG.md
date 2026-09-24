@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.0-rc.3 — 2026-09-24
+
+Third release candidate for `ipir-sp`. It uses `simplepir-kernel`
+`0.1.0-rc.2`; the `inspiring` dependency remains at `0.1.0-rc.1`.
+
+### Added
+
+- An optional CUDA backend for the first-dimension `u16` matrix-vector
+  evaluation, selected explicitly at runtime. CPU evaluation remains the
+  default, and explicit CUDA selection fails rather than silently falling back.
+- Fallible backend preparation and query evaluation APIs, server backend/device
+  flags, hardware-gated correctness tests, benchmarks, and validation evidence.
+
+### Changed
+
+- Device database and scratch buffers are retained and reused by each CUDA
+  backend instance, with requests serialized per instance.
+
 ## 0.1.0-rc.2 — 2026-09-23
 
 Second release candidate for `ipir-sp`. The `inspiring` and
