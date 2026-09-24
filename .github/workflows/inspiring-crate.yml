@@ -141,7 +141,7 @@ jobs:
         run: cargo bench -p inspiring --bench pack --no-run
 
       - name: cargo bench ipir-sp --no-run
-        run: cargo bench -p ipir-sp --bench end_to_end --no-run
+        run: cargo bench -p ipir-sp --bench end_to_end --features experimental-params --no-run
 
       - name: Upload benchmark report
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

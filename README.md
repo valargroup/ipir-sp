@@ -52,7 +52,7 @@ output blocks, 1,792 nullifiers per row.
 | Packing per output block | **4.2 ms** | |
 | Offline preprocessing, full snapshot | **6.6 s** | `build_pack_preprocessed_blocks` over all sixteen CRS blocks |
 | Offline per CRS block | **0.42 s** | |
-| Decryption margin | 2^36 vs Δ/2 = 2^41 | real pipeline, production RLWE parameters, worst of 8 queries |
+| Historical rounding residual | 2^36 vs Δ/2 = 2^41 | nearest-encoding distance from 8 queries; this metric cannot establish decryption correctness or noise headroom |
 
 ### How it got here
 
@@ -239,7 +239,7 @@ backend, pinned at the workspace root to Valar's fork:
 
 ```toml
 [workspace.dependencies]
-spiral-rs = { package = "valar-spiral-rs", git = "https://github.com/valargroup/spiral-rs.git", rev = "6f5b66c6a5a639827c6486c59d31c7ec2d4399a8" }
+spiral-rs = { package = "valar-spiral-rs", version = "=0.5.3-rc.1" }
 ```
 
 The fork keeps the scalar single-CRT multiply path correct and provides a
@@ -261,7 +261,7 @@ Per-crate Criterion benchmarks:
 
 ```bash
 cargo bench -p inspiring --bench pack
-cargo bench -p ipir-sp --bench end_to_end
+cargo bench -p ipir-sp --bench end_to_end --features experimental-params
 ```
 
 The default `ipir-sp` benchmark uses a small `d = 64` development profile.

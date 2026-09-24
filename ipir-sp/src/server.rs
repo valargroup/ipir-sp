@@ -19,7 +19,9 @@ use std::time::Duration;
 
 use crate::client::IPIRSimpleQuery;
 use crate::modulus_switch::serialize_rlwe_response_bodies;
-use crate::params::YpirSchemeParams;
+use crate::params::{
+    validate_profile_parts, ProductionSimplePirParams, SimplePirProfile, YpirSchemeParams,
+};
 
 /// A YPIR-formatted server database.
 ///
@@ -29,6 +31,7 @@ use crate::params::YpirSchemeParams;
 /// can be added without changing the surrounding InspiRING boundary.
 pub struct YServer<T> {
     params: YpirSchemeParams,
+    production_profile: Option<SimplePirProfile>,
     db: Vec<T>,
     pad_rows: bool,
     /// Largest value present in `db`, measured at load.
@@ -56,6 +59,22 @@ impl<T> YServer<T>
 where
     T: Copy + Default + ToU64 + 'static,
 {
+    /// Build a production server using transport and dimensions from a pinned
+    /// profile. Use the same profile for the corresponding client.
+    pub fn from_profile<I>(
+        profile: &ProductionSimplePirParams,
+        db: I,
+        input_is_transposed: bool,
+        pad_rows: bool,
+    ) -> Self
+    where
+        I: Iterator<Item = T>,
+    {
+        let mut server = Self::new(profile.ypir().clone(), db, input_is_transposed, pad_rows);
+        server.production_profile = Some(profile.profile());
+        server
+    }
+
     /// Build a server from a database iterator.
     ///
     /// If `input_is_transposed` is false, the iterator is logical row-major
@@ -145,6 +164,7 @@ where
 
         Self {
             params,
+            production_profile: None,
             db: stored,
             pad_rows,
             element_max,
@@ -156,6 +176,18 @@ where
     #[must_use]
     pub fn params(&self) -> &YpirSchemeParams {
         &self.params
+    }
+
+    fn validate_bound_rlwe(&self, rlwe: &RlweParams) -> Result<(), InspiringError> {
+        match self.production_profile {
+            Some(profile) => validate_profile_parts(rlwe, &self.params, profile),
+            None => Ok(()),
+        }
+    }
+
+    fn assert_bound_rlwe(&self, rlwe: &RlweParams) {
+        self.validate_bound_rlwe(rlwe)
+            .expect("RLWE parameters do not match the server production profile");
     }
 
     /// Logical database rows.
@@ -208,6 +240,7 @@ where
     /// with reduction into InspiRING's single CRT modulus.
     #[must_use]
     pub fn multiply_query(&self, rlwe: &RlweParams, query: &[u64]) -> Vec<u64> {
+        self.assert_bound_rlwe(rlwe);
         let rows = self.db_rows_padded();
         let cols = self.db_cols();
         assert_eq!(query.len(), rows, "query length must match padded rows");
@@ -261,6 +294,7 @@ where
     }
 
     fn validate_query_polys(&self, rlwe: &RlweParams, query_polys: &[Vec<u64>]) {
+        self.assert_bound_rlwe(rlwe);
         // Hint generation feeds database elements straight into the NTT without
         // reducing them, which is only sound because SimplePIR plaintexts are
         // below `p <= q`. `element_max` was measured over the whole database at
@@ -392,6 +426,7 @@ where
     where
         T: Sync,
     {
+        self.assert_bound_rlwe(rlwe);
         assert_eq!(
             self.db_cols() % rlwe.d,
             0,
@@ -426,6 +461,7 @@ where
         top_key_images: &TopKeyImages<'a>,
         preprocessed: &'a [QueryPackPreprocessed<'a>],
     ) -> Result<(Vec<u8>, OnlineServerTiming), InspiringError> {
+        self.validate_bound_rlwe(rlwe)?;
         let deserialize_started = std::time::Instant::now();
         let first_dim_query = self.deserialize_first_dim_query(rlwe, query)?;
         let deserialize = deserialize_started.elapsed();
@@ -479,6 +515,22 @@ where
 }
 
 impl YServer<u16> {
+    /// Select the accelerated kernel with a pinned production profile.
+    pub fn new_auto_kernel_from_profile<I>(
+        profile: &ProductionSimplePirParams,
+        db: I,
+        input_is_transposed: bool,
+        pad_rows: bool,
+    ) -> Self
+    where
+        I: Iterator<Item = u16>,
+    {
+        let mut server =
+            Self::new_auto_kernel(profile.ypir().clone(), db, input_is_transposed, pad_rows);
+        server.production_profile = Some(profile.profile());
+        server
+    }
+
     /// Build a `u16` server using the fastest available local first-pass kernel.
     ///
     /// On AVX512F hosts this selects the YPIR-style explicit vector kernel;
@@ -633,6 +685,19 @@ pub fn build_pack_preprocessed_blocks<'a>(
             let crs = block.to_ntt(params);
             QueryPackPreprocessed::build(params, &crs)
         })
+        .collect()
+}
+
+/// Build each independent CRS block while reusing the immutable public mask
+/// images created by `TopKeyImages::build(params)` for online packing.
+pub fn build_pack_preprocessed_blocks_with_top<'a>(
+    params: &'a RlweParams,
+    crs_blocks: &[CrsBlock],
+    top: &TopKeyImages<'a>,
+) -> Result<Vec<QueryPackPreprocessed<'a>>, InspiringError> {
+    crs_blocks
+        .par_iter()
+        .map(|block| QueryPackPreprocessed::build_with_top(params, &block.to_ntt(params), top))
         .collect()
 }
 
@@ -829,6 +894,46 @@ mod tests {
     use crate::modulus_switch::{recover_response_body, response_body_len};
 
     use super::*;
+
+    #[test]
+    fn production_server_rejects_rlwe_from_another_profile() {
+        let p14 = ProductionSimplePirParams::new(2048, 2048 * 14, SimplePirProfile::P14)
+            .expect("P14 profile");
+        let p16 = ProductionSimplePirParams::new(2048, 2048 * 16, SimplePirProfile::P16Q46)
+            .expect("P16Q46 profile");
+        let server = YServer::<u16>::from_profile(
+            &p14,
+            std::iter::repeat(0).take(p14.ypir().db_rows * p14.ypir().db_cols),
+            false,
+            true,
+        );
+        assert!(server.validate_bound_rlwe(p14.rlwe()).is_ok());
+        assert!(server.validate_bound_rlwe(p16.rlwe()).is_err());
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = server.perform_offline_precomputation_simplepir(p16.rlwe(), &[]);
+        }))
+        .is_err());
+        let keys = PackingKeys {
+            kg_body: PolyMatrixNTT::zero(&p14.rlwe().spiral, 1, 1),
+            kh_body: PolyMatrixNTT::zero(&p14.rlwe().spiral, 1, 1),
+        };
+        let top_keys = TopKeyImages {
+            kg_top_left: vec![],
+            kg_top_right: vec![],
+            kh_top: PolyMatrixNTT::zero(&p14.rlwe().spiral, 1, 1),
+            kg_body_left_tables: vec![],
+            kg_body_right_tables: vec![],
+        };
+        assert!(server
+            .perform_full_online_computation_simplepir_measured(
+                p16.rlwe(),
+                &[],
+                &keys,
+                &top_keys,
+                &[],
+            )
+            .is_err());
+    }
 
     fn tiny_rlwe() -> RlweParams {
         RlweParams::new(

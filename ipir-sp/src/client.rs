@@ -5,7 +5,8 @@
 //! top rows are derived from fixed CRS seeds on both sides.
 
 use inspiring::{PackingKeys, RlweParams};
-use rand::{Rng, RngCore, SeedableRng};
+use rand::TryRngCore;
+use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use spiral_rs::discrete_gaussian::DiscreteGaussian;
 use spiral_rs::poly::{
@@ -17,7 +18,8 @@ use crate::modulus_switch::modulus_bits;
 use crate::modulus_switch::{
     query_coeff_down, query_coeff_up, recover_response_body, response_body_len,
 };
-use crate::params::{params_for_simplepir, YpirSchemeParams};
+use crate::params::{ProductionSimplePirParams, SimplePirProfile, YpirSchemeParams};
+use crate::sampling::{uniform_u32_below, uniform_u64_below};
 
 #[cfg(feature = "experimental-key-reuse")]
 #[path = "reusable.rs"]
@@ -27,6 +29,38 @@ pub mod reusable;
 /// Seeds are not versioned: finish outstanding responses with the client version
 /// that generated them. See `MIGRATION.md` for the Gaussian-secret transition.
 pub type IPIRSeed = [u8; 32];
+
+/// Public offline query polynomials, derived by the client from a setup seed.
+///
+/// The polynomials are the LWE mask side of every query row, so they must be
+/// uniformly random for the query to be hiding: with an all-zero or small
+/// mask the query body is `e + Δ·[row == target]` and reveals the target
+/// directly. This type has no public constructor other than
+/// [`IPIRClient::generate_public_query_setup_simplepir_from_seed`], so a
+/// client can only encrypt against masks it expanded itself from a seed with
+/// ChaCha20. A server may publish the seed, never the polynomials.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicQuerySetup {
+    seed: IPIRSeed,
+    polys: Vec<Vec<u64>>,
+}
+
+impl PublicQuerySetup {
+    /// The seed these polynomials were expanded from.
+    #[must_use]
+    pub fn seed(&self) -> IPIRSeed {
+        self.seed
+    }
+
+    /// One polynomial of `d` coefficients per `d`-row block, in block order.
+    ///
+    /// Servers pass this to
+    /// [`crate::server::YServer::perform_offline_precomputation_simplepir`].
+    #[must_use]
+    pub fn polys(&self) -> &[Vec<u64>] {
+        &self.polys
+    }
+}
 
 /// A client secret in coefficient form.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,7 +102,7 @@ impl ClientSecret {
     /// High-level query generation and seed-based decoding use `sample_gaussian`.
     pub fn sample_ternary(params: &RlweParams, rng: &mut ChaCha20Rng) -> Self {
         let coeffs = (0..params.d)
-            .map(|_| match rng.gen_range(0..3) {
+            .map(|_| match uniform_u32_below(rng, 3) {
                 0 => 0,
                 1 => 1,
                 _ => params.q - 1,
@@ -205,21 +239,94 @@ impl IPIRSimpleQuery {
 }
 
 impl IPIRClient {
-    /// Build a client from explicit IPIR-SP parameters.
+    /// Build a client from a pinned, validated production profile.
+    ///
+    /// A raw parameter pair is deliberately not accepted:
+    ///
+    /// ```compile_fail
+    /// use ipir_sp::{params_for_simplepir, IPIRClient};
+    /// let (rlwe, ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+    /// let _client = IPIRClient::new(&rlwe, &ypir);
+    /// ```
     #[must_use]
-    pub fn new(rlwe: &RlweParams, ypir: &YpirSchemeParams) -> Self {
+    pub fn new(params: &ProductionSimplePirParams) -> Self {
         Self {
+            rlwe: params.rlwe().clone(),
+            ypir: params.ypir().clone(),
+        }
+    }
+
+    /// Build a client from arbitrary research parameters. This API makes no
+    /// query-privacy claim and is unavailable in ordinary builds.
+    #[cfg(any(test, feature = "experimental-params"))]
+    pub fn new_experimental(
+        rlwe: &RlweParams,
+        ypir: &YpirSchemeParams,
+    ) -> Result<Self, inspiring::InspiringError> {
+        if rlwe.d < 2
+            || !rlwe.d.is_power_of_two()
+            || rlwe.q < 3
+            || rlwe.q % 2 == 0
+            || rlwe.p < 2
+            || rlwe.p > rlwe.q
+            || !rlwe.sigma_chi.is_finite()
+            || rlwe.sigma_chi <= 0.0
+            || rlwe.d != ypir.poly_len
+            || rlwe.p != ypir.p
+            || ypir.num_items == 0
+            || ypir.num_items > ypir.db_rows as u64
+            || ypir.item_size_bits == 0
+            || ypir.db_rows == 0
+            || ypir.db_rows % rlwe.d != 0
+            || ypir.db_cols == 0
+            || ypir.db_cols % rlwe.d != 0
+            || ypir.db_rows.checked_mul(ypir.db_cols).is_none()
+            || rlwe.delta != rlwe.q / rlwe.p
+            || (u128::from(rlwe.d as u64) * u128::from(rlwe.d_inv)) % u128::from(rlwe.q) != 1
+            || rlwe.spiral.poly_len != rlwe.d
+            || rlwe.spiral.modulus != rlwe.q
+            || rlwe.spiral.pt_modulus != rlwe.p
+            || rlwe.spiral.noise_width.to_bits()
+                != (rlwe.sigma_chi * std::f64::consts::TAU.sqrt()).to_bits()
+            || ypir.instances.checked_mul(ypir.poly_len) != Some(ypir.db_cols)
+            || ypir.q_prime_1 < 2
+            || ypir.q_prime_2 < ypir.q_prime_1
+            || ypir.q_prime_2 > rlwe.q
+            || ypir.q2_bits == 0
+            || ypir.q2_bits > crate::modulus_switch::modulus_bits(ypir.q_prime_2)
+            || ypir.t_exp_left == 0
+            || ypir.t_exp_right == 0
+            || ypir.query_bits == 0
+            || ypir.query_bits > crate::modulus_switch::modulus_bits(rlwe.q)
+        {
+            return Err(inspiring::InspiringError::InvalidParams(
+                "inconsistent experimental IPIR parameters".into(),
+            ));
+        }
+        Ok(Self {
             rlwe: rlwe.clone(),
             ypir: ypir.clone(),
-        }
+        })
+    }
+
+    /// Build a client for an explicit production profile and database shape.
+    pub fn from_profile(
+        num_items: u64,
+        item_size_bits: u64,
+        profile: SimplePirProfile,
+    ) -> Result<Self, inspiring::InspiringError> {
+        Ok(Self::new(&ProductionSimplePirParams::new(
+            num_items,
+            item_size_bits,
+            profile,
+        )?))
     }
 
     /// Build a client from database shape, mirroring `ypir::YPIRClient::from_db_sz`.
     #[must_use]
     pub fn from_db_sz(num_items: u64, item_size_bits: u64) -> Self {
-        let (rlwe, ypir) =
-            params_for_simplepir(num_items, item_size_bits).expect("valid SimplePIR parameters");
-        Self { rlwe, ypir }
+        Self::from_profile(num_items, item_size_bits, SimplePirProfile::P14)
+            .expect("valid SimplePIR parameters")
     }
 
     /// Return the RLWE parameters used by the packing layer.
@@ -239,10 +346,17 @@ impl IPIRClient {
     /// These polynomials are secret-independent, so a server may precompute the
     /// corresponding CRS/hint once and clients can reuse the same public setup
     /// while still sampling a fresh secret and key-switching pair per query.
+    ///
+    /// The seed is public and may be chosen by the server. That is safe only
+    /// because the expansion is ChaCha20 followed by
+    /// [`crate::sampling::uniform_u64_below`]: a server cannot invert it to
+    /// reach a structured mask, so the polynomials are treated as an honestly
+    /// random CRS. The coefficient mapping is pinned in this crate rather than
+    /// borrowed from `rand`, because both peers must expand identical values.
     pub fn generate_public_query_setup_simplepir_from_seed(
         &self,
         setup_seed: IPIRSeed,
-    ) -> Vec<Vec<u64>> {
+    ) -> PublicQuerySetup {
         assert_eq!(
             self.ypir.db_rows % self.rlwe.d,
             0,
@@ -250,19 +364,28 @@ impl IPIRClient {
         );
 
         let mut rng = ChaCha20Rng::from_seed(setup_seed);
-        (0..self.ypir.db_rows / self.rlwe.d)
+        let polys = (0..self.ypir.db_rows / self.rlwe.d)
             .map(|_| {
                 (0..self.rlwe.d)
-                    .map(|_| rng.gen_range(0..self.rlwe.q))
+                    .map(|_| uniform_u64_below(&mut rng, self.rlwe.q))
                     .collect()
             })
-            .collect()
+            .collect();
+        PublicQuerySetup {
+            seed: setup_seed,
+            polys,
+        }
     }
 
     /// Generate a fresh-secret online query with uploaded packing-key bodies.
+    ///
+    /// `setup` must come from
+    /// [`Self::generate_public_query_setup_simplepir_from_seed`]; the type
+    /// cannot be built from server-supplied polynomials, which keeps a
+    /// malicious mask from turning the query into a plaintext selector.
     pub fn generate_fresh_query_simplepir(
         &self,
-        offline_query_polys: &[Vec<u64>],
+        setup: &PublicQuerySetup,
         target_row: usize,
     ) -> (IPIRSimpleQuery, PackingKeys<'_>, IPIRSeed) {
         // An out-of-range row would silently encrypt the all-zero selector, and
@@ -273,15 +396,14 @@ impl IPIRClient {
             "target_row {target_row} is out of range for {} db rows",
             self.ypir.db_rows
         );
-        let mut client_seed = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut client_seed);
+        let client_seed = fresh_client_seed();
         let mut rng = ChaCha20Rng::from_seed(client_seed);
         let secret = ClientSecret::sample_gaussian(&self.rlwe, &mut rng);
         let secret_ntt = secret.to_ntt(&self.rlwe);
         let packing_keys = PackingKeys::generate_full(&self.rlwe, &secret_ntt, &mut rng);
         let first_dim = encrypted_selection_query(
             &self.rlwe,
-            offline_query_polys,
+            setup.polys(),
             &secret.coeffs,
             target_row,
             self.ypir.db_rows,
@@ -338,48 +460,122 @@ impl IPIRClient {
         decoded
     }
 
-    /// Decode a response and report the worst decryption error observed.
+    /// Decode a response and report its largest rounding residual.
     ///
-    /// Returns `(coefficients, max_error)` where `max_error` is the largest
-    /// centered distance between a recovered phase and the nearest multiple of
-    /// `Δ`. Decryption is correct exactly while that stays under `Δ/2`, so this
-    /// is the quantity any change to the query width, the plaintext modulus, or
-    /// the database shape has to be judged against.
+    /// Returns `(coefficients, max_rounding_residual)`. The residual is the
+    /// distance between a recovered phase and the nearest multiple of `Δ`.
+    /// It is always at most `Δ/2`, even if decoding selected the wrong
+    /// plaintext. Do not use it as a correctness or noise-headroom check.
     #[must_use]
-    pub fn decode_response_simplepir_with_margin(
+    pub fn decode_response_simplepir_with_rounding_residual(
         &self,
         client_seed: IPIRSeed,
         published_c1: &[Vec<u64>],
         response: &[u8],
     ) -> (Vec<u64>, u64) {
+        self.decode_response_simplepir_with_diagnostic(
+            client_seed,
+            published_c1,
+            response,
+            |_, phase| {
+                let offset = phase % self.rlwe.delta;
+                offset.min(self.rlwe.delta - offset)
+            },
+        )
+    }
+
+    /// Decode a response and measure phase error against known plaintext.
+    ///
+    /// Returns `(coefficients, max_phase_error)`, using circular distance
+    /// modulo `q` from each recovered phase to `expected[i] * Δ`. This is a
+    /// test/benchmark diagnostic: callers must know the true plaintext and
+    /// also compare decoded coefficients with it. Panics if the expected row
+    /// has the wrong length or contains a value outside `Z_p`.
+    #[must_use]
+    pub fn decode_response_simplepir_with_expected_phase_error(
+        &self,
+        client_seed: IPIRSeed,
+        published_c1: &[Vec<u64>],
+        response: &[u8],
+        expected: &[u64],
+    ) -> (Vec<u64>, u64) {
+        assert_eq!(
+            expected.len(),
+            self.ypir.db_cols,
+            "expected plaintext length mismatch"
+        );
+        assert!(
+            expected.iter().all(|&value| value < self.rlwe.p),
+            "expected plaintext outside Z_p"
+        );
+        self.decode_response_simplepir_with_diagnostic(
+            client_seed,
+            published_c1,
+            response,
+            |index, phase| {
+                let encoded = expected[index] * self.rlwe.delta;
+                let diff = phase.abs_diff(encoded);
+                diff.min(self.rlwe.q - diff)
+            },
+        )
+    }
+
+    fn decode_response_simplepir_with_diagnostic(
+        &self,
+        client_seed: IPIRSeed,
+        published_c1: &[Vec<u64>],
+        response: &[u8],
+        mut distance: impl FnMut(usize, u64) -> u64,
+    ) -> (Vec<u64>, u64) {
         let blocks = self.ypir.db_cols / self.rlwe.d;
         let body_len = response_body_len(self.rlwe.d, self.ypir.q_prime_1);
-        assert_eq!(response.len(), blocks * body_len);
-        assert_eq!(published_c1.len(), blocks);
+        assert_eq!(
+            response.len(),
+            blocks * body_len,
+            "serialized response length mismatch"
+        );
+        assert_eq!(
+            published_c1.len(),
+            blocks,
+            "expected one published c1 row per output block"
+        );
 
         let secret = self.secret_from_seed(client_seed);
         let secret_ntt = secret.to_ntt(&self.rlwe);
         let mut decoded = Vec::with_capacity(self.ypir.db_cols);
-        let mut max_error = 0_u64;
+        let mut max_distance = 0_u64;
 
         for (chunk, row_0) in response.chunks_exact(body_len).zip(published_c1) {
             let row_1 = recover_response_body(chunk, self.rlwe.d, self.ypir.q_prime_1, self.rlwe.q);
             let phase = phase_of(&self.rlwe, row_0, &row_1, &secret_ntt);
-            for coeff in &phase {
-                let offset = coeff % self.rlwe.delta;
-                let error = offset.min(self.rlwe.delta - offset);
-                max_error = max_error.max(error);
+            for coeff in phase {
+                max_distance = max_distance.max(distance(decoded.len(), coeff));
                 decoded.push(((coeff + self.rlwe.delta / 2) / self.rlwe.delta) % self.rlwe.p);
             }
         }
 
-        (decoded, max_error)
+        (decoded, max_distance)
     }
 
     fn secret_from_seed(&self, client_seed: IPIRSeed) -> ClientSecret {
         let mut rng = ChaCha20Rng::from_seed(client_seed);
         ClientSecret::sample_gaussian(&self.rlwe, &mut rng)
     }
+}
+
+/// Draw a fresh 32-byte client seed from operating-system randomness.
+///
+/// Every query gets its own seed, and therefore its own secret and evaluation
+/// keys. Two queries under one secret against the same public setup would
+/// expose the difference of their selectors, so this must never be cached or
+/// derived from a caller-supplied value. A failure of the OS entropy source is
+/// a hard error rather than a fallback to a weaker source.
+pub(crate) fn fresh_client_seed() -> IPIRSeed {
+    let mut client_seed = [0u8; 32];
+    rand::rngs::OsRng
+        .try_fill_bytes(&mut client_seed)
+        .expect("operating-system randomness is unavailable; refusing to build a query");
+    client_seed
 }
 
 /// Encrypt the one-hot row selector as `db_rows` scalar RLWE bodies.
@@ -664,9 +860,10 @@ fn plaintext_modulus_bits(modulus: u64) -> usize {
 #[cfg(test)]
 mod tests {
     use inspiring::{GadgetParams, RlweParams};
-    use rand_chacha::rand_core::SeedableRng;
+    use rand_chacha::rand_core::RngCore;
 
     use super::*;
+    use crate::params::params_for_simplepir;
 
     fn params() -> RlweParams {
         RlweParams::new(
@@ -788,7 +985,8 @@ mod tests {
     #[test]
     fn fresh_query_seed_replays_gaussian_secret_keys_and_query() {
         let (r, y) = params_for_simplepir(2048, 2048 * 14).unwrap();
-        let client = IPIRClient::new(&r, &y);
+        let client =
+            IPIRClient::new_experimental(&r, &y).expect("consistent experimental parameters");
         let setup = client.generate_public_query_setup_simplepir_from_seed([0x42; 32]);
         let (query, keys, seed) = client.generate_fresh_query_simplepir(&setup, 2047);
         let mut rng = ChaCha20Rng::from_seed(seed);
@@ -799,7 +997,7 @@ mod tests {
         assert_eq!(keys.kh_body.as_slice(), expected_keys.kh_body.as_slice());
         assert_eq!(
             query.as_slice(),
-            encrypted_selection_query(&r, &setup, &secret.coeffs, 2047, y.db_rows, &mut rng)
+            encrypted_selection_query(&r, setup.polys(), &secret.coeffs, 2047, y.db_rows, &mut rng)
         );
         // There is no automatic migration of an old unversioned client seed.
         let mut old_rng = ChaCha20Rng::from_seed(seed);
@@ -824,6 +1022,30 @@ mod tests {
     }
 
     #[test]
+    fn public_setup_pins_the_crs_expansion() {
+        let (r, y) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        let client = IPIRClient::new_experimental(&r, &y).unwrap();
+        let setup = client.generate_public_query_setup_simplepir_from_seed([9u8; 32]);
+        assert_eq!(setup.seed(), [9u8; 32]);
+        assert_eq!(setup.polys().len(), y.db_rows / r.d);
+        assert!(setup.polys().iter().all(|poly| poly.len() == r.d));
+        assert!(setup.polys().iter().flatten().all(|coeff| *coeff < r.q));
+        // Wire-format regression: the first coefficients of the block-0 mask
+        // for this seed, recorded before the sampler moved in-tree.
+        let mut rng = ChaCha20Rng::from_seed([9u8; 32]);
+        let expected: Vec<u64> = (0..4).map(|_| uniform_u64_below(&mut rng, r.q)).collect();
+        assert_eq!(&setup.polys()[0][..4], &expected[..]);
+        assert_eq!(
+            client.generate_public_query_setup_simplepir_from_seed([9u8; 32]),
+            setup
+        );
+        assert_ne!(
+            client.generate_public_query_setup_simplepir_from_seed([10u8; 32]),
+            setup
+        );
+    }
+
+    #[test]
     fn generate_fresh_query_returns_full_packing_key_bodies() {
         let params = params();
         let ypir = crate::params::YpirSchemeParams {
@@ -845,7 +1067,8 @@ mod tests {
             // query at full precision.
             query_bits: 14,
         };
-        let client = IPIRClient::new(&params, &ypir);
+        let client = IPIRClient::new_experimental(&params, &ypir)
+            .expect("consistent experimental parameters");
         let offline_query_polys = client.generate_public_query_setup_simplepir_from_seed([9u8; 32]);
 
         let (query, packing_keys, client_seed) =
@@ -857,6 +1080,25 @@ mod tests {
         assert_eq!(packing_keys.kg_body.cols, params.gadget.ell);
         assert_eq!(packing_keys.kh_body.rows, 1);
         assert_eq!(packing_keys.kh_body.cols, params.gadget.ell);
+    }
+
+    #[test]
+    fn experimental_client_rejects_inconsistent_pair() {
+        let (rlwe, mut ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        ypir.p = 4;
+        assert!(IPIRClient::new_experimental(&rlwe, &ypir).is_err());
+        let (_, mut ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        ypir.db_cols += rlwe.d;
+        assert!(IPIRClient::new_experimental(&rlwe, &ypir).is_err());
+        let (mut rlwe, ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        rlwe.d = 0;
+        assert!(IPIRClient::new_experimental(&rlwe, &ypir).is_err());
+        let (rlwe, mut ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        ypir.q_prime_1 = 1;
+        assert!(IPIRClient::new_experimental(&rlwe, &ypir).is_err());
+        ypir.q_prime_1 = 1 << 20;
+        ypir.q_prime_2 = 1;
+        assert!(IPIRClient::new_experimental(&rlwe, &ypir).is_err());
     }
 
     #[test]
@@ -951,6 +1193,77 @@ mod tests {
         } else {
             diff as i64
         }
+    }
+
+    #[test]
+    fn rounding_residual_can_be_small_after_wrong_plaintext_decode() {
+        let (rlwe, ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        let client = IPIRClient::new_experimental(&rlwe, &ypir).unwrap();
+        let c1 = vec![vec![0; rlwe.d]];
+        let response = u64s_to_contiguous_bytes(&vec![64; rlwe.d], 20);
+        let expected = vec![0; rlwe.d];
+
+        let (decoded, residual) =
+            client.decode_response_simplepir_with_rounding_residual([0; 32], &c1, &response);
+        let (checked, phase_error) = client.decode_response_simplepir_with_expected_phase_error(
+            [0; 32], &c1, &response, &expected,
+        );
+        assert_eq!(decoded, vec![1; rlwe.d]);
+        assert_eq!(checked, decoded);
+        assert_eq!(residual, 1);
+        assert!(phase_error > rlwe.delta / 2);
+    }
+
+    #[test]
+    fn expected_phase_error_handles_zero_and_modular_wraparound() {
+        let (rlwe, ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        let client = IPIRClient::new_experimental(&rlwe, &ypir).unwrap();
+        let c1 = vec![vec![0; rlwe.d]];
+        let expected = vec![0; rlwe.d];
+        let zero_response = u64s_to_contiguous_bytes(&vec![0; rlwe.d], 20);
+        let (decoded, error) = client.decode_response_simplepir_with_expected_phase_error(
+            [0; 32],
+            &c1,
+            &zero_response,
+            &expected,
+        );
+        assert_eq!(decoded, expected);
+        assert_eq!(error, 0);
+
+        let near_q_response = u64s_to_contiguous_bytes(&vec![(1 << 20) - 1; rlwe.d], 20);
+        let (decoded, error) = client.decode_response_simplepir_with_expected_phase_error(
+            [0; 32],
+            &c1,
+            &near_q_response,
+            &expected,
+        );
+        assert_eq!(
+            error,
+            rlwe.q - crate::modulus_switch::rescale((1 << 20) - 1, 1 << 20, rlwe.q)
+        );
+        assert_eq!(decoded, expected);
+        assert!(error < rlwe.delta / 2);
+    }
+
+    #[test]
+    fn expected_phase_error_rejects_wrong_shape_and_plaintext_range() {
+        let (rlwe, ypir) = params_for_simplepir(2048, 2048 * 14).unwrap();
+        let client = IPIRClient::new_experimental(&rlwe, &ypir).unwrap();
+        let c1 = vec![vec![0; rlwe.d]];
+        let response = u64s_to_contiguous_bytes(&vec![0; rlwe.d], 20);
+        assert!(std::panic::catch_unwind(|| {
+            client.decode_response_simplepir_with_expected_phase_error([0; 32], &c1, &response, &[])
+        })
+        .is_err());
+        assert!(std::panic::catch_unwind(|| {
+            client.decode_response_simplepir_with_expected_phase_error(
+                [0; 32],
+                &c1,
+                &response,
+                &vec![rlwe.p; rlwe.d],
+            )
+        })
+        .is_err());
     }
 
     #[test]

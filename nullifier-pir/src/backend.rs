@@ -2,10 +2,10 @@
 
 use anyhow::{Context, Result};
 use ipir_sp::client::IPIRClient;
-use ipir_sp::params_for_simplepir;
 use ipir_sp::serialize::deserialize_packing_keys;
 use ipir_sp::server::{build_pack_preprocessed_blocks, IPIRServer};
 use ipir_sp::YpirSchemeParams;
+use ipir_sp::{ProductionSimplePirParams, SimplePirProfile};
 use serde::{Deserialize, Serialize};
 
 use crate::encoding::ITEM_SIZE_BITS;
@@ -90,26 +90,57 @@ pub struct LocalIpirBackend {
 
 impl LocalIpirBackend {
     pub fn prepare(snapshot: &NullifierSnapshot, setup_seed: u64) -> Result<Self> {
-        let (rlwe, ypir) = params_for_simplepir(snapshot.pir_row_count() as u64, ITEM_SIZE_BITS)
-            .context("derive local ipir-sp SimplePIR parameters")?;
-        Self::prepare_with_params(snapshot, setup_seed, rlwe, ypir)
+        let profile = ProductionSimplePirParams::new(
+            snapshot.pir_row_count() as u64,
+            ITEM_SIZE_BITS,
+            SimplePirProfile::P14,
+        )
+        .context("derive local ipir-sp SimplePIR parameters")?;
+        let client = IPIRClient::new(&profile);
+        Self::prepare_inner(
+            snapshot,
+            setup_seed,
+            profile.rlwe().clone(),
+            profile.ypir().clone(),
+            client,
+            Some(&profile),
+        )
     }
 
+    /// Research-only override for non-profile parameters. It makes no query
+    /// privacy claim and is absent from ordinary builds.
+    #[cfg(any(test, feature = "experimental-params"))]
     pub fn prepare_with_params(
         snapshot: &NullifierSnapshot,
         setup_seed: u64,
         rlwe: inspiring::RlweParams,
         ypir: YpirSchemeParams,
     ) -> Result<Self> {
+        let client = IPIRClient::new_experimental(&rlwe, &ypir)?;
+        Self::prepare_inner(snapshot, setup_seed, rlwe, ypir, client, None)
+    }
+
+    fn prepare_inner(
+        snapshot: &NullifierSnapshot,
+        setup_seed: u64,
+        rlwe: inspiring::RlweParams,
+        ypir: YpirSchemeParams,
+        client: IPIRClient,
+        profile: Option<&ProductionSimplePirParams>,
+    ) -> Result<Self> {
         let rlwe = Box::leak(Box::new(rlwe));
         let db = snapshot
             .coeff_iter(ypir.db_rows)
             .context("open snapshot coefficient iterator")?;
-        let server = IPIRServer::<u16>::new_auto_kernel(ypir.clone(), db, false, true);
-        let client = IPIRClient::new(rlwe, &ypir);
+        let server = if let Some(profile) = profile {
+            IPIRServer::<u16>::new_auto_kernel_from_profile(profile, db, false, true)
+        } else {
+            IPIRServer::<u16>::new_auto_kernel(ypir.clone(), db, false, true)
+        };
         let offline_query_polys =
             client.generate_public_query_setup_simplepir_from_seed(seed_from_u64(setup_seed));
-        let offline = server.perform_offline_precomputation_simplepir(rlwe, &offline_query_polys);
+        let offline =
+            server.perform_offline_precomputation_simplepir(rlwe, offline_query_polys.polys());
         let pack_preprocessed = build_pack_preprocessed_blocks(rlwe, &offline.crs_blocks)
             .context("build local ipir-sp pack preprocessing")?;
         let top_key_images = inspiring::TopKeyImages::build(rlwe);

@@ -19,7 +19,7 @@ use std::time::Instant;
 
 use inspiring::preprocess::{PackingKeys, QueryPackPreprocessed, TopKeyImages};
 use inspiring::{GadgetParams, RlweParams};
-use rand::SeedableRng;
+use rand_chacha::rand_core::{RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use spiral_rs::poly::{to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw};
 
@@ -50,7 +50,7 @@ fn crs<'a>(params: &'a RlweParams, rng: &mut ChaCha20Rng) -> PolyMatrixNTT<'a> {
     for row in 0..params.d {
         let poly = raw.get_poly_mut(row, 0);
         for coeff in poly.iter_mut() {
-            *coeff = rand::Rng::gen_range(rng, 0..params.q);
+            *coeff = rng.next_u64() % params.q;
         }
     }
     to_ntt_alloc(&raw)
@@ -60,7 +60,7 @@ fn key_bodies<'a>(params: &'a RlweParams, rng: &mut ChaCha20Rng) -> PackingKeys<
     let mut make = || {
         let mut m = PolyMatrixNTT::zero(&params.spiral, 1, params.gadget.ell);
         for coeff in m.as_mut_slice().iter_mut() {
-            *coeff = rand::Rng::gen_range(rng, 0..params.q);
+            *coeff = rng.next_u64() % params.q;
         }
         m
     };

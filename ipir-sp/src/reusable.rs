@@ -5,12 +5,14 @@
 //! Callers may retry only the immutable bytes returned by `next_query`.
 //! Public setup must be authenticated/pinned by a future transport integration.
 
+use rand_chacha::rand_core::RngCore;
+
 use super::*;
 
 /// Immutable public query matrices, reusable across clients and fresh batches.
 pub struct QueryPool {
     client: IPIRClient,
-    sets: Vec<Vec<Vec<u64>>>,
+    sets: Vec<PublicQuerySetup>,
 }
 
 impl QueryPool {
@@ -39,14 +41,13 @@ impl QueryPool {
     pub fn client(&self) -> &IPIRClient {
         &self.client
     }
-    pub fn sets(&self) -> &[Vec<Vec<u64>>] {
+    pub fn sets(&self) -> &[PublicQuerySetup] {
         &self.sets
     }
 
     /// Create a new, process-local batch. Dropping it permanently abandons slots.
     pub fn start_batch(&self) -> ReusableBatch<'_> {
-        let mut client_seed = [0; 32];
-        rand::rngs::OsRng.fill_bytes(&mut client_seed);
+        let client_seed = fresh_client_seed();
         let mut rng = ChaCha20Rng::from_seed(client_seed);
         let secret = ClientSecret::sample_gaussian(&self.client.rlwe, &mut rng);
         let keys = PackingKeys::generate_full(
@@ -109,7 +110,7 @@ impl ReusableBatch<'_> {
         self.next += 1;
         let query = encrypted_selection_query(
             &client.rlwe,
-            &self.pool.sets[slot],
+            self.pool.sets[slot].polys(),
             &self.secret.coeffs,
             row,
             client.ypir.db_rows,
@@ -123,27 +124,61 @@ impl ReusableBatch<'_> {
     }
 
     /// Decode with the public `c1` for this query's slot and database snapshot.
-    /// The in-process harness binds slot and snapshot; no network API is provided.
-    pub fn decode_with_margin(&self, c1: &[Vec<u64>], response: &[u8]) -> (Vec<u64>, u64) {
+    /// The residual cannot establish correctness. The in-process harness binds
+    /// slot and snapshot; no network API is provided.
+    pub fn decode_with_rounding_residual(
+        &self,
+        c1: &[Vec<u64>],
+        response: &[u8],
+    ) -> (Vec<u64>, u64) {
         self.pool
             .client
-            .decode_response_simplepir_with_margin(self.client_seed, c1, response)
+            .decode_response_simplepir_with_rounding_residual(self.client_seed, c1, response)
+    }
+
+    /// Decode and measure circular phase error against a known plaintext row.
+    /// Panics if `expected` has the wrong length or contains values outside `Z_p`.
+    pub fn decode_with_expected_phase_error(
+        &self,
+        c1: &[Vec<u64>],
+        response: &[u8],
+        expected: &[u64],
+    ) -> (Vec<u64>, u64) {
+        self.pool
+            .client
+            .decode_response_simplepir_with_expected_phase_error(
+                self.client_seed,
+                c1,
+                response,
+                expected,
+            )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::params::params_for_simplepir;
 
     #[test]
     fn pool_slots_are_unique_bounded_and_retries_are_immutable() {
         let (r, y) = params_for_simplepir(2048, 2048 * 14).unwrap();
         for count in [4, 8, 16] {
-            let pool = QueryPool::new(IPIRClient::new(&r, &y), [7; 32], count).unwrap();
-            let same = QueryPool::new(IPIRClient::new(&r, &y), [7; 32], count).unwrap();
+            let pool = QueryPool::new(
+                IPIRClient::new_experimental(&r, &y).expect("consistent experimental parameters"),
+                [7; 32],
+                count,
+            )
+            .unwrap();
+            let same = QueryPool::new(
+                IPIRClient::new_experimental(&r, &y).expect("consistent experimental parameters"),
+                [7; 32],
+                count,
+            )
+            .unwrap();
             assert_eq!(pool.sets(), same.sets());
             assert_eq!(
-                &pool.sets()[0][0][..4],
+                &pool.sets()[0].polys()[0][..4],
                 &[
                     9_164_527_206_802_959,
                     5_084_643_010_587_079,
@@ -156,7 +191,12 @@ mod tests {
                     assert_ne!(pool.sets()[i], pool.sets()[j]);
                 }
             }
-            assert!(QueryPool::new(IPIRClient::new(&r, &y), [7; 32], 3).is_err());
+            assert!(QueryPool::new(
+                IPIRClient::new_experimental(&r, &y).expect("consistent experimental parameters"),
+                [7; 32],
+                3
+            )
+            .is_err());
             let mut batch = pool.start_batch();
             assert!(batch.next_query(2048).is_err());
             for slot in 0..count {
@@ -179,12 +219,13 @@ mod tests {
     #[test]
     fn same_matrix_same_secret_exposes_selector_difference() {
         let (r, y) = params_for_simplepir(2048, 2048 * 14).unwrap();
-        let client = IPIRClient::new(&r, &y);
+        let client =
+            IPIRClient::new_experimental(&r, &y).expect("consistent experimental parameters");
         let a = client.generate_public_query_setup_simplepir_from_seed([9; 32]);
         let mut rng = ChaCha20Rng::from_seed([11; 32]);
         let secret = ClientSecret::sample_gaussian(&r, &mut rng);
-        let x = encrypted_selection_query(&r, &a, &secret.coeffs, 0, y.db_rows, &mut rng);
-        let z = encrypted_selection_query(&r, &a, &secret.coeffs, 2047, y.db_rows, &mut rng);
+        let x = encrypted_selection_query(&r, a.polys(), &secret.coeffs, 0, y.db_rows, &mut rng);
+        let z = encrypted_selection_query(&r, a.polys(), &secret.coeffs, 2047, y.db_rows, &mut rng);
         // Attack the actual switched wire representation, including rounding.
         let wire = |v| {
             IPIRSimpleQuery::from_switched_bytes(

@@ -728,7 +728,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1087,7 +1087,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -1224,10 +1224,9 @@ dependencies = [
 
 [[package]]
 name = "inspiring"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "criterion",
- "rand 0.8.6",
  "rand_chacha 0.3.1",
  "rayon",
  "serde_json",
@@ -1238,7 +1237,7 @@ dependencies = [
 
 [[package]]
 name = "ipir-sp"
-version = "0.1.0"
+version = "0.1.0-rc.2"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -1248,7 +1247,7 @@ dependencies = [
  "fastrand",
  "inspiring",
  "log",
- "rand 0.8.6",
+ "rand 0.9.4",
  "rand_chacha 0.3.1",
  "rayon",
  "reinspiring",
@@ -1274,7 +1273,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1936,7 +1935,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2147,11 +2146,10 @@ checksum = "703d5c7ef118737c72f1af64ad2f6f8c5e1921f818cdcb97b8fe6fc69bf66214"
 
 [[package]]
 name = "simplepir-kernel"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "criterion",
  "inspiring",
- "rand 0.8.6",
  "rand_chacha 0.3.1",
  "rayon",
  "valar-spiral-rs",
@@ -2283,7 +2281,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2615,8 +2613,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "valar-spiral-rs"
-version = "0.5.2"
-source = "git+https://github.com/valargroup/spiral-rs.git?rev=6f5b66c6a5a639827c6486c59d31c7ec2d4399a8#6f5b66c6a5a639827c6486c59d31c7ec2d4399a8"
+version = "0.5.3-rc.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25241fdd53c5952c5c80557c6d248a2835cf9e722de52e16bbbba794009b80b9"
 dependencies = [
  "fastrand",
  "getrandom 0.2.17",
@@ -2793,7 +2792,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

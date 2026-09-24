@@ -198,7 +198,7 @@ fn scalar_fallback<T>(
 #[cfg(test)]
 mod tests {
     use inspiring::{GadgetParams, RlweParams};
-    use rand::{Rng, SeedableRng};
+    use rand_chacha::rand_core::{RngCore, SeedableRng};
     use rand_chacha::ChaCha20Rng;
 
     use crate::{FirstDimKernel, ScalarKernel, ToU64};
@@ -230,7 +230,7 @@ mod tests {
         let mut rng = ChaCha20Rng::seed_from_u64(0x5950_4952_5350);
         let db: Vec<_> = (0..rows * cols).map(|_| sample_db(&mut rng)).collect();
         let element_max = db.iter().map(|value| value.to_u64()).max().unwrap_or(0);
-        let query: Vec<_> = (0..rows).map(|_| rng.gen_range(0..rlwe.q)).collect();
+        let query: Vec<_> = (0..rows).map(|_| rng.next_u64() % rlwe.q).collect();
         let mut scalar = vec![0u64; cols];
         let mut chunked = vec![0u64; cols];
 
@@ -251,14 +251,14 @@ mod tests {
     #[test]
     fn chunked_split_matches_scalar_on_random_u16_inputs() {
         for (rows, cols) in [(1, 1), (7, 3), (31, 5), (65, 4), (129, 2)] {
-            compare::<u16, _>(rows, cols, 16, |rng| rng.gen_range(0..(1 << 14)));
+            compare::<u16, _>(rows, cols, 16, |rng| (rng.next_u64() % (1 << 14)) as u16);
         }
     }
 
     #[test]
     fn chunked_split_handles_chunk_boundaries() {
         for rows in [15, 16, 17, 31, 32, 33] {
-            compare::<u16, _>(rows, 3, 16, |rng| rng.gen_range(0..(1 << 14)));
+            compare::<u16, _>(rows, 3, 16, |rng| (rng.next_u64() % (1 << 14)) as u16);
         }
     }
 
@@ -276,14 +276,14 @@ mod tests {
 
         // chunk_rows below `rows` also forces the sequential outer chunk loop,
         // so this covers accumulation across chunks inside a parallel band.
-        compare::<u16, _>(rows, cols, 100, |rng| rng.gen_range(0..(1 << 14)));
+        compare::<u16, _>(rows, cols, 100, |rng| (rng.next_u64() % (1 << 14)) as u16);
     }
 
     #[test]
     fn chunked_split_matches_scalar_for_u8_u16_u32() {
-        compare::<u8, _>(41, 4, 16, |rng| rng.gen());
-        compare::<u16, _>(41, 4, 16, |rng| rng.gen());
-        compare::<u32, _>(41, 4, 16, |rng| rng.gen());
+        compare::<u8, _>(41, 4, 16, |rng| rng.next_u32() as u8);
+        compare::<u16, _>(41, 4, 16, |rng| rng.next_u32() as u16);
+        compare::<u32, _>(41, 4, 16, |rng| rng.next_u32());
     }
 
     #[test]
@@ -293,10 +293,10 @@ mod tests {
         let cols = 5;
         let mut rng = ChaCha20Rng::seed_from_u64(0x4f55_5450_5554);
         let db: Vec<u16> = (0..rows * cols)
-            .map(|_| rng.gen_range(0..(1 << 14)))
+            .map(|_| (rng.next_u64() % (1 << 14)) as u16)
             .collect();
         let element_max = db.iter().map(|value| u64::from(*value)).max().unwrap_or(0);
-        let query: Vec<_> = (0..rows).map(|_| rng.gen_range(0..rlwe.q)).collect();
+        let query: Vec<_> = (0..rows).map(|_| rng.next_u64() % rlwe.q).collect();
         let mut scalar = vec![0u64; cols];
         let mut chunked = vec![rlwe.q - 1; cols];
 
@@ -316,6 +316,6 @@ mod tests {
 
     #[test]
     fn chunked_split_falls_back_for_wide_u64_database_values() {
-        compare::<u64, _>(19, 2, 16, |rng| rng.gen());
+        compare::<u64, _>(19, 2, 16, |rng| rng.next_u64());
     }
 }

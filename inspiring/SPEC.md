@@ -52,7 +52,7 @@ Noise reappears explicitly in [§7](#7-noise-growth-theorem-2).
 | `s̃ ∈ R_q` | The polynomial interpretation of `s`: `s̃ = Σ_{i=0}^{d-1} s[i] · X^i`. |
 | `(a, b) ∈ Z_q^d × Z_q` | An LWE ciphertext: `b = -⟨a, s⟩ + e + Δ·m`. |
 | `(c_1, c_2) ∈ R_q × R_q` | An RLWE ciphertext: `c_2 = -c_1·s̃ + e + Δ·m̄`. |
-| `g_z`, `g_z^{-1}` | Gadget vector / decomposition operator (paper §2 and `[64]`). For modulus `q` and base `z`, `g_z = [1, z, z^2, …, z^{ℓ-1}]^⊤ ∈ Z_q^ℓ` with `ℓ = ⌈log q / log z⌉`; `g_z^{-1}: Z_q → Z^{1×ℓ}` returns digit decomposition with each digit in `[-z/2, z/2)`, extended coefficient-wise to `R_q`. |
+| `g_z`, `g_z^{-1}` | Gadget vector / decomposition operator (paper §2 and `[64]`). For modulus `q` and base `z`, `g_z = [1, z, z^2, …, z^{ℓ-1}]^⊤ ∈ Z_q^ℓ` with `ℓ = ⌈log q / log z⌉`. The implementation balances digits `0..ℓ−2` and retains the final quotient (at most `z`) in digit `ℓ−1`, giving exact reconstruction modulo `q`; this differs from the paper's fully balanced digit range. |
 | `τ_g` | A Galois automorphism of `R`, defined by `τ_g(p)(X) = p(X^g)` for `g ∈ Z*_{2d}`. |
 
 Bold lower-case = vectors; bold upper-case = matrices; `a[i]` indexes a vector; `a[i:j]` is a slice over `[i, j)`.
@@ -476,26 +476,33 @@ where `e ∈ χ(R_q^ℓ)` is the noise vector inside `K`. (See paper §2 for the
 By Lemma 6 of the paper (polynomial-with-subgaussian-coeffs times bounded polynomial):
 
 - Each entry `e[i]` has subgaussian coefficients with parameter `σ_χ`.
-- Each digit `g_z^{-1}(a)[i]` has `‖·‖_∞ ≤ z/2`.
-- So each product `g_z^{-1}(a)[i] · e[i]` has subgaussian coefficients with parameter `√d · (z/2) · σ_χ`.
+- Each of the first `ℓ−1` digits has `‖·‖_∞ ≤ z/2`. The final digit is the remaining quotient, at most `z`, so `g_z^{-1}(a) · g_z = a mod q` even when lower digits carry through the top position.
+- The top digit's product can have subgaussian coefficients with parameter up to `√d · z · σ_χ`; each lower digit uses `√d · (z/2) · σ_χ`.
 
 Summing `ℓ` such independent products, the variance of each coefficient of `e_ks` is bounded by
 
 ```
-σ_one_ks² ≤ ℓ · d · z² · σ_χ² / 4.
+σ_one_ks² ≤ d · z² · σ_χ² · (ℓ + 3) / 4.
 ```
 
 #### Total over the collapse
 
-Each `KS.Switch` invocation is independent (uses an independent key-switching matrix — even the automorphic images of `K_g` use independent fresh noise inside `K_g`'s construction; we are not reusing the same noise vector). Under the independence heuristic, variances add. With at most `d − 1 ≤ d` calls,
-
-```
-σ_pack² ≤ d · σ_one_ks² ≤ ℓ · d² · z² · σ_χ² / 4. ∎
-```
+The `d−1` switches reuse the error polynomials of the two base keys through
+automorphic images. Thus their errors are correlated and the per-switch bound
+cannot be multiplied by `d`. For each output coefficient, collect the signed
+weights of all switches on each original base-key error coefficient. If these
+independent sampler draws have weights `W[k,i]`, the key-error term is
+`Σ_i W[k,i] X[i]`, with mean `μ Σ_i W[k,i]` and subgaussian variance proxy
+bounded by `σ_χ² Σ_i W[k,i]²`. Correctness must use these composed weights
+alongside input and transport error for the chosen workload.
 
 ### Empirical sanity check
 
-The paper measures `log₂ ‖e_pack‖_∞ = 33.4` at `d = 2048` (paper §7.4). Our `tests/noise_theorem2.rs` samples ≥ 1000 packs and asserts the empirical subgaussian parameter is below the theoretical bound (within 5% slack to account for finite-sample variance). `tests/inspiring_vs_cdks_recursion.rs` additionally asserts `log₂ ‖e_pack‖_∞ < 36` at `d = 2048`, which is well below CDKS's measured `38.5` and well above our expected `33.4` — the gap exists specifically to catch a regression where someone accidentally reintroduces CDKS-style nested noise amplification.
+The paper's Theorem 2 assumes bounded balanced digits and independent switch
+errors. Neither assumption applies verbatim to this implementation. The empirical
+packing-noise test checks a sampled decryption margin; it is a regression check,
+not a full-operation failure bound. Snapshot-specific certificates must be
+recomputed when decomposition changes.
 
 ---
 
@@ -631,10 +638,10 @@ Diagram drawn for `d = 4`. CDKS's tree has `lg d = 2` levels and `lg d` distinct
 
 | Metric | CDKS | InspiRING |
 |---|---|---|
-| Analytical bound (paper) | not as tight; nested per-level amplification | `σ_pack² ≤ ℓ · d² · z² · σ_χ² / 4` (Theorem 2) |
+| Analytical bound (paper) | not as tight; nested per-level amplification | Theorem 2's `σ_pack² ≤ ℓ · d² · z² · σ_χ² / 4` applies under its digit and independence assumptions; use composed base-error weights for this implementation. |
 | Empirical `log₂ ‖e_pack‖_∞` at `d = 2048`, param set 2 (paper §7.4) | 38.5 bits | **33.4 bits** (≈ 5 bits less) |
 
-Structural reason: CDKS's noise compounds across `lg d` *nested* levels — each level sees the previous level's noise multiplied by gadget-decomposition factors. InspiRING's `d − 1` `KS.Switch` calls are independent and parallel-equivalent — variances add but are not multiplied — giving a strictly additive growth.
+Structural reason: CDKS's noise compounds across `lg d` *nested* levels — each level sees the previous level's noise multiplied by gadget-decomposition factors. InspiRING's `d − 1` `KS.Switch` errors enter additively, without multiplying earlier accumulated `b` noise. Images of the two base keys reuse error samples, so the sum still requires a correlated, composed bound.
 
 ### e. Concrete cost comparison (paper Table 5)
 
@@ -657,7 +664,7 @@ For param set 1 `(log d, log q, log p, ℓ, z) = (10, 28, 6, 8, 2^4)` the paper 
 
 - The LWE-to-RLWE embedding `(ã, b̃)` of paper Eq. 1 — bit-for-bit identical implementation in `src/lwe.rs`.
 - `KS.Setup` and `KS.Switch` (paper §2) — identical primitive, just used differently inside the collapse.
-- Gadget decomposition `g_z^{-1}` — same primitive (we get it from `spiral-rs`).
+- Gadget decomposition `g_z^{-1}` — locally implemented with an exact top digit, using `spiral-rs` for the gadget vector and polynomial arithmetic.
 
 ### g. What we explicitly do NOT implement
 
@@ -731,7 +738,7 @@ Phase 1 is complete when:
 - [x] §4 derives `IRCtx` from the LWE-to-RLWE embedding and the trace, exactly per Appendix B.
 - [x] §5 explains aggregation as a homomorphic operation on `IRCtx`.
 - [x] §6 spells out `CollapseOne`, `CollapseHalf`, and `Collapse`, justifies the use of automorphic images of `K_g`, and gives the `d − 1` `KS.Switch` count.
-- [x] §7 proves the Theorem 2 noise bound from independence of the per-step noise.
+- [x] §7 states the per-switch digit bound and requires composed base-error weights for full-operation correctness.
 - [x] §8 partitions every quantity in the algorithm into preprocessable vs. online and lays out the resulting Rust API shape.
 - [x] §9 contrasts with CDKS structurally and quantitatively, names the implementation risk, and lists the layered defenses.
 - [x] §10 enumerates every paper symbol used in the code.

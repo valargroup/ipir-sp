@@ -1,17 +1,20 @@
 [package]
 name = "ipir-sp"
-version = "0.1.0"
+version = "0.1.0-rc.2"
 edition = "2021"
 rust-version = "1.78"
 license = "MIT OR Apache-2.0"
 description = "IPIR-SP glue crate using InspiRING.Pack as the ring-packing primitive."
+repository = "https://github.com/valargroup/ipir-sp"
 
 [dependencies]
-inspiring = { path = "../inspiring" }
-reinspiring = { path = "../reinspiring" }
-simplepir-kernel = { path = "../simplepir-kernel" }
+inspiring = { path = "../inspiring", version = "=0.1.0-rc.1" }
+reinspiring = { path = "../reinspiring", version = "0.1.0" }
+simplepir-kernel = { path = "../simplepir-kernel", version = "=0.1.0-rc.1" }
 spiral-rs = { workspace = true }
-rand = { version = "0.8.5", features = ["small_rng"] }
+# Operating-system entropy for client seeds only. Public CRS expansion goes
+# through `sampling`, so the wire format does not depend on this version.
+rand = { version = "0.9", default-features = false, features = ["os_rng"] }
 rand_chacha = "0.3.1"
 log = "0.4.20"
 env_logger = "0.11.1"
@@ -28,6 +31,7 @@ reqwest = { version = "0.12", features = ["blocking"], optional = true }
 [features]
 default = []
 experimental-key-reuse = []
+experimental-params = []
 http_server = ["dep:actix-cors", "dep:actix-web"]
 http_client = ["dep:reqwest"]
 
@@ -37,6 +41,7 @@ criterion = { version = "0.5.1", features = ["html_reports"] }
 [[bench]]
 name = "end_to_end"
 harness = false
+required-features = ["experimental-params"]
 
 [[bench]]
 name = "pack_backends_d2048"
@@ -48,4 +53,4 @@ harness = false
 
 [[example]]
 name = "key_reuse_bench"
-required-features = ["experimental-key-reuse"]
+required-features = ["experimental-key-reuse", "experimental-params"]

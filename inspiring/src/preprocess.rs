@@ -262,6 +262,18 @@ impl<'a> PackingKeys<'a> {
 }
 
 impl<'a> QueryPackPreprocessed<'a> {
+    /// Build the same public preprocessing as `build`, reusing fixed public
+    /// mask images already held for online packing. `top` must come from
+    /// `TopKeyImages::build(params)` and remain unmodified. No database-dependent
+    /// values or client key bodies are reused.
+    pub fn build_with_top(
+        params: &'a RlweParams,
+        crs: &PolyMatrixNTT<'a>,
+        top: &TopKeyImages<'a>,
+    ) -> Result<Self, InspiringError> {
+        crate::preprocess_reuse::build(params, crs, top)
+    }
+
     /// Build public/static packing preprocessing for one CRS block.
     pub fn build(params: &'a RlweParams, crs: &PolyMatrixNTT<'a>) -> Result<Self, InspiringError> {
         let public = PackPublicPreprocessed::build(params, crs)?;
@@ -1977,7 +1989,7 @@ mod tests {
         let mut rng = ChaCha20Rng::seed_from_u64(seed);
         let mut raw = PolyMatrixRaw::zero(&params.spiral, params.d, 1);
         for coeff in raw.as_mut_slice().iter_mut() {
-            *coeff = rand::Rng::gen_range(&mut rng, 0..params.q);
+            *coeff = rand_chacha::rand_core::RngCore::next_u64(&mut rng) % params.q;
         }
         to_ntt_alloc(&raw)
     }
@@ -2003,7 +2015,7 @@ mod tests {
 
         let mut b_tilde = PolyMatrixRaw::zero(&params.spiral, 1, 1);
         for coeff in b_tilde.get_poly_mut(0, 0).iter_mut() {
-            *coeff = rand::Rng::gen_range(&mut rng, 0..params.q);
+            *coeff = rand_chacha::rand_core::RngCore::next_u64(&mut rng) % params.q;
         }
         let b_ntt = to_ntt_alloc(&b_tilde);
 
@@ -2051,7 +2063,7 @@ mod tests {
             let a_tildes: Vec<Vec<u64>> = (0..params.d)
                 .map(|_| {
                     (0..params.d)
-                        .map(|_| rand::Rng::gen_range(&mut rng, 0..params.q))
+                        .map(|_| rand_chacha::rand_core::RngCore::next_u64(&mut rng) % params.q)
                         .collect()
                 })
                 .collect();

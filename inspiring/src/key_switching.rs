@@ -230,14 +230,10 @@ fn signed_gadget_invert_alloc<'a>(
         half <= params.q,
         "signed digits must be representable modulo q"
     );
-    // Balanced digits can carry out of the top digit: when they do, the digits
-    // reconstruct `x - z^ell` rather than `x`, so the switch picks up an extra
-    // `(z^ell mod q) * s_from` term. That is reachable (`x` in the top `2^38`
-    // window at the production set, plus a carry from the digit below), and it
-    // is harmless only because `z^ell mod q` is small there: `2^57 mod q` is
-    // ~2^19 against `Δ/2 = 2^41`. `ipir-sp` pins that budget in
-    // `ipir-sp::params::tests::gaussian_gadget_carry_out_per_switch_bound`; a `q` or `ell`
-    // change that makes `z^ell mod q` large must be caught there, not here.
+    // Balance the low ell-1 digits, then retain the entire remaining quotient
+    // as the top digit. The quotient is at most z (a carry can propagate
+    // through every lower digit), so the gadget identity is exact modulo q
+    // without another key column. Reducing the top digit handles z >= q.
 
     for coeff_idx in 0..params.d {
         let mut x = input.get_poly(0, 0)[coeff_idx];
@@ -246,7 +242,7 @@ fn signed_gadget_invert_alloc<'a>(
         if x >= params.q {
             x %= params.q;
         }
-        for digit_idx in 0..params.gadget.ell {
+        for digit_idx in 0..params.gadget.ell - 1 {
             let low = x & mask;
             x >>= shift;
             // Balanced digits: anything at or above z/2 becomes `low - z` and
@@ -260,6 +256,9 @@ fn signed_gadget_invert_alloc<'a>(
             };
             out.get_poly_mut(digit_idx, 0)[coeff_idx] = digit;
         }
+        debug_assert!(x <= z);
+        let top = if x >= params.q { x % params.q } else { x };
+        out.get_poly_mut(params.gadget.ell - 1, 0)[coeff_idx] = top;
     }
     out
 }
@@ -330,7 +329,7 @@ mod tests {
     use super::*;
     use crate::automorph::tau_g_pow;
     use crate::params::GadgetParams;
-    use rand::SeedableRng;
+    use rand_chacha::rand_core::SeedableRng;
     use spiral_rs::gadget::gadget_invert_alloc;
     use spiral_rs::poly::PolyMatrix;
 
@@ -523,6 +522,97 @@ mod tests {
 
         assert_eq!(digits.get_poly(0, 0)[2], params.q - 4);
         assert_eq!(digits.get_poly(0, 0)[3], params.q - 1);
+    }
+
+    #[test]
+    fn signed_gadget_invert_retains_top_carry() {
+        for gadget in [
+            GadgetParams {
+                bits_per: 1,
+                ell: 14,
+            },
+            GadgetParams {
+                bits_per: 3,
+                ell: 5,
+            },
+        ] {
+            let params = RlweParams::new(8, 12289, 4, 3.2, gadget).unwrap();
+            let values = [
+                0,
+                1,
+                gadget.z() / 2,
+                gadget.z() / 2 + 1,
+                params.q / 2,
+                params.q - 2,
+                params.q - 1,
+                params.q,
+            ];
+            let digits = signed_gadget_invert_alloc(&params, &raw_from_coeffs(&params, &values));
+            for (coeff_idx, value) in values.into_iter().enumerate() {
+                let mut reconstructed = 0_u128;
+                let mut power = 1_u128;
+                for digit_idx in 0..gadget.ell {
+                    reconstructed = (reconstructed
+                        + u128::from(digits.get_poly(digit_idx, 0)[coeff_idx]) * power)
+                        % u128::from(params.q);
+                    power = power * u128::from(gadget.z()) % u128::from(params.q);
+                }
+                assert_eq!(reconstructed as u64, value % params.q);
+            }
+        }
+
+        let params = RlweParams::new(
+            8,
+            12289,
+            4,
+            3.2,
+            GadgetParams {
+                bits_per: 1,
+                ell: 14,
+            },
+        )
+        .unwrap();
+        let digits =
+            signed_gadget_invert_alloc(&params, &raw_from_coeffs(&params, &[params.q - 2; 8]));
+        assert_eq!(digits.get_poly(13, 0)[0], 2);
+    }
+
+    #[test]
+    fn high_carry_key_switch_preserves_zero_phase() {
+        let params = RlweParams::new(
+            8,
+            12289,
+            4,
+            3.2,
+            GadgetParams {
+                bits_per: 1,
+                ell: 14,
+            },
+        )
+        .unwrap();
+        let gadget = build_gadget(&params.spiral, 1, params.gadget.ell);
+        let zero = PolyMatrixRaw::zero(&params.spiral, 1, params.gadget.ell);
+        let k = KeySwitchingMatrix {
+            mat: stack_ntt(&to_ntt_alloc(&zero), &to_ntt_alloc(&gadget)),
+            params: &params,
+        };
+        let c1 = ntt_from_coeffs(&params, &[params.q - 1, 0, 0, 0, 0, 0, 0, 0]);
+        let c2 = ntt_from_coeffs(&params, &[1, 0, 0, 0, 0, 0, 0, 0]);
+        let digits = ks_digits_ntt_from_c1(&params, &c1);
+        let (a_direct, b_direct) = ks_switch(&k, &c1, &c2);
+        let (a_cached, b_cached) = ks_switch_with_digits_ntt(&k, &digits, &c2);
+        assert_eq!(a_direct.as_slice(), a_cached.as_slice());
+        assert_eq!(b_direct.as_slice(), b_cached.as_slice());
+        assert_eq!(from_ntt_alloc(&b_direct).get_poly(0, 0)[0], 0);
+        assert_eq!(
+            decrypt(
+                &params,
+                from_ntt_alloc(&a_direct).get_poly(0, 0),
+                from_ntt_alloc(&b_direct).get_poly(0, 0),
+                &[0; 8]
+            ),
+            vec![0; 8]
+        );
     }
 
     #[test]

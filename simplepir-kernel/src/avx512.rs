@@ -212,7 +212,7 @@ mod tests {
     use super::U16Avx512Kernel;
     use crate::{ChunkedSplitKernel, FirstDimKernel};
     use inspiring::{GadgetParams, RlweParams};
-    use rand::{Rng, SeedableRng};
+    use rand_chacha::rand_core::{RngCore, SeedableRng};
     use rand_chacha::ChaCha20Rng;
 
     const PRODUCTION_Q: u64 = 72_057_594_037_641_217;
@@ -242,10 +242,10 @@ mod tests {
         let cols = 5;
         let mut rng = ChaCha20Rng::seed_from_u64(0x4156_5835_3132);
         let db: Vec<u16> = (0..rows * cols)
-            .map(|_| rng.gen_range(0..(1 << 14)))
+            .map(|_| (rng.next_u64() % (1 << 14)) as u16)
             .collect();
         let element_max = db.iter().map(|value| u64::from(*value)).max().unwrap_or(0);
-        let query: Vec<_> = (0..rows).map(|_| rng.gen_range(0..rlwe.q)).collect();
+        let query: Vec<_> = (0..rows).map(|_| rng.next_u64() % rlwe.q).collect();
         let mut chunked = vec![0u64; cols];
         let mut avx512 = vec![rlwe.q - 1; cols];
 

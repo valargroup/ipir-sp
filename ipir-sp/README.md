@@ -52,32 +52,21 @@ embedded as `pack_pub_params` bytes in every online request.
 
 ```rust
 use ipir_sp::client::IPIRClient;
-use ipir_sp::server::{build_pack_preprocessed_blocks, YServer};
-use ipir_sp::params_for_simplepir;
+use ipir_sp::server::YServer;
+use ipir_sp::{ProductionSimplePirParams, SimplePirProfile};
 
-let (rlwe, ypir) = params_for_simplepir(1 << 14, 16_384 * 8)?;
+let profile = ProductionSimplePirParams::new(1 << 14, 16_384 * 8, SimplePirProfile::P14)?;
+let (rlwe, ypir) = (profile.rlwe(), profile.ypir());
 let db = vec![0u16; ypir.db_rows * ypir.db_cols];
 let server = YServer::new(ypir.clone(), db.into_iter(), false, true);
-let client = IPIRClient::new(&rlwe, &ypir);
+let client = IPIRClient::new(&profile);
 
-let setup = client.generate_setup_simplepir();
+let setup = client.generate_public_query_setup_simplepir_from_seed([7; 32]);
 let offline = server.perform_offline_precomputation_simplepir(
-    &rlwe,
-    &setup.offline_query_polys,
+    rlwe,
+    &setup,
 );
-let (query, client_seed) = client.generate_query_simplepir(&setup, 0);
-let preprocessed = build_pack_preprocessed_blocks(
-    &rlwe,
-    &offline.crs_blocks,
-    &setup.key_pair,
-)?;
-
-let response = server.perform_full_online_computation_simplepir(
-    &rlwe,
-    &query.to_bytes(),
-    &preprocessed,
-)?;
-let _item = client.decode_response_simplepir(client_seed, &response);
+let (query, keys, seed) = client.generate_fresh_query_simplepir(&setup, 0);
 # Ok::<(), inspiring::InspiringError>(())
 ```
 
@@ -93,6 +82,18 @@ cargo run -p ipir-sp --features http_client --bin client -- 0 16384 131072
 Use the same `--setup-seed` on both commands so the client query matches the
 server's precomputed setup.
 
+## Public query setup
+
+Both peers expand the offline query polynomials from the setup seed with
+ChaCha20 and `sampling::uniform_u64_below`, a pinned rejection sampler that
+reproduces the historical `rand` 0.8 `gen_range(0..q)` mapping. The mapping is
+part of the wire format: a client in another language must reproduce it
+exactly, and a `rand` upgrade cannot change it.
+`generate_public_query_setup_simplepir_from_seed` returns an opaque
+`PublicQuerySetup`; `generate_fresh_query_simplepir` accepts only that type,
+so a client cannot encrypt against polynomials handed to it by a server.
+Servers read `PublicQuerySetup::polys` for their offline precomputation.
+
 ## Client secret distribution
 
 High-level query generation and decoding use centred discrete-Gaussian secrets
@@ -100,6 +101,30 @@ at standard deviation `sigma_chi` (6.4 in the production profile), matching
 YPIR's Gaussian convention. The pinned sampler receives width
 `sigma_chi * sqrt(2*pi)`. See [migration notes](MIGRATION.md) for the changed
 interpretation of old client seeds.
+
+## Versioned plaintext profiles
+
+`ProductionSimplePirParams::new` pins the RLWE tuple and transport settings for
+the selected profile; its read-only accessors keep the pair together. The
+production `IPIRClient::new` accepts only this type. `IPIRClient::from_db_sz`
+selects P14. Arbitrary client pairs require the `experimental-params` feature
+and `IPIRClient::new_experimental`; those pairs have no production security claim.
+
+`params_for_simplepir` remains the upstream-compatible 14-bit profile. Applications
+that need full-width `u16` plaintexts opt in with
+`params_for_simplepir_profile(..., SimplePirProfile::P16Q46)`, `P16Q48`, or
+`P16Q49`. These profiles keep the ring, ciphertext modulus, Gaussian sampler,
+gadget, and 20-bit response transport unchanged, while using `p = 2^16` and at
+least 46, 48, or 49 bits per transmitted query coefficient, respectively. The
+46-bit floor is intentional: fixed-schedule certificates
+for dense 8,192-row databases exhausted the conservative proof budget at 45 bits
+and achieved a weakest tested ideal-sampler bound of `2^-143` at 46 bits. The
+48- and 49-bit profiles reduce query rounding noise but do not add new
+snapshot-specific certificates.
+
+Bind `SimplePirProfile::id()` into application manifests, cached artifacts, and
+client/server compatibility checks. Changing profiles requires re-encoding the
+database and rebuilding preprocessing.
 
 ## Tests And Benchmarks
 
@@ -122,7 +147,7 @@ small deterministic fixtures, single-CRT response switching, and the linear
 Criterion benchmarks live in `benches/end_to_end.rs`:
 
 ```bash
-cargo bench -p ipir-sp --bench end_to_end
+cargo bench -p ipir-sp --bench end_to_end --features experimental-params
 ```
 
 The default benchmark uses a smaller development profile. Set

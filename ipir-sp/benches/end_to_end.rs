@@ -473,13 +473,15 @@ fn log2_ceil(value: u128) -> u32 {
 }
 
 fn measure_uploads(fixture: &BenchFixture<'_>) -> UploadMeasurements {
-    let client = IPIRClient::new(fixture.rlwe, &fixture.ypir);
+    let client = IPIRClient::new_experimental(fixture.rlwe, &fixture.ypir)
+        .expect("consistent experimental parameters");
     let offline_query_polys =
         client.generate_public_query_setup_simplepir_from_seed(seed_from_u64(SEED));
     let packing_keys_bytes = serialize_packing_keys(fixture.rlwe, &fixture.packing_keys)
         .expect("packing keys serialize")
         .len();
     let offline_query_polys_bytes = offline_query_polys
+        .polys()
         .iter()
         .map(|poly| serialize_u64s_le(poly).len())
         .sum();
@@ -576,7 +578,8 @@ fn bench_end_to_end(c: &mut Criterion) {
     let upload_measurements = measure_uploads(&fixture);
     let packed_query_body = IPIRSimpleQuery::new(fixture.first_dim_query.clone())
         .to_switched_bytes(fixture.rlwe.q, fixture.ypir.query_bits);
-    let client = IPIRClient::new(fixture.rlwe, &fixture.ypir);
+    let client = IPIRClient::new_experimental(fixture.rlwe, &fixture.ypir)
+        .expect("consistent experimental parameters");
     let client_seed = seed_from_u64(SEED);
     let response_fixture = serialize_rlwe_response_bodies(&packed_fixture, fixture.ypir.q_prime_1);
     let published_c1 = recover_published_c1(

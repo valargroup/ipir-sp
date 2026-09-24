@@ -14,15 +14,19 @@ pub mod client;
 pub mod modulus_switch;
 pub mod pack_backend;
 pub mod params;
+pub mod sampling;
 pub mod serialize;
 pub mod server;
 
-pub use client::{IPIRClient, IPIRSeed, IPIRSimpleQuery};
+pub use client::{IPIRClient, IPIRSeed, IPIRSimpleQuery, PublicQuerySetup};
 pub use pack_backend::{
     build_reinspiring_blocks, pack_intermediate_blocks_reinspiring,
     pack_intermediate_blocks_with_backend, PackBackend,
 };
-pub use params::{params_for_simplepir, YpirSchemeParams};
+pub use params::{
+    params_for_simplepir, params_for_simplepir_profile, ProductionSimplePirParams,
+    SimplePirProfile, YpirSchemeParams,
+};
 pub use server::IPIRServer;
 /// Plaintext database element trait used by `IPIRServer` first-dimension kernels.
 pub use simplepir_kernel::ToU64;

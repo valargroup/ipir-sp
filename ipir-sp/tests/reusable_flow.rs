@@ -1,4 +1,5 @@
 #![cfg(feature = "experimental-key-reuse")]
+#![cfg(feature = "experimental-params")]
 
 use inspiring::TopKeyImages;
 use ipir_sp::client::reusable::QueryPool;
@@ -10,7 +11,12 @@ use ipir_sp::{params_for_simplepir, IPIRClient, IPIRServer};
 #[test]
 fn reused_keys_recover_boundary_rows_across_sets_and_fresh_batches() {
     let (r, y) = params_for_simplepir(4096, 2048 * 14).unwrap();
-    let pool = QueryPool::new(IPIRClient::new(&r, &y), [0x72; 32], 4).unwrap();
+    let pool = QueryPool::new(
+        IPIRClient::new_experimental(&r, &y).expect("consistent experimental parameters"),
+        [0x72; 32],
+        4,
+    )
+    .unwrap();
     let value = |row: usize, col: usize| ((row * 31 + col * 17 + 5) % y.p as usize) as u16;
     let server = IPIRServer::new_auto_kernel(
         y.clone(),
@@ -22,7 +28,7 @@ fn reused_keys_recover_boundary_rows_across_sets_and_fresh_batches() {
         .sets()
         .iter()
         .map(|set| {
-            let offline = server.perform_offline_precomputation_simplepir(&r, set);
+            let offline = server.perform_offline_precomputation_simplepir(&r, set.polys());
             build_pack_preprocessed_blocks(&r, &offline.crs_blocks).unwrap()
         })
         .collect();
@@ -47,15 +53,16 @@ fn reused_keys_recover_boundary_rows_across_sets_and_fresh_batches() {
                     &pre[slot],
                 )
                 .unwrap();
-            let (decoded, error) = batch.decode_with_margin(&c1[slot], &response);
             let expected: Vec<_> = (0..y.db_cols)
                 .map(|col| u64::from(value(row, col)))
                 .collect();
+            let (decoded, error) =
+                batch.decode_with_expected_phase_error(&c1[slot], &response, &expected);
             assert_eq!(decoded, expected);
             assert!(error < r.delta / 8);
             // A metadata mixup does not yield a valid row: the transport must
             // bind this data before decryption, not treat rounding as integrity.
-            let (wrong, _) = batch.decode_with_margin(&c1[(slot + 1) % 4], &response);
+            let (wrong, _) = batch.decode_with_rounding_residual(&c1[(slot + 1) % 4], &response);
             assert_ne!(wrong, expected);
             let (retry, _) = server
                 .perform_full_online_computation_simplepir_measured(

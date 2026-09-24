@@ -37,9 +37,9 @@ pub fn rescale(value: u64, q_in: u64, q_out: u64) -> u64 {
 /// `(q / 2^k) * p * sqrt(db_rows)`.
 ///
 /// This picks the smallest `k` keeping that at or below `Δ/64`, i.e. six bits
-/// of headroom under the `Δ/2` decryption threshold — the packing noise already
-/// measured at the production set sits around `2^34` against `Δ/2 = 2^41`, and
-/// this keeps the switch strictly the smaller of the two contributions.
+/// of headroom under the `Δ/2` decryption threshold for this estimated
+/// contribution. The production flow test measures total phase error against
+/// its known plaintext rather than inferring it from the rounding residual.
 ///
 /// The result is clamped to `modulus_bits(q)`, so a shape whose budget does not
 /// allow any reduction simply transmits at full precision.
@@ -349,7 +349,7 @@ mod tests {
         let mut rng = ChaCha20Rng::seed_from_u64(0x5157);
 
         for _ in 0..20_000 {
-            let coeff = rand::Rng::gen_range(&mut rng, 0..q);
+            let coeff = crate::sampling::uniform_u64_below(&mut rng, q);
             let down = query_coeff_down(coeff, q, bits);
             assert!(
                 down < (1 << bits),

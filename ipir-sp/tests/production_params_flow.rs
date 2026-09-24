@@ -15,6 +15,7 @@ use ipir_sp::client::IPIRClient;
 use ipir_sp::modulus_switch::recover_published_c1;
 use ipir_sp::params::params_for_simplepir;
 use ipir_sp::server::{build_pack_preprocessed_blocks, published_c1_rows, YServer};
+use ipir_sp::{ProductionSimplePirParams, SimplePirProfile};
 
 /// The deployed row count, so the derived query width and the rounding term
 /// it controls are exactly production's. Only the column count is reduced, and
@@ -41,11 +42,14 @@ fn production_params_round_trip_recovers_the_target_row() {
             (0..ypir.db_cols).map(move |col| ((row * 31 + col * 17 + 5) % ypir.p as usize) as u16)
         })
         .collect();
-    let server = YServer::new(ypir.clone(), db.iter().copied(), false, true);
-    let client = IPIRClient::new(&rlwe, &ypir);
+    let profile = ProductionSimplePirParams::new(ROWS, 2048 * 14, SimplePirProfile::P14)
+        .expect("production profile");
+    let server = YServer::from_profile(&profile, db.iter().copied(), false, true);
+    let client = IPIRClient::new(&profile);
 
     let offline_query_polys = client.generate_public_query_setup_simplepir_from_seed(SETUP_SEED);
-    let offline = server.perform_offline_precomputation_simplepir(&rlwe, &offline_query_polys);
+    let offline =
+        server.perform_offline_precomputation_simplepir(&rlwe, offline_query_polys.polys());
     let preprocessed =
         build_pack_preprocessed_blocks(&rlwe, &offline.crs_blocks).expect("preprocessing builds");
 
@@ -67,9 +71,8 @@ fn production_params_round_trip_recovers_the_target_row() {
         }
     };
 
-    // One query is one draw from the noise distribution. Every query samples a
-    // fresh secret, fresh packing keys, and fresh errors, so several draws over
-    // spread-out rows give the margin assertion something to bite on.
+    // Each query samples a fresh secret, packing keys and errors. Measure
+    // phase error against the known row across several independent draws.
     let mut worst_error = 0_u64;
     for target_row in TARGET_ROWS {
         let expected: Vec<u64> = db[target_row * ypir.db_cols..(target_row + 1) * ypir.db_cols]
@@ -95,8 +98,12 @@ fn production_params_round_trip_recovers_the_target_row() {
             )
             .expect("online response");
 
-        let (decoded, max_error) =
-            client.decode_response_simplepir_with_margin(client_seed, &published_c1, &response);
+        let (decoded, max_error) = client.decode_response_simplepir_with_expected_phase_error(
+            client_seed,
+            &published_c1,
+            &response,
+            &expected,
+        );
         assert_eq!(
             decoded, expected,
             "decoded row {target_row} must match the database row"
@@ -104,10 +111,8 @@ fn production_params_round_trip_recovers_the_target_row() {
         worst_error = worst_error.max(max_error);
     }
 
-    // The real regression signal: decoding is correct exactly while the worst
-    // phase error stays under Δ/2. Assert real headroom, not bare correctness,
-    // so that shrinking the query width or widening the database cannot quietly
-    // consume the budget and still pass.
+    // Assert headroom against the expected encoding, so a wrong plaintext
+    // cannot masquerade as small error near another encoding.
     eprintln!(
         "production flow: ||e||_inf = 2^{} over {} queries against delta/2 = 2^{} (query at {} bits)",
         bits(worst_error),
@@ -117,10 +122,77 @@ fn production_params_round_trip_recovers_the_target_row() {
     );
     assert!(
         worst_error < threshold / 4,
-        "decryption margin too thin: error 2^{} against delta/2 = 2^{}",
+        "phase error too large: error 2^{} against delta/2 = 2^{}",
         bits(worst_error),
         bits(threshold)
     );
+}
+
+#[test]
+fn p16_profiles_round_trip_with_decryption_margin() {
+    const ROWS: u64 = 8_192;
+    const TARGET: usize = ROWS as usize - 1;
+    let db: Vec<u16> = (0..ROWS as usize)
+        .flat_map(|row| (0..2048).map(move |col| ((row * 31 + col * 17 + 5) % (1 << 16)) as u16))
+        .collect();
+    let expected: Vec<u64> = db[TARGET * 2048..(TARGET + 1) * 2048]
+        .iter()
+        .map(|value| u64::from(*value))
+        .collect();
+    assert!(expected
+        .iter()
+        .any(|value| *value > u64::from(u16::MAX / 2)));
+
+    for (selected, query_bits) in [
+        (SimplePirProfile::P16Q46, 46),
+        (SimplePirProfile::P16Q48, 48),
+        (SimplePirProfile::P16Q49, 49),
+    ] {
+        let profile =
+            ProductionSimplePirParams::new(ROWS, 2048 * 16, selected).expect("16-bit profile");
+        let (rlwe, ypir) = (profile.rlwe(), profile.ypir());
+        assert_eq!(ypir.p, 1 << 16);
+        assert_eq!(ypir.query_bits, query_bits);
+
+        let server = YServer::from_profile(&profile, db.iter().copied(), false, true);
+        let client = IPIRClient::new(&profile);
+        let setup = client.generate_public_query_setup_simplepir_from_seed(SETUP_SEED);
+        let offline = server.perform_offline_precomputation_simplepir(rlwe, setup.polys());
+        let preprocessed = build_pack_preprocessed_blocks(rlwe, &offline.crs_blocks)
+            .expect("preprocessing builds");
+        let published_c1 = recover_published_c1(
+            &published_c1_rows(&preprocessed, rlwe.q),
+            rlwe.d,
+            ypir.db_cols / rlwe.d,
+            rlwe.q,
+        );
+        let top_keys = TopKeyImages::build(rlwe);
+        let (query, packing_keys, seed) = client.generate_fresh_query_simplepir(&setup, TARGET);
+        let query_bytes = query.to_switched_bytes(rlwe.q, ypir.query_bits);
+        assert_eq!(query_bytes.len(), (ypir.db_rows * query_bits).div_ceil(8));
+        let (response, _) = server
+            .perform_full_online_computation_simplepir_measured(
+                rlwe,
+                &query_bytes,
+                &packing_keys,
+                &top_keys,
+                &preprocessed,
+            )
+            .expect("online response");
+        let (decoded, max_error) = client.decode_response_simplepir_with_expected_phase_error(
+            seed,
+            &published_c1,
+            &response,
+            &expected,
+        );
+        assert_eq!(decoded, expected, "profile {}", selected.id());
+        assert!(
+            max_error < rlwe.delta / 4,
+            "{} phase error too large: error {max_error} against delta/2 {}",
+            selected.id(),
+            rlwe.delta / 2
+        );
+    }
 }
 
 /// The switched query must be strictly cheaper than the full-width one, and the

@@ -1,5 +1,26 @@
 # Migrating YPIR Packing Code To ipir-sp
 
+## Decryption diagnostics
+
+`decode_response_simplepir_with_margin` and the experimental
+`decode_with_margin` are renamed to `with_rounding_residual` variants. Their
+returned distance is to the nearest plaintext encoding and cannot establish
+correct decoding or noise headroom. Tests and benchmarks with a known plaintext
+should use `decode_response_simplepir_with_expected_phase_error` (or the batch
+wrapper) and compare the decoded coefficients with the expected row.
+
+## Production parameter API
+
+Construct `ProductionSimplePirParams::new(num_items, item_size_bits, profile)`
+and pass a reference to `IPIRClient::new`. Use its `rlwe()` and `ypir()` accessors
+for server setup. The old pair-based client constructor is replaced by
+`IPIRClient::new_experimental`, available only with `experimental-params` and
+returning a validation error for inconsistent pairs. Small test fixtures and
+benchmarks must opt into that feature. P14, P16Q46, P16Q48, and P16Q49 are
+pinned profiles;
+this API boundary does not establish a 128-bit security claim for the single-CRT
+construction.
+
 ## Gaussian client secrets
 
 Fresh-query generation and seed-based decoding now sample centred
@@ -148,7 +169,7 @@ cargo test -p inspiring
 For performance checks, run:
 
 ```bash
-cargo bench -p ipir-sp --bench end_to_end
+cargo bench -p ipir-sp --bench end_to_end --features experimental-params
 ```
 
 Use `IPIR_SP_BENCH_FULL=1` only on a host with enough memory for the full
