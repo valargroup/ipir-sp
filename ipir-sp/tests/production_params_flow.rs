@@ -221,3 +221,84 @@ fn production_params_wire_sizes_shrink() {
         "body-only response {body_only} must beat {with_c1}"
     );
 }
+
+#[cfg(feature = "cuda")]
+#[test]
+#[ignore = "requires NVIDIA GPU and NVRTC"]
+fn cuda_profiles_round_trip_with_cpu_packing() {
+    const ROWS: u64 = 8_192;
+    const TARGET: usize = ROWS as usize - 1;
+    for selected in [
+        SimplePirProfile::P14,
+        SimplePirProfile::P16Q46,
+        SimplePirProfile::P16Q48,
+        SimplePirProfile::P16Q49,
+    ] {
+        let profile = ProductionSimplePirParams::new(
+            ROWS,
+            2048 * if selected == SimplePirProfile::P14 {
+                14
+            } else {
+                16
+            },
+            selected,
+        )
+        .expect("16-bit profile");
+        let (rlwe, ypir) = (profile.rlwe(), profile.ypir());
+
+        let query_bits = ypir.query_bits;
+
+        let db: Vec<u16> = (0..ypir.db_rows * ypir.db_cols)
+            .map(|i| ((i * 31 + 5) as u64 % ypir.p) as u16)
+            .collect();
+        let expected: Vec<u64> = db[TARGET * ypir.db_cols..(TARGET + 1) * ypir.db_cols]
+            .iter()
+            .map(|&x| x as u64)
+            .collect();
+        let server = YServer::try_from_profile_with_backend(
+            &profile,
+            db.iter().copied(),
+            false,
+            true,
+            ipir_sp::server::MatvecBackend::Cuda { device: 0 },
+        )
+        .unwrap();
+        let client = IPIRClient::new(&profile);
+        let setup = client.generate_public_query_setup_simplepir_from_seed(SETUP_SEED);
+        let offline = server.perform_offline_precomputation_simplepir(rlwe, setup.polys());
+        let preprocessed = build_pack_preprocessed_blocks(rlwe, &offline.crs_blocks)
+            .expect("preprocessing builds");
+        let published_c1 = recover_published_c1(
+            &published_c1_rows(&preprocessed, rlwe.q),
+            rlwe.d,
+            ypir.db_cols / rlwe.d,
+            rlwe.q,
+        );
+        let top_keys = TopKeyImages::build(rlwe);
+        let (query, packing_keys, seed) = client.generate_fresh_query_simplepir(&setup, TARGET);
+        let query_bytes = query.to_switched_bytes(rlwe.q, ypir.query_bits);
+        assert_eq!(query_bytes.len(), (ypir.db_rows * query_bits).div_ceil(8));
+        let (response, _) = server
+            .perform_full_online_computation_simplepir_measured(
+                rlwe,
+                &query_bytes,
+                &packing_keys,
+                &top_keys,
+                &preprocessed,
+            )
+            .expect("online response");
+        let (decoded, max_error) = client.decode_response_simplepir_with_expected_phase_error(
+            seed,
+            &published_c1,
+            &response,
+            &expected,
+        );
+        assert_eq!(decoded, expected, "profile {}", selected.id());
+        assert!(
+            max_error < rlwe.delta / 4,
+            "{} phase error too large: error {max_error} against delta/2 {}",
+            selected.id(),
+            rlwe.delta / 2
+        );
+    }
+}

@@ -55,6 +55,16 @@ impl ToU64 for u64 {
     }
 }
 
+/// A backend initialization, shape, or device execution failure.
+#[derive(Debug, Clone)]
+pub struct KernelError(pub String);
+impl std::fmt::Display for KernelError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+impl std::error::Error for KernelError {}
+
 /// Backend for multiplying one packed first-dimension query by a column-major DB.
 ///
 /// Implementors receive the database exactly as `ipir-sp` stores it:
@@ -72,10 +82,32 @@ where
     ///
     /// `ipir-sp::YServer::with_kernel` calls this after the input iterator has
     /// been materialized into column-major storage and before the server is
-    /// returned to the caller. CPU kernels leave this as a no-op. A future GPU
+    /// returned to the caller. CPU kernels leave this as a no-op. A GPU
     /// backend can use it to upload the database once and cache device-side
-    /// state keyed by `(rows_padded, cols)`.
+    /// state for this immutable database. Re-preparing must replace its contents.
     fn prepare(&mut self, _db: &[T], _rows_padded: usize, _cols: usize) {}
+
+    /// Fallible setup for backends with device resources.
+    fn try_prepare(&mut self, db: &[T], rows: usize, cols: usize) -> Result<(), KernelError> {
+        self.prepare(db, rows, cols);
+        Ok(())
+    }
+
+    /// Fallible evaluation; CPU implementations retain their existing behavior.
+    #[allow(clippy::too_many_arguments)]
+    fn try_multiply_query(
+        &self,
+        rlwe: &RlweParams,
+        db: &[T],
+        rows: usize,
+        cols: usize,
+        query: &[u64],
+        element_max: u64,
+        out: &mut [u64],
+    ) -> Result<(), KernelError> {
+        self.multiply_query(rlwe, db, rows, cols, query, element_max, out);
+        Ok(())
+    }
 
     /// Compute the first-dimension query/database product.
     ///
@@ -84,6 +116,10 @@ where
     /// - `query.len() == rows_padded`
     /// - `db.len() == rows_padded * cols`
     /// - `out.len() == cols`
+    ///
+    /// Prepared backends may use an uploaded snapshot. The database contents
+    /// must remain unchanged between preparation and evaluation; invoke
+    /// `try_prepare` again to replace them, even when dimensions are unchanged.
     ///
     /// `element_max` is an upper bound on every value in `db`, which kernels
     /// use to size delayed-reduction windows. It must be a true bound: a value

@@ -9,7 +9,18 @@ use inspiring::{
     InspiringError, PackingKeys, QueryPackPreprocessed, RlweCiphertext, RlweParams, TopKeyImages,
 };
 use rayon::prelude::*;
-pub use simplepir_kernel::ToU64;
+pub use simplepir_kernel::{KernelError, ToU64};
+
+/// Runtime first-dimension evaluator; packing remains on the CPU.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum MatvecBackend {
+    #[default]
+    Cpu,
+    Cuda {
+        device: usize,
+    },
+}
+
 use simplepir_kernel::{ChunkedSplitKernel, FirstDimKernel, U16Avx512Kernel};
 use spiral_rs::poly::{
     add_into, from_ntt, from_ntt_alloc, multiply, to_ntt, to_ntt_alloc, PolyMatrix, PolyMatrixNTT,
@@ -112,11 +123,27 @@ where
     /// means it is already in column-major server order.
     pub fn with_kernel<I>(
         params: YpirSchemeParams,
+        db: I,
+        input_is_transposed: bool,
+        pad_rows: bool,
+        kernel: Box<dyn FirstDimKernel<T>>,
+    ) -> Self
+    where
+        I: Iterator<Item = T>,
+    {
+        Self::try_with_kernel(params, db, input_is_transposed, pad_rows, kernel)
+            .expect("matrix-vector backend preparation failed")
+    }
+
+    /// Construct with fallible allocation and device preparation.
+    /// As with `with_kernel`, a short input iterator or invalid scheme shape may panic.
+    pub fn try_with_kernel<I>(
+        params: YpirSchemeParams,
         mut db: I,
         input_is_transposed: bool,
         pad_rows: bool,
         mut kernel: Box<dyn FirstDimKernel<T>>,
-    ) -> Self
+    ) -> Result<Self, KernelError>
     where
         I: Iterator<Item = T>,
     {
@@ -127,7 +154,14 @@ where
             rows
         };
         let cols = params.db_cols;
-        let mut stored = vec![T::default(); padded_rows * cols];
+        let len = padded_rows
+            .checked_mul(cols)
+            .ok_or_else(|| KernelError("database shape overflow".into()))?;
+        let mut stored = Vec::new();
+        stored
+            .try_reserve_exact(len)
+            .map_err(|e| KernelError(format!("database allocation: {e}")))?;
+        stored.resize(len, T::default());
 
         // Kernels size their delayed-reduction window from a bound on the
         // database values. Tracking the true maximum on the pass we are already
@@ -160,16 +194,16 @@ where
             );
         }
 
-        kernel.prepare(&stored, padded_rows, cols);
+        kernel.try_prepare(&stored, padded_rows, cols)?;
 
-        Self {
+        Ok(Self {
             params,
             production_profile: None,
             db: stored,
             pad_rows,
             element_max,
             kernel,
-        }
+        })
     }
 
     /// YPIR scheme parameters.
@@ -240,13 +274,26 @@ where
     /// with reduction into InspiRING's single CRT modulus.
     #[must_use]
     pub fn multiply_query(&self, rlwe: &RlweParams, query: &[u64]) -> Vec<u64> {
-        self.assert_bound_rlwe(rlwe);
+        self.try_multiply_query(rlwe, query)
+            .expect("matrix-vector evaluation failed")
+    }
+
+    /// Evaluate with device failures returned to the caller.
+    pub fn try_multiply_query(
+        &self,
+        rlwe: &RlweParams,
+        query: &[u64],
+    ) -> Result<Vec<u64>, KernelError> {
+        self.validate_bound_rlwe(rlwe)
+            .map_err(|e| KernelError(e.to_string()))?;
         let rows = self.db_rows_padded();
         let cols = self.db_cols();
-        assert_eq!(query.len(), rows, "query length must match padded rows");
+        if query.len() != rows {
+            return Err(KernelError("query length must match padded rows".into()));
+        }
 
         let mut out = vec![0u64; cols];
-        self.kernel.multiply_query(
+        self.kernel.try_multiply_query(
             rlwe,
             &self.db,
             rows,
@@ -254,8 +301,8 @@ where
             query,
             self.element_max,
             &mut out,
-        );
-        out
+        )?;
+        Ok(out)
     }
 
     /// Generate YPIR's `hint_0` from supplied offline query polynomials.
@@ -467,7 +514,12 @@ where
         let deserialize = deserialize_started.elapsed();
 
         let matrix_started = std::time::Instant::now();
-        let intermediate = self.multiply_query(rlwe, &first_dim_query);
+        let intermediate = self
+            .try_multiply_query(rlwe, &first_dim_query)
+            .map_err(|e| {
+                log::error!("matrix-vector backend failed: {e}");
+                InspiringError::Internal("matrix-vector backend failed")
+            })?;
         let matrix_vector = matrix_started.elapsed();
 
         let packing_started = std::time::Instant::now();
@@ -515,6 +567,45 @@ where
 }
 
 impl YServer<u16> {
+    /// Select a CPU or CUDA evaluator for a pinned production profile.
+    pub fn try_from_profile_with_backend<I: Iterator<Item = u16>>(
+        profile: &ProductionSimplePirParams,
+        db: I,
+        input_is_transposed: bool,
+        pad_rows: bool,
+        backend: MatvecBackend,
+    ) -> Result<Self, KernelError> {
+        let kernel: Box<dyn FirstDimKernel<u16>> = match backend {
+            MatvecBackend::Cpu => {
+                if U16Avx512Kernel::is_supported() {
+                    Box::new(U16Avx512Kernel::default())
+                } else {
+                    Box::new(ChunkedSplitKernel::default())
+                }
+            }
+            MatvecBackend::Cuda { device } => {
+                #[cfg(feature = "cuda")]
+                {
+                    Box::new(simplepir_kernel::cuda::CudaKernel::new(device)?)
+                }
+                #[cfg(not(feature = "cuda"))]
+                {
+                    let _ = device;
+                    return Err(KernelError("CUDA backend requires the cuda feature".into()));
+                }
+            }
+        };
+        let mut server = Self::try_with_kernel(
+            profile.ypir().clone(),
+            db,
+            input_is_transposed,
+            pad_rows,
+            kernel,
+        )?;
+        server.production_profile = Some(profile.profile());
+        Ok(server)
+    }
+
     /// Select the accelerated kernel with a pinned production profile.
     pub fn new_auto_kernel_from_profile<I>(
         profile: &ProductionSimplePirParams,

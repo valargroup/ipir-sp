@@ -29,6 +29,12 @@ struct Args {
     /// Deterministic setup seed shared with the demo client.
     #[clap(long, default_value = "7")]
     setup_seed: u64,
+    /// First-dimension evaluator; packing always uses the CPU.
+    #[arg(long, default_value = "cpu", value_parser = ["cpu", "cuda"])]
+    matvec_backend: String,
+    /// CUDA device ordinal (defaults to zero when CUDA is selected).
+    #[arg(long)]
+    cuda_device: Option<usize>,
 }
 
 #[cfg(feature = "http_server")]
@@ -70,7 +76,10 @@ async fn query(
             &data.preprocessed,
         )
         .map(|(response, _)| response)
-        .map_err(actix_web::error::ErrorBadRequest)
+        .map_err(|e| match e {
+            inspiring::InspiringError::Internal(_) => actix_web::error::ErrorInternalServerError(e),
+            _ => actix_web::error::ErrorBadRequest(e),
+        })
 }
 
 #[cfg(feature = "http_server")]
@@ -106,6 +115,18 @@ fn seed_from_u64(value: u64) -> [u8; 32] {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let args = Args::parse();
+    if args.cuda_device.is_some() && args.matvec_backend != "cuda" {
+        return Err(std::io::Error::other(
+            "--cuda-device requires --matvec-backend cuda",
+        ));
+    }
+    let backend = if args.matvec_backend == "cuda" {
+        ipir_sp::server::MatvecBackend::Cuda {
+            device: args.cuda_device.unwrap_or(0),
+        }
+    } else {
+        ipir_sp::server::MatvecBackend::Cpu
+    };
     let item_size_bits = args.item_size_bits.unwrap_or(16_384 * 8);
     let profile = ProductionSimplePirParams::new(
         args.num_items as u64,
@@ -120,7 +141,9 @@ async fn main() -> std::io::Result<()> {
 
     let pt_modulus = ypir.p;
     let db = (0..ypir.db_rows * ypir.db_cols).map(|idx| (idx as u64 % pt_modulus) as u16);
-    let server = IPIRServer::<u16>::new_auto_kernel_from_profile(&profile, db, false, true);
+    let server =
+        IPIRServer::<u16>::try_from_profile_with_backend(&profile, db, false, true, backend)
+            .map_err(std::io::Error::other)?;
     let offline =
         server.perform_offline_precomputation_simplepir(client.rlwe_params(), setup.polys());
     let preprocessed = build_pack_preprocessed_blocks(client.rlwe_params(), &offline.crs_blocks)
@@ -158,4 +181,26 @@ async fn main() -> std::io::Result<()> {
 #[cfg(not(feature = "http_server"))]
 fn main() {
     panic!("This binary requires the 'http_server' feature.");
+}
+
+#[cfg(all(test, feature = "http_server"))]
+mod tests {
+    use super::*;
+    #[test]
+    fn backend_arguments_have_explicit_defaults_and_validate_values() {
+        let cpu = Args::try_parse_from(["server", "32768"]).unwrap();
+        assert_eq!(cpu.matvec_backend, "cpu");
+        assert_eq!(cpu.cuda_device, None);
+        let gpu = Args::try_parse_from([
+            "server",
+            "32768",
+            "--matvec-backend",
+            "cuda",
+            "--cuda-device",
+            "2",
+        ])
+        .unwrap();
+        assert_eq!(gpu.cuda_device, Some(2));
+        assert!(Args::try_parse_from(["server", "32768", "--matvec-backend", "invalid"]).is_err());
+    }
 }
