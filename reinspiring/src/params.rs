@@ -82,9 +82,10 @@ impl ReinspiringParams {
             ));
         }
         let z = gadget.z();
-        // For odd q require full gadget coverage; for power-of-two q allow the
-        // same rule when z^ell >= q.
-        if z.saturating_pow(gadget.ell as u32) < q {
+        // Odd-q byte-equal path: require full gadget coverage (`z^ℓ ≥ q`).
+        // Power-of-two / paper eval path: approximate gadget is intentional
+        // (ReinsPIRe §E.1; eval set `q=2^54`, `ℓ=2`, `z=2^19` has `z^ℓ ≪ q`).
+        if self_is_odd_q(q) && z.saturating_pow(gadget.ell as u32) < q {
             return Err(ReinspiringError::InvalidParams(format!(
                 "gadget z^ell = {z}^{} < q = {q}",
                 gadget.ell
@@ -127,4 +128,8 @@ impl ReinspiringParams {
             lift_q,
         )
     }
+}
+
+fn self_is_odd_q(q: u64) -> bool {
+    q % 2 == 1
 }

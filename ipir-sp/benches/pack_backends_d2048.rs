@@ -1,12 +1,14 @@
-//! Pack-only microbench at paper ring degree `d = 2048`.
+//! Pack-only microbench at paper ring degree `d = 2048` on the **odd**
+//! NTT-friendly production modulus (byte-equal dual path).
 //!
-//! Compares InspiRING vs ReinspiRING online pack on a single CRS block.
-//! Uses the production 56-bit NTT-friendly modulus (byte-equal path). The
-//! paper's `q = 2^54` is not used here because InspiRING preprocess requires
-//! odd `q`; degree / gadget match the paper eval set.
+//! This is **not** the paper's ReinspiRING eval set. Paper §5.1 uses hardware-
+//! native `q = 2^54`, `ℓ = 2`, `z = 2^19`. InspiRING rejects even `q`, so the
+//! fair paper-params measurement lives in
+//! `reinspiring` bench `paper_q254`.
 //!
 //! ```text
 //! cargo bench -p ipir-sp --bench pack_backends_d2048
+//! cargo bench -p reinspiring --bench paper_q254
 //! ```
 
 use std::hint::black_box;

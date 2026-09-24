@@ -76,3 +76,47 @@ fn hstack_three_limbs() {
     assert_eq!(h.get(0, d), 2);
     assert_eq!(h.get(0, 2 * d), 3);
 }
+
+#[test]
+fn pow2_matvec_matches_generic_mod() {
+    let q = 1u64 << 16;
+    let rows = 8usize;
+    let cols = 16usize;
+    let mut m = PackingMatrix::zero(rows, cols, q);
+    for r in 0..rows {
+        for c in 0..cols {
+            *m.get_mut(r, c) = ((r * 17 + c * 3) as u64) % q;
+        }
+    }
+    let v: Vec<u64> = (0..cols).map(|i| ((i * 11 + 5) as u64) % q).collect();
+    let mut out_pow2 = vec![0u64; rows];
+    m.matvec(&v, &mut out_pow2).unwrap();
+
+    let mut expected = vec![0u64; rows];
+    for r in 0..rows {
+        let mut acc = 0u128;
+        for c in 0..cols {
+            acc += u128::from(m.get(r, c)) * u128::from(v[c]);
+        }
+        expected[r] = (acc % u128::from(q)) as u64;
+    }
+    assert_eq!(out_pow2, expected);
+}
+
+#[test]
+fn paper_params_q254_accepted() {
+    use reinspiring::params::{GadgetParams, ReinspiringParams};
+    let p = ReinspiringParams::new(
+        2048,
+        1 << 54,
+        1 << 14,
+        GadgetParams {
+            bits_per: 19,
+            ell: 2,
+        },
+        12289,
+    )
+    .expect("paper q=2^54");
+    assert!(!p.is_odd_q());
+    assert_eq!(p.q, 1 << 54);
+}

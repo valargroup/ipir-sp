@@ -43,34 +43,40 @@ packing_reinspiring=92 µs
 
 At this tiny development shape ReinspiRING is slower: the coefficient `H'·y` path is not yet SIMD-tuned, and leftover `t''·y'` is schoolbook. The win from native moduli / smaller-norm material shows up at larger `d` and power-of-two `q` (paper eval), not on `d=64` with an NTT-friendly 14-bit prime.
 
-## Paper degree pack-only (`d=2048`)
+## Paper degree pack-only (`d=2048`, odd production `q`)
 
-Pack-only microbench (one CRS block), production odd single-CRT `q` (56-bit) with `ℓ=3`, `z=2^19`, `σ=6.4`. Paper uses `q=2^54`, `ℓ=2`; InspiRING preprocess needs odd `q`, so this keeps the production modulus for a byte-equal dual path.
+**Wrong comparison for ReinspiRING’s claimed speedup.** Pack-only microbench on production odd single-CRT `q` (56-bit) with `ℓ=3`. Paper §5.1 uses hardware-native `q = 2^54`, `ℓ = 2` — see the next section.
 
 ```bash
 cargo bench -p ipir-sp --bench pack_backends_d2048
 ```
 
-Raw log: [`pack_backends_d2048.log`](pack_backends_d2048.log) (force-added; `*.log` is gitignored)
-
-### Setup
-
-| Step | Time / note |
-| --- | ---: |
-| InspiRING preprocess (1 block) | 1.0 s |
-| ReinspiRING Compile (`H'`) | 80.9 s |
-| `H'_∞` bits | ≈28.1 |
-| `H'` entries (`d × ℓd`) | 12 582 912 |
-| Byte-equality | passed |
-
-### Criterion medians (`d=2048`)
+Raw log: [`pack_backends_d2048.log`](pack_backends_d2048.log)
 
 | Id | Median |
 | --- | ---: |
 | `online_pack_inspiring/2048` | ~1.86 ms |
 | `online_pack_reinspiring/2048` | ~40.3 ms |
 
-ReinspiRING remains ~22× slower online at this degree on the NTT-friendly modulus: the coefficient `H'·y` path is still schoolbook / not SIMD-tuned. Full e2e FULL/NULLIFIER fixtures still skip ReinspiRING by default (`IPIR_SP_BENCH_REINSPIRING` opt-in) because Compile dominates setup.
+On NTT-friendly odd `q`, ReinspiRING pays Barrett-style reduction and cannot use free `q=2^k` masks — so it looks much slower here. That is expected and not the paper eval.
+
+## Paper eval: ReinspiRING at `q = 2^54` (§5.1 / Table 5)
+
+```bash
+cargo bench -p reinspiring --bench paper_q254
+```
+
+Raw log: [`paper_q254.log`](paper_q254.log)
+
+Params: `d=2048`, `q=2^54`, `ℓ=2`, `z=2^19` (approximate gadget; `z^ℓ ≪ q`).
+
+| Step | This host | Paper Table 5 |
+| --- | ---: | ---: |
+| Compile preprocess | 81.2 s | 3.9 s |
+| **`H'·y` matvec** | **~1.12 ms** | **~1.2 ms** |
+| Leftover `t''·y'` (schoolbook) | ~21.1 ms | (lifted NTT; in Pack ≈ 13.6 ms total) |
+
+`H'·y` matches the paper once the hardware-native modulus and bitmask reduction are used. Full Pack is still slower than Table 5 because leftover multiply is schoolbook (`Q > d q² = 2^119` needs a multi-word lift path). The paper’s end-to-end ~2× is ReinsPIRe vs InsPIRe under these native moduli, not an odd-`q` dual-backend race.
 
 ## MID
 
