@@ -1,0 +1,9 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Checking reinspiring v0.1.0 (/Users/roman/projects/ipir-sp-reinspiring/reinspiring)
+ Documenting reinspiring v0.1.0 (/Users/roman/projects/ipir-sp-reinspiring/reinspiring)
+    Checking ipir-sp v0.1.0-rc.2 (/Users/roman/projects/ipir-sp-reinspiring/ipir-sp)
+ Documenting ipir-sp v0.1.0-rc.2 (/Users/roman/projects/ipir-sp-reinspiring/ipir-sp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.21s
+   Generated /Users/roman/projects/ipir-sp-reinspiring/target/doc/inspiring/index.html and 4 other files
