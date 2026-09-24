@@ -1,5 +1,8 @@
 # ReinspiRING refresh and benchmark — 2026-09-24
 
+**Historical initial run.** See the [performance follow-up](../2026-09-24-reinspiring-perf/REPORT.md)
+for the subsequently optimized implementation and controlled CPU-targeted comparisons.
+
 The native power-of-two implementation is complete as an **experimental** packing
 and IPIR-SP backend. On the benchmark host, its two-limb configuration reduced
 the 14-bit IPIR-SP server median from 80.461 ms to 71.162 ms (11.6%) at eight

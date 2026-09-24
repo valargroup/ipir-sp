@@ -1,0 +1,37 @@
+{
+  "main_commit": "611a29284264d844bf4dba00de2874c5b762f8c2",
+  "optimized_full_matrix_commit": "c13b051",
+  "retained_source_commit": "2e19774",
+  "primary_rustflags": "-C target-cpu=native",
+  "toolchain": "1.89.0",
+  "host": {
+    "droplet_id": 603294590,
+    "region": "ams3",
+    "size": "g-8vcpu-32gb-intel",
+    "name": "roman-reinspiring-perf-20260924"
+  },
+  "verified_remote_result_files": 81,
+  "excluded_remote_files": [
+    "native-assembly.txt: exploratory disassembly, reproducible from sources"
+  ],
+  "validation": {
+    "local_debug_passed": 202,
+    "linux_release_passed": 199,
+    "default_ignored": 2,
+    "explicit_native_degree2048": "passed",
+    "clippy_all_targets_all_features": "passed on macOS and Linux",
+    "rustdoc_warnings_denied": "passed"
+  },
+  "provenance": {
+    "final-*": "c13b051, CPU-targeted builds",
+    "retained-*": "2e19774, CPU-targeted builds",
+    "main-cpu-native-*": "main 611a292, CPU-targeted builds",
+    "exploratory/split-*": "704b95d; rejected split-multiply optimization",
+    "discarded-cargo-cache/after-*": "invalid after labels: identical binary to before, not used in comparisons"
+  },
+  "cleanup": {
+    "deletion_requested_utc": "2026-09-24T12:27:19.587014+00:00",
+    "status": "deleted; absence verified",
+    "verified_at_utc": "2026-09-24T12:28:17.586024+00:00"
+  }
+}

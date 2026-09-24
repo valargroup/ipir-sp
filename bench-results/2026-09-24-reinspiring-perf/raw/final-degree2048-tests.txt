@@ -1,0 +1,14 @@
+   Compiling regex-automata v0.4.14
+   Compiling clap_builder v4.6.0
+   Compiling regex v1.12.3
+   Compiling clap v4.6.1
+   Compiling criterion v0.5.1
+   Compiling reinspiring v0.1.0 (/root/after/reinspiring)
+    Finished `release` profile [optimized] target(s) in 17.37s
+     Running tests/native_flow.rs (target-native/release/deps/native_flow-936f1f0dfe5e0f01)
+
+running 1 test
+test native_paper_degree_roundtrip ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 19.33s
+

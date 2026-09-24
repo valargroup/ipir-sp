@@ -199,7 +199,7 @@ uses a separate experimental Gaussian profile and versioned wire format.
 
 See the [implementation contract](reinspiring/SPEC.md),
 [production approval gates](reinspiring/SECURITY.md), and
-[comparison against main and both papers](bench-results/2026-09-24-reinspiring-native/REPORT.md).
+[comparison against main and both papers](bench-results/2026-09-24-reinspiring-perf/REPORT.md).
 The native profile does not replace the default production backend.
 
 ### `ipir-sp/` — IPIR+SP integration

@@ -1,0 +1,15 @@
+   Compiling clap_builder v4.6.0
+   Compiling regex-automata v0.4.14
+   Compiling regex v1.12.3
+   Compiling clap v4.6.1
+   Compiling criterion v0.5.1
+   Compiling reinspiring v0.1.0 (/root/after/reinspiring)
+    Finished `release` profile [optimized] target(s) in 18.54s
+     Running unittests src/lib.rs (/root/before/target/release/deps/reinspiring-ceea32d1a48559b7)
+
+running 2 tests
+test native_kernel::tests::dispatched_kernels_match_scalar_with_signs_overflow_and_tails ... ok
+test native::oracle_tests::python_integer_trace_matches_fft_compiled_pack ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+

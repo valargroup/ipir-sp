@@ -1,0 +1,4 @@
+   Compiling simplepir-kernel v0.1.0-rc.1 (/root/after/simplepir-kernel)
+   Compiling reinspiring v0.1.0 (/root/after/reinspiring)
+   Compiling ipir-sp v0.1.0-rc.2 (/root/after/ipir-sp)
+    Finished `release` profile [optimized] target(s) in 8.68s
