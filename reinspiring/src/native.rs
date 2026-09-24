@@ -14,6 +14,7 @@ use rand_chacha::{
     rand_core::{RngCore, SeedableRng},
     ChaCha20Rng,
 };
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use spiral_rs::discrete_gaussian::DiscreteGaussian;
 
@@ -446,43 +447,54 @@ impl NativePreprocessed {
             g = g * 5 % (2 * d);
         }
         let exponents = collapse_kg_exponents(d);
-        let mut digits = Vec::with_capacity(d - 1);
-        let mut trace_half =
-            |half: &mut [Vec<u64>], exps: &[u64]| -> Result<(), ReinspiringError> {
-                for (step, idx) in (1..half.len()).rev().enumerate() {
-                    let ds = decompose(&half[idx], p)?;
-                    let w: Vec<_> = setup
-                        .w
-                        .iter()
-                        .map(|w| tau_coeffs(w, exps[step], q))
-                        .collect();
-                    let update = lift.sum(&ds, &w)?;
-                    for (a, x) in half[idx - 1].iter_mut().zip(update) {
-                        *a = (*a + x) & (q - 1);
-                    }
-                    digits.push(ds);
+        let public_w = lift.prepare_public_dot(&setup.w, (1u64 << (p.bits - 1)).min(q / 2))?;
+        let public_v = lift.prepare_public_dot(&setup.v, (1u64 << (p.bits - 1)).min(q / 2))?;
+        let trace_half = |half: &mut [Vec<u64>],
+                          exps: &[u64]|
+         -> Result<Vec<Vec<Vec<u64>>>, ReinspiringError> {
+            let mut digits = Vec::with_capacity(half.len() - 1);
+            for (step, idx) in (1..half.len()).rev().enumerate() {
+                let ds = decompose(&half[idx], p)?;
+                // ds * tau(w) = tau(tau^-1(ds) * w). Only the public
+                // digits change per step; w's auxiliary transforms are reused.
+                let inverse =
+                    spiral_rs::number_theory::invert_uint_mod(exps[step], (2 * d) as u64).unwrap();
+                let unrotated: Vec<_> = ds.iter().map(|x| tau_coeffs(x, inverse, q)).collect();
+                let update = tau_coeffs(&lift.public_dot(&public_w, &unrotated)?, exps[step], q);
+                for (a, x) in half[idx - 1].iter_mut().zip(update) {
+                    *a = (*a + x) & (q - 1);
                 }
-                Ok(())
-            };
-        trace_half(&mut slots[..d / 2], &exponents[..d / 2 - 1])?;
-        trace_half(&mut slots[d / 2..], &exponents[d / 2 - 1..])?;
+                digits.push(ds);
+            }
+            Ok(digits)
+        };
+        // The two collapse chains are independent until the final K_h step.
+        let (left, right) = slots.split_at_mut(d / 2);
+        let (left_digits, right_digits) = rayon::join(
+            || trace_half(left, &exponents[..d / 2 - 1]),
+            || trace_half(right, &exponents[d / 2 - 1..]),
+        );
+        let mut digits = left_digits?;
+        digits.extend(right_digits?);
         let last = decompose(&slots[d / 2], p)?;
-        let update = lift.sum(&last, &setup.v)?;
+        let update = lift.public_dot(&public_v, &last)?;
         let a = slots[0]
             .iter()
             .zip(update)
             .map(|(&a, x)| (a + x) & (q - 1))
             .collect();
-        let mut blocks = Vec::with_capacity(p.ell);
-        for j in 0..p.ell {
-            let ts: Vec<_> = digits.iter().map(|x| x[j].clone()).collect();
-            blocks.push(if d == 2 {
-                PackingMatrix::zero(d, d, q)
-            } else {
-                compile_fast(&ts, &exponents, q)?
-            });
-        }
-        let h = NativeMatrix::from_compiled(PackingMatrix::hstack(&blocks)?)?;
+        let blocks: Result<Vec<_>, _> = (0..p.ell)
+            .into_par_iter()
+            .map(|j| {
+                let ts: Vec<_> = digits.iter().map(|x| x[j].clone()).collect();
+                if d == 2 {
+                    Ok(PackingMatrix::zero(d, d, q))
+                } else {
+                    compile_fast(&ts, &exponents, q)
+                }
+            })
+            .collect();
+        let h = NativeMatrix::from_compiled(PackingMatrix::hstack(&blocks?)?)?;
         Ok(Self {
             params: p.clone(),
             id: setup.id,

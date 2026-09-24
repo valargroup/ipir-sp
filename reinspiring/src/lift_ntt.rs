@@ -1,8 +1,9 @@
-//! Exact negacyclic products via three pinned NTT primes and signed CRT.
+//! Exact negacyclic products via pinned auxiliary NTT primes and signed CRT.
 //!
-//! Spiral supplies the NTT and pointwise multiplication. Each product is
-//! reconstructed separately before summing limbs: the proven bound is per
-//! product, not a bound on a sum of an arbitrary number of products.
+//! Spiral supplies the NTT and pointwise multiplication. Generic products and
+//! online leftovers are reconstructed separately before summing limbs. Public
+//! preprocessing can accumulate before reconstruction only after checking the
+//! capacity bound for the entire sum with `prepare_public_dot`.
 use crate::error::ReinspiringError;
 use spiral_rs::{
     params::Params,
@@ -31,6 +32,18 @@ pub struct PreparedLiftOperand {
     // limb, prime, NTT coefficient; immutable and independent of request data.
     transforms: Vec<Vec<Vec<u64>>>,
 }
+/// Cached public operands for an exact integer sum of products. Unlike
+/// `PreparedLiftOperand`, capacity covers the entire sum before reconstruction.
+/// The right-hand coefficient bound is checked on every evaluation. This API
+/// is for public preprocessing data; validation is not constant-time.
+pub struct PreparedPublicDot {
+    d: usize,
+    q: u64,
+    right_bound: u64,
+    // prime, operand, NTT coefficient
+    transforms: Vec<Vec<Vec<u64>>>,
+}
+
 impl PreparedLiftOperand {
     /// Heap bytes retained by the public NTT coefficients.
     pub fn storage_bytes(&self) -> usize {
@@ -216,6 +229,135 @@ impl LiftContext {
             }
         }
         Ok(result)
+    }
+
+    /// Cache a public polynomial vector for repeated dot products. If A_i is
+    /// the largest absolute centered coefficient of operand i and B is the
+    /// supplied right bound, every integer output coefficient has magnitude
+    /// at most d*B*sum_i(A_i). Require CRT capacity strictly greater than twice
+    /// this bound, including the sum across all operands.
+    pub fn prepare_public_dot(
+        &self,
+        a: &[Vec<u64>],
+        right_bound: u64,
+    ) -> Result<PreparedPublicDot, ReinspiringError> {
+        if a.is_empty() || right_bound > self.q / 2 {
+            return Err(ReinspiringError::LweShape(
+                "invalid public dot bound or shape".into(),
+            ));
+        }
+        let mut maxima = 0u128;
+        for poly in a {
+            self.validate(poly)?;
+            let max = poly
+                .iter()
+                .map(|&x| centered(x, self.q).unsigned_abs())
+                .max()
+                .unwrap();
+            maxima = maxima.checked_add(max).ok_or_else(|| {
+                ReinspiringError::InvalidParams("public dot bound overflow".into())
+            })?;
+        }
+        let need = maxima
+            .checked_mul(self.d as u128)
+            .and_then(|x| x.checked_mul(right_bound as u128))
+            .and_then(|x| x.checked_mul(2))
+            .ok_or_else(|| ReinspiringError::InvalidParams("public dot bound overflow".into()))?;
+        let count = if need < PRIMES[0] as u128 * PRIMES[1] as u128 {
+            2
+        } else if need < self.product {
+            3
+        } else {
+            return Err(ReinspiringError::InvalidParams(
+                "insufficient public dot CRT capacity".into(),
+            ));
+        };
+        let transforms = self.params[..count]
+            .iter()
+            .map(|params| {
+                a.iter()
+                    .map(|poly| {
+                        let mut raw = PolyMatrixRaw::zero(params, 1, 1);
+                        for (dst, &x) in raw.as_mut_slice().iter_mut().zip(poly) {
+                            *dst = centered(x, self.q).rem_euclid(params.modulus as i128) as u64;
+                        }
+                        to_ntt_alloc(&raw).as_slice().to_vec()
+                    })
+                    .collect()
+            })
+            .collect();
+        Ok(PreparedPublicDot {
+            d: self.d,
+            q: self.q,
+            right_bound,
+            transforms,
+        })
+    }
+
+    /// Evaluate a capacity-checked public dot product. Accumulate in the
+    /// auxiliary NTT rings and perform one inverse transform per prime, then
+    /// reconstruct the signed integer sum before reducing modulo q.
+    pub fn public_dot(
+        &self,
+        a: &PreparedPublicDot,
+        b: &[Vec<u64>],
+    ) -> Result<Vec<u64>, ReinspiringError> {
+        if a.d != self.d || a.q != self.q || a.transforms[0].len() != b.len() {
+            return Err(ReinspiringError::LweShape(
+                "public dot context or shape mismatch".into(),
+            ));
+        }
+        for poly in b {
+            self.validate(poly)?;
+            if poly
+                .iter()
+                .any(|&x| centered(x, self.q).unsigned_abs() > a.right_bound as u128)
+            {
+                return Err(ReinspiringError::LweShape(
+                    "public dot coefficient exceeds bound".into(),
+                ));
+            }
+        }
+        let mut residues = Vec::with_capacity(a.transforms.len());
+        for (params, operands) in self.params.iter().zip(&a.transforms) {
+            let mut sum = PolyMatrixNTT::zero(params, 1, 1);
+            let mut left = PolyMatrixNTT::zero(params, 1, 1);
+            let mut raw = PolyMatrixRaw::zero(params, 1, 1);
+            let mut product = PolyMatrixNTT::zero(params, 1, 1);
+            for (lhs, rhs) in operands.iter().zip(b) {
+                left.as_mut_slice().copy_from_slice(lhs);
+                for (dst, &x) in raw.as_mut_slice().iter_mut().zip(rhs) {
+                    *dst = centered(x, self.q).rem_euclid(params.modulus as i128) as u64;
+                }
+                multiply(&mut product, &left, &to_ntt_alloc(&raw));
+                for (dst, &x) in sum.as_mut_slice().iter_mut().zip(product.as_slice()) {
+                    *dst = (*dst + x) % params.modulus;
+                }
+            }
+            residues.push(from_ntt_alloc(&sum).as_slice().to_vec());
+        }
+        let product: u128 = PRIMES[..residues.len()]
+            .iter()
+            .map(|&x| x as u128)
+            .product();
+        Ok((0..self.d)
+            .map(|i| {
+                let mut x = residues[0][i] as u128;
+                let mut m = PRIMES[0] as u128;
+                for j in 1..residues.len() {
+                    let p = PRIMES[j] as u128;
+                    let delta = (residues[j][i] as u128 + p - x % p) % p;
+                    x += m * (delta * self.inverses[j - 1] as u128 % p);
+                    m *= p;
+                }
+                let signed = if x > product / 2 {
+                    x as i128 - product as i128
+                } else {
+                    x as i128
+                };
+                signed.rem_euclid(self.q as i128) as u64
+            })
+            .collect())
     }
 
     /// Sum independent exact products, reducing each one before accumulation.

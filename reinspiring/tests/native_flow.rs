@@ -84,6 +84,98 @@ fn cached_public_lifts_match_schoolbook_and_generic_at_capacity_boundaries() {
 }
 
 #[test]
+fn public_dot_matches_independent_products_and_checks_aggregate_capacity() {
+    for d in [2, 16, 64] {
+        for q in [12289, 1 << 54, 1 << 56] {
+            let ctx = LiftContext::new(d, q).unwrap();
+            let mut rng = ChaCha20Rng::seed_from_u64(0x524e);
+            let a: Vec<Vec<_>> = (0..14)
+                .map(|_| (0..d).map(|_| rng.next_u64() % q).collect())
+                .collect();
+            // Bracket the two-prime boundary for the complete sum, not a
+            // single product. This also exercises negative reconstruction.
+            let maxima: u128 = a
+                .iter()
+                .map(|poly| poly.iter().map(|&x| x.min(q - x) as u128).max().unwrap())
+                .sum();
+            let threshold = ((4398046568449u128 * 4398046666753u128 - 1) / (2 * d as u128 * maxima))
+                .min((q / 2 - 1) as u128) as u64;
+            for bound in [0, 1, 16383.min(q / 2), threshold, threshold + 1, q / 2] {
+                let cached = ctx.prepare_public_dot(&a, bound).unwrap();
+                let b: Vec<Vec<_>> = (0..a.len())
+                    .map(|j| {
+                        (0..d)
+                            .map(|i| [bound, (q - bound) % q, 0][(i + j) % 3])
+                            .collect()
+                    })
+                    .collect();
+                let mut expected = vec![0; d];
+                for (a, b) in a.iter().zip(&b) {
+                    for (dst, x) in expected.iter_mut().zip(schoolbook_negacyclic(a, b, q)) {
+                        *dst = (*dst + x) % q;
+                    }
+                }
+                assert_eq!(ctx.public_dot(&cached, &b).unwrap(), expected);
+                assert_eq!(
+                    ctx.public_dot(&cached, &b).unwrap(),
+                    ctx.sum(&a, &b).unwrap()
+                );
+                assert!(ctx.public_dot(&cached, &b[..b.len() - 1]).is_err());
+                assert!(LiftContext::new(d, q - 1)
+                    .unwrap()
+                    .public_dot(&cached, &b)
+                    .is_err());
+                let mut bad = b.clone();
+                bad[0][0] = q;
+                assert!(ctx.public_dot(&cached, &bad).is_err());
+                if bound < q / 2 {
+                    bad[0][0] = bound + 1;
+                    assert!(ctx.public_dot(&cached, &bad).is_err());
+                }
+            }
+            assert!(ctx.prepare_public_dot(&[], 0).is_err());
+            assert!(ctx.prepare_public_dot(&a, q / 2 + 1).is_err());
+            assert!(ctx.prepare_public_dot(&[vec![q; d]], 1).is_err());
+        }
+    }
+    // Force an actual coefficient across the two-prime signed range: the
+    // coefficient at d-1 has d positive products per operand, with no wrap.
+    // A per-product bound would incorrectly select two primes for this sum.
+    let d = 16;
+    let q = 1u64 << 56;
+    let count = 14;
+    let a = vec![vec![q / 2; d]; count];
+    let threshold = ((4398046568449u128 * 4398046666753u128 - 1)
+        / (2 * d as u128 * count as u128 * (q / 2) as u128)) as u64;
+    let ctx = LiftContext::new(d, q).unwrap();
+    for bound in [threshold, threshold + 1] {
+        let cached = ctx.prepare_public_dot(&a, bound).unwrap();
+        for value in [bound, q - bound] {
+            let b = vec![vec![value; d]; count];
+            let actual = ctx.public_dot(&cached, &b).unwrap();
+            assert_eq!(actual, ctx.sum(&a, &b).unwrap());
+            let signed = if value == bound {
+                bound as i128
+            } else {
+                -(bound as i128)
+            };
+            assert_eq!(
+                actual[d - 1],
+                (d as i128 * count as i128 * (q / 2) as i128 * signed).rem_euclid(q as i128) as u64
+            );
+        }
+    }
+    // The generic single-product capacity guarantee is not sufficient for
+    // an unbounded dot product. Reject rather than silently wrap in CRT.
+    let d = 4096;
+    let q = 1 << 56;
+    assert!(LiftContext::new(d, q)
+        .unwrap()
+        .prepare_public_dot(&vec![vec![q / 2; d]; 16], q / 2)
+        .is_err());
+}
+
+#[test]
 fn compile_fft_handles_arbitrary_odd_and_repeated_exponents() {
     for q in [12289, 1 << 54] {
         for d in [4, 8, 16] {

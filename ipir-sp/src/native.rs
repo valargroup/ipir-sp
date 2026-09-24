@@ -291,22 +291,17 @@ impl NativeServer {
             return Err(err("database shape or plaintext range mismatch"));
         }
         let lift = LiftContext::new(d, q)?;
+        let public_polys = lift.prepare_public_dot(&setup.polys, (p.pack.p() - 1).min(q / 2))?;
         let mut pre = Vec::with_capacity(p.cols / d);
         for block in 0..p.cols / d {
             let masks: Result<Vec<_>, _> = (block * d..(block + 1) * d)
                 .into_par_iter()
                 .map(|col| {
-                    let mut hint = vec![0; d];
-                    for (i, poly) in setup.polys.iter().enumerate() {
-                        let coeffs: Vec<_> = db[col * p.rows + i * d..col * p.rows + (i + 1) * d]
-                            .iter()
-                            .map(|&x| x as u64)
-                            .collect();
-                        for (dst, x) in hint.iter_mut().zip(lift.multiply(poly, &coeffs)?) {
-                            *dst = (*dst + x) & (q - 1);
-                        }
-                    }
-                    Ok::<_, ReinspiringError>(hint)
+                    let coeffs: Vec<Vec<u64>> = db[col * p.rows..(col + 1) * p.rows]
+                        .chunks_exact(d)
+                        .map(|poly| poly.iter().map(|&x| x as u64).collect())
+                        .collect();
+                    lift.public_dot(&public_polys, &coeffs)
                 })
                 .collect();
             pre.push(NativePreprocessed::build(&setup.packing, &masks?)?);
