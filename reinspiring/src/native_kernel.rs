@@ -184,7 +184,7 @@ pub(crate) fn dot_i32_rows4(a: &[i32], b: &[u64]) -> [u64; 4] {
     }
     std::array::from_fn(|r| dot_i32(&a[r * b.len()..(r + 1) * b.len()], b))
 }
-pub(crate) fn supports_packed28() -> bool {
+pub(crate) fn supports_packed() -> bool {
     #[cfg(target_arch = "x86_64")]
     {
         std::is_x86_feature_detected!("avx512f")
@@ -197,23 +197,26 @@ pub(crate) fn supports_packed28() -> bool {
         false
     }
 }
-pub(crate) fn read_i28(a: &[u8], index: usize) -> i32 {
-    let offset = index * 28 / 8;
-    let shift = index * 28 % 8;
-    let word = u32::from_le_bytes(a[offset..offset + 4].try_into().unwrap());
-    (((word >> shift) << 4) as i32) >> 4
+pub(crate) fn read_packed<const BITS: usize>(a: &[u8], index: usize) -> i32 {
+    let offset = index * BITS / 8;
+    let shift = index * BITS % 8;
+    let word = u64::from_le_bytes(a[offset..offset + 8].try_into().unwrap());
+    ((((word >> shift) << (64 - BITS)) as i64) >> (64 - BITS)) as i32
 }
-pub(crate) fn dot_packed28_rows4(a: &[u8], stride: usize, b: &[u64]) -> [u64; 4] {
-    assert_eq!(stride * 8, b.len() * 28);
-    assert!(a.len() >= 4 * stride + 4);
+pub(crate) fn dot_packed_rows4<const BITS: usize>(a: &[u8], stride: usize, b: &[u64]) -> [u64; 4] {
+    assert!(BITS == 27 || BITS == 28);
+    assert_eq!(stride * 8, b.len() * BITS);
+    assert!(a.len() >= 4 * stride + 8);
     #[cfg(target_arch = "x86_64")]
-    if supports_packed28() {
-        // SAFETY: features checked, four complete rows plus four padding bytes.
-        return unsafe { x86::packed28_rows4_512(a, stride, b) };
+    if supports_packed() {
+        // SAFETY: features checked, four complete rows plus eight padding bytes.
+        return unsafe { x86::packed_rows4_512::<BITS>(a, stride, b) };
     }
     std::array::from_fn(|r| {
         b.iter().enumerate().fold(0u64, |sum, (i, &y)| {
-            sum.wrapping_add((read_i28(&a[r * stride..], i) as i64 as u64).wrapping_mul(y))
+            sum.wrapping_add(
+                (read_packed::<BITS>(&a[r * stride..], i) as i64 as u64).wrapping_mul(y),
+            )
         })
     })
 }
@@ -221,17 +224,30 @@ pub(crate) fn dot_packed28_rows4(a: &[u8], stride: usize, b: &[u64]) -> [u64; 4]
 mod x86 {
     use std::arch::x86_64::*;
     #[target_feature(enable = "avx512f,avx512dq,avx512bw,avx512vbmi")]
-    pub(super) unsafe fn packed28_rows4_512(a: &[u8], stride: usize, b: &[u64]) -> [u64; 4] {
+    pub(super) unsafe fn packed_rows4_512<const BITS: usize>(
+        a: &[u8],
+        stride: usize,
+        b: &[u64],
+    ) -> [u64; 4] {
         let mut indices = [0u8; 64];
         for lane in 0..8 {
-            for byte in 0..4 {
-                indices[lane * 8 + byte] = (lane * 28 / 8 + byte) as u8;
+            for byte in 0..5 {
+                indices[lane * 8 + byte] = (lane * BITS / 8 + byte) as u8;
             }
         }
         // SAFETY: indices holds one complete vector; all indices select the
         // low 32 bytes loaded from the packed matrix.
         let indices = unsafe { _mm512_loadu_si512(indices.as_ptr().cast()) };
-        let shifts = _mm512_set_epi64(4, 0, 4, 0, 4, 0, 4, 0);
+        let shifts = _mm512_set_epi64(
+            (7 * BITS % 8) as i64,
+            (6 * BITS % 8) as i64,
+            (5 * BITS % 8) as i64,
+            (4 * BITS % 8) as i64,
+            (3 * BITS % 8) as i64,
+            (2 * BITS % 8) as i64,
+            (BITS % 8) as i64,
+            0,
+        );
         let n = b.len();
         let end = n / 32 * 32;
         let mut sums = [[_mm512_setzero_si512(); 4]; 4];
@@ -240,14 +256,20 @@ mod x86 {
                 // SAFETY: i+j*8+8<=end<=n.
                 let y = unsafe { _mm512_loadu_si512(b.as_ptr().add(i + j * 8).cast()) };
                 for (r, row) in sums.iter_mut().enumerate() {
-                    // SAFETY: each group covers 28 bytes, and the allocation
-                    // includes four extra bytes for the final 32-byte load.
+                    // SAFETY: each eight-coefficient group covers BITS bytes, and the allocation
+                    // includes eight extra bytes for the final 32-byte load.
                     let packed = unsafe {
-                        _mm256_loadu_si256(a.as_ptr().add(r * stride + (i + j * 8) / 8 * 28).cast())
+                        _mm256_loadu_si256(
+                            a.as_ptr().add(r * stride + (i + j * 8) / 8 * BITS).cast(),
+                        )
                     };
                     let x = _mm512_permutexvar_epi8(indices, _mm512_castsi256_si512(packed));
                     let x = _mm512_srlv_epi64(x, shifts);
-                    let x = _mm512_srai_epi64::<36>(_mm512_slli_epi64::<36>(x));
+                    let x = if BITS == 27 {
+                        _mm512_srai_epi64::<37>(_mm512_slli_epi64::<37>(x))
+                    } else {
+                        _mm512_srai_epi64::<36>(_mm512_slli_epi64::<36>(x))
+                    };
                     row[j] = _mm512_add_epi64(row[j], _mm512_mullo_epi64(x, y));
                 }
             }
@@ -264,7 +286,8 @@ mod x86 {
             }
             let tail = b[end..].iter().enumerate().fold(0u64, |s, (i, &y)| {
                 s.wrapping_add(
-                    (super::read_i28(&a[r * stride..], end + i) as i64 as u64).wrapping_mul(y),
+                    (super::read_packed::<BITS>(&a[r * stride..], end + i) as i64 as u64)
+                        .wrapping_mul(y),
                 )
             });
             words.into_iter().fold(tail, u64::wrapping_add)
@@ -613,28 +636,46 @@ mod tests {
         }
     }
     #[test]
-    fn packed28_matches_scalar_at_signed_bounds_and_vector_tails() {
-        for n in (8..=160).step_by(8) {
-            let stride = n / 2 * 7;
-            let mut bytes = vec![0u8; 4 * stride + 4];
-            let a: Vec<i32> = (0..4 * n)
-                .map(|i| [-(1 << 27), (1 << 27) - 1, -1, 0, 1, 0x1234567, -0x1234567][i % 7])
-                .collect();
-            for (i, &v) in a.iter().enumerate() {
-                let bits = ((v as u32 & ((1 << 28) - 1)) as u64) << (i * 28 % 8);
-                for j in 0..4 {
-                    bytes[i * 28 / 8 + j] |= (bits >> (j * 8)) as u8;
+    fn packed_widths_match_scalar_at_signed_bounds_and_vector_tails() {
+        fn check<const BITS: usize>() {
+            for n in (8..=160).step_by(8) {
+                let stride = n / 8 * BITS;
+                let mut bytes = vec![0u8; 4 * stride + 8];
+                let a: Vec<i32> = (0..4 * n)
+                    .map(|i| {
+                        [
+                            -(1 << (BITS - 1)),
+                            (1 << (BITS - 1)) - 1,
+                            -1,
+                            0,
+                            1,
+                            0x1234567,
+                            -0x1234567,
+                        ][i % 7]
+                    })
+                    .collect();
+                for (i, &v) in a.iter().enumerate() {
+                    for bit in 0..BITS {
+                        bytes[(i * BITS + bit) / 8] |=
+                            (((v as u32 >> bit) & 1) as u8) << ((i * BITS + bit) % 8);
+                    }
                 }
+                for (i, &v) in a.iter().enumerate() {
+                    assert_eq!(read_packed::<BITS>(&bytes, i), v);
+                }
+                let b: Vec<_> = (0..n)
+                    .map(|i| [u64::MAX, 1 << 63, 0, 1, 0x123456789abcdef][i % 5])
+                    .collect();
+                let expected = std::array::from_fn(|r| scalar_i32(&a[r * n..(r + 1) * n], &b));
+                assert_eq!(
+                    dot_packed_rows4::<BITS>(&bytes, stride, &b),
+                    expected,
+                    "bits={BITS},n={n}"
+                );
             }
-            for (i, &v) in a.iter().enumerate() {
-                assert_eq!(read_i28(&bytes, i), v);
-            }
-            let b: Vec<_> = (0..n)
-                .map(|i| [u64::MAX, 1 << 63, 0, 1, 0x123456789abcdef][i % 5])
-                .collect();
-            let expected = std::array::from_fn(|r| scalar_i32(&a[r * n..(r + 1) * n], &b));
-            assert_eq!(dot_packed28_rows4(&bytes, stride, &b), expected, "n={n}");
         }
+        check::<27>();
+        check::<28>();
     }
     #[test]
     fn dispatched_kernels_match_scalar_with_signs_overflow_and_tails() {

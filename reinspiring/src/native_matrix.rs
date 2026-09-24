@@ -4,7 +4,7 @@ use rayon::prelude::*;
 
 enum Words {
     Narrow(Vec<i32>),
-    Packed28(Vec<u8>),
+    Packed { bits: usize, data: Vec<u8> },
     Wide(Vec<i64>),
 }
 
@@ -35,8 +35,9 @@ impl NativeMatrix {
         }
         let mut cols = 0usize;
         let mut narrow = true;
+        let mut fits27 = true;
         let mut packed28 =
-            q.is_power_of_two() && rows % 4 == 0 && crate::native_kernel::supports_packed28();
+            q.is_power_of_two() && rows % 4 == 0 && crate::native_kernel::supports_packed();
         for block in &blocks {
             if block.rows != rows
                 || block.q != q
@@ -59,6 +60,7 @@ impl NativeMatrix {
                 }
                 let signed = centered(x, q);
                 narrow &= i32::try_from(signed).is_ok();
+                fits27 &= (-(1i128 << 26)..(1i128 << 26)).contains(&signed);
                 packed28 &= (-(1i128 << 27)..(1i128 << 27)).contains(&signed);
             }
         }
@@ -66,10 +68,11 @@ impl NativeMatrix {
             .checked_mul(cols)
             .ok_or_else(|| ReinspiringError::InvalidParams("native matrix size overflow".into()))?;
         let words = if packed28 && cols % 8 == 0 {
-            let stride = cols / 2 * 7;
+            let bits = if fits27 { 27 } else { 28 };
+            let stride = cols / 8 * bits;
             let size = rows
                 .checked_mul(stride)
-                .and_then(|n| n.checked_add(4))
+                .and_then(|n| n.checked_add(8))
                 .ok_or_else(|| {
                     ReinspiringError::InvalidParams("packed matrix size overflow".into())
                 })?;
@@ -81,17 +84,17 @@ impl NativeMatrix {
                     let mut col = 0;
                     for block in &blocks {
                         for &x in &block.data[r * block.cols..(r + 1) * block.cols] {
-                            let value = (centered(x, q) as u64) & ((1 << 28) - 1);
-                            let offset = col * 28 / 8;
-                            let shifted = value << (col * 28 % 8);
-                            for byte in 0..4 {
+                            let value = (centered(x, q) as u64) & ((1 << bits) - 1);
+                            let offset = col * bits / 8;
+                            let shifted = value << (col * bits % 8);
+                            for byte in 0..(bits + col * bits % 8).div_ceil(8) {
                                 row[offset + byte] |= (shifted >> (8 * byte)) as u8;
                             }
                             col += 1;
                         }
                     }
                 });
-            Words::Packed28(out)
+            Words::Packed { bits, data: out }
         } else if narrow {
             let mut out = vec![0i32; count];
             out.par_chunks_mut(cols).enumerate().for_each(|(r, row)| {
@@ -134,7 +137,7 @@ impl NativeMatrix {
     pub fn storage_bytes(&self) -> usize {
         match &self.words {
             Words::Narrow(x) => x.len() * 4,
-            Words::Packed28(x) => x.len(),
+            Words::Packed { data: x, .. } => x.len(),
             Words::Wide(x) => x.len() * 8,
         }
     }
@@ -142,7 +145,7 @@ impl NativeMatrix {
     /// an optimistic memory-traffic baseline, not a cryptographic checksum.
     pub fn read_checksum(&self) -> u64 {
         match &self.words {
-            Words::Packed28(x) => x
+            Words::Packed { data: x, .. } => x
                 .par_chunks(65536)
                 .map(|part| part.iter().fold(0u8, |s, &x| s ^ x) as u64)
                 .reduce(|| 0, |a, b| a ^ b),
@@ -160,10 +163,14 @@ impl NativeMatrix {
     pub fn to_compiled(&self) -> PackingMatrix {
         let mut m = PackingMatrix::zero(self.rows, self.cols, self.q);
         match &self.words {
-            Words::Packed28(x) => {
+            Words::Packed { bits, data: x } => {
                 for (i, dst) in m.data.iter_mut().enumerate() {
-                    *dst = (crate::native_kernel::read_i28(x, i) as i128).rem_euclid(self.q as i128)
-                        as u64;
+                    *dst = (if *bits == 27 {
+                        crate::native_kernel::read_packed::<27>(x, i)
+                    } else {
+                        crate::native_kernel::read_packed::<28>(x, i)
+                    } as i128)
+                        .rem_euclid(self.q as i128) as u64;
                 }
             }
             Words::Narrow(x) => {
@@ -190,14 +197,15 @@ impl NativeMatrix {
             return self.multiply_odd(y);
         }
         let mut out = vec![0; self.rows];
-        if let Words::Packed28(x) = &self.words {
-            let stride = self.cols / 2 * 7;
+        if let Words::Packed { bits, data: x } = &self.words {
+            let stride = self.cols / 8 * bits;
             out.par_chunks_mut(4).enumerate().for_each(|(tile, dst)| {
-                let sums = crate::native_kernel::dot_packed28_rows4(
-                    &x[tile * 4 * stride..tile * 4 * stride + 4 * stride + 4],
-                    stride,
-                    y,
-                );
+                let bytes = &x[tile * 4 * stride..tile * 4 * stride + 4 * stride + 8];
+                let sums = if *bits == 27 {
+                    crate::native_kernel::dot_packed_rows4::<27>(bytes, stride, y)
+                } else {
+                    crate::native_kernel::dot_packed_rows4::<28>(bytes, stride, y)
+                };
                 for (dst, sum) in dst.iter_mut().zip(sums) {
                     *dst = sum & (self.q - 1);
                 }
@@ -226,7 +234,7 @@ impl NativeMatrix {
         }
         out.par_iter_mut().enumerate().for_each(|(r, dst)| {
             *dst = match &self.words {
-                Words::Packed28(_) => unreachable!("packed path handled above"),
+                Words::Packed { .. } => unreachable!("packed path handled above"),
                 Words::Narrow(x) => {
                     crate::native_kernel::dot_i32(&x[r * self.cols..(r + 1) * self.cols], y)
                 }
@@ -243,7 +251,7 @@ impl NativeMatrix {
     fn multiply_odd(&self, y: &[u64]) -> Result<Vec<u64>, ReinspiringError> {
         let mut out = vec![0; self.rows];
         match &self.words {
-            Words::Packed28(_) => unreachable!("packed storage requires power-of-two modulus"),
+            Words::Packed { .. } => unreachable!("packed storage requires power-of-two modulus"),
             Words::Narrow(x) => {
                 // Each partial signed sum is at most 2^31*(2^16-1)*32768
                 // in magnitude, strictly below 2^63. Reinterpret the low-word
@@ -278,7 +286,14 @@ mod tests {
     #[test]
     fn blocks_roundtrip_and_multiply_at_storage_boundaries() {
         let q = 1u64 << 54;
-        for bound in [1i64 << 27, (1 << 27) + 1, 1 << 31, (1 << 31) + 1] {
+        for bound in [
+            1i64 << 26,
+            (1 << 26) + 1,
+            1i64 << 27,
+            (1 << 27) + 1,
+            1 << 31,
+            (1 << 31) + 1,
+        ] {
             let mut blocks = vec![];
             for cols in [3, 5, 8] {
                 let mut m = PackingMatrix::zero(8, cols, q);
@@ -311,9 +326,11 @@ mod tests {
                 .collect();
             assert_eq!(m.multiply(&y).unwrap(), sums);
             if bound > (1 << 27) {
-                assert!(!matches!(m.words, Words::Packed28(_)));
-            } else if crate::native_kernel::supports_packed28() {
-                assert!(matches!(m.words, Words::Packed28(_)));
+                assert!(!matches!(m.words, Words::Packed { .. }));
+            } else if crate::native_kernel::supports_packed() {
+                let expected_bits = if bound <= (1 << 26) { 27 } else { 28 };
+                assert!(matches!(m.words, Words::Packed {bits,..} if bits==expected_bits));
+                assert_eq!(m.storage_bytes(), 8 * 16 * expected_bits / 8 + 8);
             }
         }
     }
