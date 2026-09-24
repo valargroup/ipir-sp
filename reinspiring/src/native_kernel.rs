@@ -138,14 +138,13 @@ impl PreparedU16Query {
             }
             out.fill(0);
             for row in (0..rows).step_by(4) {
-                for col in 0..16 {
+                for (col, dst) in out.iter_mut().enumerate() {
                     for k in 0..4 {
                         let lane = col * 4 + k;
                         let lo = (band[row * 16 + lane / 2] >> ((lane % 2) * 8)) & 255;
                         let hi = (band[row * 16 + 32 + lane / 2] >> ((lane % 2) * 8)) & 255;
                         let value = lo | (hi << 8);
-                        out[col] =
-                            out[col].wrapping_add((value as u64).wrapping_mul(self.words[row + k]));
+                        *dst = dst.wrapping_add((value as u64).wrapping_mul(self.words[row + k]));
                     }
                 }
             }
