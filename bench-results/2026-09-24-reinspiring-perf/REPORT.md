@@ -1,5 +1,10 @@
 # ReinspiRING performance follow-up — 2026-09-24
 
+**Preprocessing update:** The [subsequent preprocessing report](../2026-09-24-reinspiring-preprocessing/README.md)
+measures a 3.21× reduction, from 117.72 to 36.69 seconds, on the same hardware
+profile and workload. It supersedes this report's native offline setup times;
+the online measurements below remain historical results for the stated commits.
+
 The earlier native backend already used the paper's hardware-friendly **q=2^54**.
 The gap was in the implementation: AVX2-only matrix kernels, repeated general
 three-prime leftover products, and a database scan that did not exploit byte dot

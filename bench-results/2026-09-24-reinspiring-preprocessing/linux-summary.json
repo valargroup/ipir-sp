@@ -1,0 +1,28 @@
+{
+  "baseline": [
+    117.724237107,
+    118.096975008,
+    117.271061571
+  ],
+  "baseline_median_s": 117.724237107,
+  "optimized": [
+    36.862078112,
+    36.690323063,
+    36.65515288
+  ],
+  "optimized_median_s": 36.690323063,
+  "speedup": 3.2085909111473008,
+  "baseline_peak_rss_bytes": [
+    2713333760,
+    2713149440,
+    2713104384
+  ],
+  "optimized_peak_rss_bytes": [
+    2891182080,
+    2920558592,
+    2925047808
+  ],
+  "source_commit": "59a09f20ed153b6e16ff40953bbc1e6b188a0a07",
+  "baseline_commit": "689bcebd5335eeb14b89032c20e60c379f244d40",
+  "all_sampled_phase_errors_and_wire_sizes_match": true
+}
