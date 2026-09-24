@@ -1,0 +1,6 @@
+
+running 1 test
+test cuda_profiles_round_trip_with_cpu_packing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 19.25s
+
