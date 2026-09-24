@@ -17,6 +17,7 @@ use rand_chacha::{
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use spiral_rs::discrete_gaussian::DiscreteGaussian;
+use std::time::{Duration, Instant};
 
 /// Separate sampler identifiers; these are cryptographic profile properties.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -419,9 +420,30 @@ pub struct NativePreprocessed {
     leftover: PreparedLiftOperand,
     lift: LiftContext,
 }
+
+/// Offline stage durations, excluding caller-side database-hint construction.
+#[derive(Clone, Copy, Debug)]
+pub struct NativeBuildTiming {
+    /// Auxiliary context construction and exact integer mask aggregation.
+    pub aggregation: Duration,
+    /// Public key-switch trace, including digit decomposition and final mask.
+    pub trace: Duration,
+    /// Matrix compilation, compact storage conversion and leftover preparation.
+    pub compilation: Duration,
+    /// Complete build, including input validation.
+    pub total: Duration,
+}
 impl NativePreprocessed {
     /// Compile a d-by-d LWE mask matrix using D.2 aggregation and D.1 rounding.
     pub fn build(setup: &NativeSetup, masks: &[Vec<u64>]) -> Result<Self, ReinspiringError> {
+        Self::build_timed(setup, masks).map(|(pre, _)| pre)
+    }
+    /// Compile with offline stage attribution; identical arithmetic to `build`.
+    pub fn build_timed(
+        setup: &NativeSetup,
+        masks: &[Vec<u64>],
+    ) -> Result<(Self, NativeBuildTiming), ReinspiringError> {
+        let total_start = Instant::now();
         let p = &setup.params;
         let d = p.d;
         let q = p.q;
@@ -431,8 +453,11 @@ impl NativePreprocessed {
         for row in masks {
             validate_poly(row, p)?;
         }
+        let aggregation_start = Instant::now();
         let lift = LiftContext::new(d, q)?;
         let mut agg = aggregate_masks(masks, q)?;
+        let aggregation = aggregation_start.elapsed();
+        let trace_start = Instant::now();
         // Reorder odd exponents into left powers of 5, then their negatives.
         let mut slots = Vec::with_capacity(d);
         let mut g = 1usize;
@@ -483,6 +508,8 @@ impl NativePreprocessed {
             .zip(update)
             .map(|(&a, x)| (a + x) & (q - 1))
             .collect();
+        let trace = trace_start.elapsed();
+        let compilation_start = Instant::now();
         let blocks: Result<Vec<_>, _> = (0..p.ell)
             .into_par_iter()
             .map(|j| {
@@ -495,14 +522,23 @@ impl NativePreprocessed {
             })
             .collect();
         let h = NativeMatrix::from_compiled(PackingMatrix::hstack(&blocks?)?)?;
-        Ok(Self {
+        let pre = Self {
             params: p.clone(),
             id: setup.id,
             a,
             h,
             leftover: lift.prepare_public(&last)?,
             lift,
-        })
+        };
+        Ok((
+            pre,
+            NativeBuildTiming {
+                aggregation,
+                trace,
+                compilation: compilation_start.elapsed(),
+                total: total_start.elapsed(),
+            },
+        ))
     }
     /// Pack d bodies with validated uploaded keys. All arithmetic is deterministic.
     pub fn pack(&self, b: &[u64], keys: &NativeKeys) -> Result<NativeCiphertext, ReinspiringError> {
