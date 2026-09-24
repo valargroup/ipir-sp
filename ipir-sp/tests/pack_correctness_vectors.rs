@@ -156,12 +156,7 @@ fn write_fixtures_if_requested() {
     let dir = fixtures_dir();
     fs::create_dir_all(&dir).expect("create fixtures dir");
 
-    let tiny = make_fixture(
-        "tiny_d8_q12289_seed42",
-        &tiny_params(),
-        42,
-        [42u8; 32],
-    );
+    let tiny = make_fixture("tiny_d8_q12289_seed42", &tiny_params(), 42, [42u8; 32]);
     let prodlike = make_fixture(
         "prodlike_d16_q56bit_seed9",
         &prodlike_params(),
@@ -243,8 +238,8 @@ fn assert_backends_match_golden(fix: &PackFixture) {
     );
 
     let rein_pre = build_reinspiring_blocks(&pre).expect("reinspiring preprocess");
-    let reinspiring =
-        pack_intermediate_blocks_reinspiring(&fix.b_scalars, &keys, &rein_pre).expect("reinspiring");
+    let reinspiring = pack_intermediate_blocks_reinspiring(&fix.b_scalars, &keys, &rein_pre)
+        .expect("reinspiring");
     let rein_raw = from_ntt_alloc(&reinspiring[0].inner);
     assert_eq!(
         rein_raw.get_poly(0, 0),
@@ -292,9 +287,8 @@ fn prodlike_fixture_inspiring_and_reinspiring_match_golden() {
 
 #[test]
 fn manifest_lists_committed_fixtures() {
-    let text = fs::read_to_string(fixtures_dir().join("MANIFEST.json")).expect(
-        "missing MANIFEST.json — run with IPIR_SP_WRITE_FIXTURES=1 once to generate",
-    );
+    let text = fs::read_to_string(fixtures_dir().join("MANIFEST.json"))
+        .expect("missing MANIFEST.json — run with IPIR_SP_WRITE_FIXTURES=1 once to generate");
     let v: serde_json::Value = serde_json::from_str(&text).expect("manifest json");
     assert_eq!(v["schema_version"], 1);
     let files = v["files"].as_array().expect("files");

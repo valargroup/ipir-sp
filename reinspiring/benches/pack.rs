@@ -43,7 +43,10 @@ fn bench_pack(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(3));
     group.bench_function(BenchmarkId::new("inspiring_pack_b", params.d), |ben| {
         ben.iter(|| {
-            black_box(pre.pack_b(black_box(&b), black_box(&keys), black_box(&top)).unwrap())
+            black_box(
+                pre.pack_b(black_box(&b), black_box(&keys), black_box(&top))
+                    .unwrap(),
+            )
         });
     });
     group.bench_function(BenchmarkId::new("reinspiring_pack", params.d), |ben| {
@@ -53,7 +56,7 @@ fn bench_pack(c: &mut Criterion) {
 
     eprintln!(
         "H' infinity-norm (centered) bits ≈ {:.1}",
-        (rp.h_prime.infinity_norm_centered() as f64).log2()
+        (rp.matrix().infinity_norm_centered() as f64).log2()
     );
 }
 

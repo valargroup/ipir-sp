@@ -5,9 +5,7 @@ use ipir_sp::params::YpirSchemeParams;
 use ipir_sp::server::{
     build_pack_preprocessed_blocks, offline_precompute_from_hint, pack_intermediate_blocks,
 };
-use ipir_sp::{
-    build_reinspiring_blocks, pack_intermediate_blocks_with_backend, PackBackend,
-};
+use ipir_sp::{build_reinspiring_blocks, pack_intermediate_blocks_with_backend, PackBackend};
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use spiral_rs::poly::{to_ntt_alloc, PolyMatrix, PolyMatrixRaw};

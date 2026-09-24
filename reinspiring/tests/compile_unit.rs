@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 //! Compile unit tests (Neg, fused vs naive matrix form).
 
 use reinspiring::compile::{

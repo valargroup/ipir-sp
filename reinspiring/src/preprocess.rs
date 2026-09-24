@@ -14,15 +14,30 @@ use crate::params::ReinspiringParams;
 /// Offline packing material: `(ã, H', [t''_j])`.
 pub struct ReinspiringPreprocessed<'a> {
     /// ReinspiRING parameters (mirrors inspiring on the odd-`q` path).
-    pub params: ReinspiringParams,
+    pub(crate) params: ReinspiringParams,
     /// Borrowed inspiring params (for spiral allocators / NTT of outputs).
-    pub inspiring_params: &'a RlweParams,
+    pub(crate) inspiring_params: &'a RlweParams,
     /// Final RLWE `c1` (= `ã`) in NTT form, shared with inspiring.
-    pub a_tilde_ntt: PolyMatrixNTT<'a>,
+    pub(crate) a_tilde_ntt: PolyMatrixNTT<'a>,
     /// Compiled packing matrix `H' ∈ Z_q^{d × ℓd}`.
-    pub h_prime: PackingMatrix,
+    pub(crate) h_prime: PackingMatrix,
     /// Coefficient-form leftover limbs `t''_j` (length `ℓ`).
-    pub t_double_prime: Vec<Vec<u64>>,
+    pub(crate) t_double_prime: Vec<Vec<u64>>,
+    pub(crate) lift: crate::lift_ntt::LiftContext,
+}
+impl<'a> ReinspiringPreprocessed<'a> {
+    /// Validated source profile.
+    pub fn inspiring_params(&self) -> &'a RlweParams {
+        self.inspiring_params
+    }
+    /// Compiled matrix, exposed read-only for diagnostics.
+    pub fn matrix(&self) -> &PackingMatrix {
+        &self.h_prime
+    }
+    /// Validated ReinspiRING parameter view.
+    pub fn params(&self) -> &ReinspiringParams {
+        &self.params
+    }
 }
 
 /// Which Compile algorithm to use during preprocess.
@@ -30,8 +45,7 @@ pub struct ReinspiringPreprocessed<'a> {
 pub enum CompileAlgo {
     /// `O(k d²)` fused naive (correct for any exponent set).
     Naive,
-    /// Lemma 9 column builder for the collapse schedule (`O(d³)` with tiny constant,
-    /// same asymptotics as fused for now; preferred default).
+    /// Lemma 9 ring FFT (`O(d² log d)` per gadget limb).
     #[default]
     Fast,
 }
@@ -93,6 +107,7 @@ pub fn preprocess_from_inspiring<'a>(
     let h_prime = PackingMatrix::hstack(&blocks?)?;
 
     Ok(ReinspiringPreprocessed {
+        lift: crate::lift_ntt::LiftContext::new(d, q)?,
         params: rp,
         inspiring_params: ip,
         a_tilde_ntt: clone_ntt(&pre.collapse_a_final_ntt),
@@ -114,6 +129,22 @@ pub fn preprocess_from_digits<'a>(
     let d = inspiring_params.d;
     let ell = inspiring_params.gadget.ell;
     let q = inspiring_params.q;
+    if t_kg_steps.iter().any(|step| {
+        step.len() != ell
+            || step
+                .iter()
+                .any(|p| p.len() != d || p.iter().any(|&x| x >= q))
+    }) || t_double_prime
+        .iter()
+        .any(|p| p.len() != d || p.iter().any(|&x| x >= q))
+        || a_tilde_ntt.rows != 1
+        || a_tilde_ntt.cols != 1
+        || a_tilde_ntt.params != &inspiring_params.spiral
+    {
+        return Err(ReinspiringError::PreprocessMismatch(
+            "invalid explicit digit material".into(),
+        ));
+    }
     if t_kg_steps.len() != d - 2 {
         return Err(ReinspiringError::PreprocessMismatch(format!(
             "expected {} K_g steps, got {}",
@@ -137,6 +168,7 @@ pub fn preprocess_from_digits<'a>(
         blocks.push(block);
     }
     Ok(ReinspiringPreprocessed {
+        lift: crate::lift_ntt::LiftContext::new(d, q)?,
         params: rp,
         inspiring_params,
         a_tilde_ntt,
@@ -149,8 +181,7 @@ fn clone_ntt<'a>(src: &PolyMatrixNTT<'a>) -> PolyMatrixNTT<'a> {
     let mut out = PolyMatrixNTT::zero(src.params, src.rows, src.cols);
     for r in 0..src.rows {
         for c in 0..src.cols {
-            out.get_poly_mut(r, c)
-                .copy_from_slice(src.get_poly(r, c));
+            out.get_poly_mut(r, c).copy_from_slice(src.get_poly(r, c));
         }
     }
     out

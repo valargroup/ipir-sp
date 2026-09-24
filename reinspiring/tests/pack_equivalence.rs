@@ -52,7 +52,9 @@ fn fixture() -> (
 #[test]
 fn reinspiring_matches_pack_b_tiny_naive() {
     let (params, pre, keys, top) = fixture();
-    let b: Vec<u64> = (0..params.d).map(|i| (i as u64 * 11 + 3) % params.q).collect();
+    let b: Vec<u64> = (0..params.d)
+        .map(|i| (i as u64 * 11 + 3) % params.q)
+        .collect();
 
     let expected = pre.pack_b(&b, &keys, &top).expect("inspiring pack_b");
     // lift_q unused on schoolbook leftover path; pick any odd prime > d q^2 roughly
@@ -70,7 +72,9 @@ fn reinspiring_matches_pack_b_tiny_naive() {
 #[test]
 fn reinspiring_matches_pack_b_tiny_fast() {
     let (params, pre, keys, top) = fixture();
-    let b: Vec<u64> = (0..params.d).map(|i| (i as u64 * 13 + 9) % params.q).collect();
+    let b: Vec<u64> = (0..params.d)
+        .map(|i| (i as u64 * 13 + 9) % params.q)
+        .collect();
 
     let expected = pre.pack_b(&b, &keys, &top).expect("inspiring pack_b");
     let rp = preprocess_from_inspiring(&pre, 1_000_003, CompileAlgo::Fast).expect("compile");
@@ -85,7 +89,7 @@ fn compile_naive_and_fast_agree() {
     let b: Vec<u64> = (0..8).map(|i| i as u64 * 5).collect();
     let naive = preprocess_from_inspiring(&pre, 1_000_003, CompileAlgo::Naive).unwrap();
     let fast = preprocess_from_inspiring(&pre, 1_000_003, CompileAlgo::Fast).unwrap();
-    assert_eq!(naive.h_prime.data, fast.h_prime.data);
+    assert_eq!(naive.matrix().data, fast.matrix().data);
     let ct_n = pack(&b, &keys, &naive).unwrap();
     let ct_f = pack(&b, &keys, &fast).unwrap();
     assert_eq!(ct_n.inner.as_slice(), ct_f.inner.as_slice());

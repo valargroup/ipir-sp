@@ -15,9 +15,7 @@ pub fn collapse_kg_exponents(d: usize) -> Vec<u64> {
     let h_d = h(d);
     let two_d = 2 * d as u64;
     let left: Vec<u64> = (0..half).map(|i| tau_g_pow(i, d)).collect();
-    let right: Vec<u64> = (0..half)
-        .map(|i| (tau_g_pow(i, d) * h_d) % two_d)
-        .collect();
+    let right: Vec<u64> = (0..half).map(|i| (tau_g_pow(i, d) * h_d) % two_d).collect();
     left.into_iter()
         .rev()
         .chain(right.into_iter().rev())
@@ -31,9 +29,6 @@ pub fn tau_coeffs(p: &[u64], g: u64, q: u64) -> Vec<u64> {
     let two_d = 2 * d as u64;
     let mut out = vec![0u64; d];
     for (i, &c) in p.iter().enumerate() {
-        if c == 0 {
-            continue;
-        }
         let e = (i as u64 * g) % two_d;
         if e < d as u64 {
             let idx = e as usize;
@@ -225,70 +220,42 @@ pub fn compile_fast(
     exponents: &[u64],
     q: u64,
 ) -> Result<PackingMatrix, ReinspiringError> {
-    // For correctness we always can fall back to fused naive. The structured
-    // FFT path below implements the column-as-evaluation view for the common
-    // case where exponents are exactly the collapse schedule (powers of 5 and
-    // their h-composites). When the exponent set is arbitrary, fused naive is
-    // used.
-    if !exponents_are_collapse_schedule(exponents, ts[0].len()) {
-        return compile_naive_fused(ts, exponents, q);
-    }
-    compile_fast_collapse(ts, q)
-}
-
-fn exponents_are_collapse_schedule(exponents: &[u64], d: usize) -> bool {
-    let expected = collapse_kg_exponents(d);
-    exponents == expected.as_slice()
-}
-
-/// Fast Compile for the InspiRING collapse schedule.
-///
-/// Column `j` of `M` is `Σ_i t_i · τ_i(X^j)`. Each term is a signed
-/// negacyclic shift of `t_i`, filling the matrix in `O(k d²)` arithmetic
-/// (better than explicit `Neg·P` matmul at `O(k d³)`).
-fn compile_fast_collapse(ts: &[Vec<u64>], q: u64) -> Result<PackingMatrix, ReinspiringError> {
-    let d = ts[0].len();
-    let exponents = collapse_kg_exponents(d);
-    if ts.len() != exponents.len() {
-        return Err(ReinspiringError::PreprocessMismatch(
-            "compile_fast: unexpected limb/step count".into(),
+    if ts.is_empty() || ts.len() != exponents.len() || !(2..=(1 << 62)).contains(&q) {
+        return Err(ReinspiringError::InvalidParams(
+            "invalid Compile inputs".into(),
         ));
     }
-    let mut m = PackingMatrix::zero(d, d, q);
-    let two_d = 2 * d as u64;
-    for (t, &g) in ts.iter().zip(exponents.iter()) {
-        for j in 0..d {
-            let e = (j as u64 * g) % two_d;
-            let (idx, sign_pos) = if e < d as u64 {
-                (e as usize, true)
-            } else {
-                ((e - d as u64) as usize, false)
-            };
-            for r in 0..d {
-                let src = (r + d - idx) % d;
-                let wraps = r < idx;
-                let mut coeff = t[src] % q;
-                if wraps {
-                    coeff = (q - coeff) % q;
-                }
-                if !sign_pos {
-                    coeff = (q - coeff) % q;
-                }
-                let sum = u128::from(m.get(r, j)) + u128::from(coeff);
-                *m.get_mut(r, j) = (sum % u128::from(q)) as u64;
-            }
+    let d = ts[0].len();
+    if !(2..=4096).contains(&d)
+        || !d.is_power_of_two()
+        || ts.iter().any(|t| t.len() != d || t.iter().any(|&x| x >= q))
+        || exponents.iter().any(|&g| g % 2 == 0 || g >= 2 * d as u64)
+    {
+        return Err(ReinspiringError::InvalidParams(
+            "invalid Compile degree, coefficient or automorphism".into(),
+        ));
+    }
+    // tau_g(X^j) = X^j (X^(2j))^((g-1)/2). Missing exponents
+    // have zero coefficients; repeated exponents add in the generating polynomial.
+    let mut p_hat = vec![vec![0; d]; d];
+    for (t, &g) in ts.iter().zip(exponents) {
+        for (dst, &x) in p_hat[((g - 1) / 2) as usize].iter_mut().zip(t) {
+            *dst = (*dst + x) % q;
         }
     }
-    Ok(m)
+    compile_fast_ring_fft(&p_hat, q)
 }
 
 /// Lemma 9 ring-FFT over a dense generating polynomial `P(Z) = Σ p̂_i Z^i`.
 ///
 /// Twiddles are multiplies by powers of `X²` (coefficient rotations), so `q`
 /// need not be NTT-friendly. Cost `O(d² log d)`.
-pub fn compile_fast_ring_fft(p_hat: &[Vec<u64>], q: u64) -> Result<PackingMatrix, ReinspiringError> {
+pub fn compile_fast_ring_fft(
+    p_hat: &[Vec<u64>],
+    q: u64,
+) -> Result<PackingMatrix, ReinspiringError> {
     let d = p_hat.len();
-    if d == 0 || !d.is_power_of_two() {
+    if !(2..=4096).contains(&d) || !d.is_power_of_two() || !(2..=(1 << 62)).contains(&q) {
         return Err(ReinspiringError::InvalidParams(
             "compile_fast_ring_fft: d must be a power of two".into(),
         ));

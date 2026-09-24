@@ -12,6 +12,8 @@
 pub mod bits;
 pub mod client;
 pub mod modulus_switch;
+#[cfg(feature = "native-reinspiring")]
+pub mod native;
 pub mod pack_backend;
 pub mod params;
 pub mod sampling;

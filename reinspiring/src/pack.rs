@@ -4,7 +4,6 @@ use inspiring::{PackingKeys, RlweCiphertext};
 use spiral_rs::poly::{from_ntt_alloc, stack_ntt, to_ntt_alloc, PolyMatrix, PolyMatrixRaw};
 
 use crate::error::ReinspiringError;
-use crate::lift_ntt::leftover_sum;
 use crate::preprocess::ReinspiringPreprocessed;
 
 /// Online packing: returns an RLWE ciphertext under the base secret.
@@ -40,7 +39,7 @@ pub fn pack<'a>(
     let mut c2 = vec![0u64; d];
     pre.h_prime.matvec(&y, &mut c2)?;
 
-    let z = leftover_sum(&pre.t_double_prime, &y_prime_limbs, q)?;
+    let z = pre.lift.sum(&pre.t_double_prime, &y_prime_limbs)?;
     for i in 0..d {
         c2[i] = (c2[i] + z[i]) % q;
         c2[i] = (c2[i] + (b_scalars[i] % q)) % q;
@@ -55,7 +54,11 @@ pub fn pack<'a>(
     })
 }
 
-fn body_limbs_coeff(body: &spiral_rs::poly::PolyMatrixNTT<'_>, ell: usize, d: usize) -> Vec<Vec<u64>> {
+fn body_limbs_coeff(
+    body: &spiral_rs::poly::PolyMatrixNTT<'_>,
+    ell: usize,
+    d: usize,
+) -> Vec<Vec<u64>> {
     assert_eq!(body.rows, 1);
     assert_eq!(body.cols, ell);
     let raw = from_ntt_alloc(body);

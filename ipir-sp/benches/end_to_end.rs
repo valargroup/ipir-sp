@@ -32,10 +32,8 @@ use ipir_sp::serialize::{serialize_packing_keys, serialize_u64s_le, serialized_p
 use ipir_sp::server::{
     build_pack_preprocessed_blocks, offline_precompute_from_hint, pack_intermediate_blocks,
 };
-use ipir_sp::{
-    build_reinspiring_blocks, pack_intermediate_blocks_reinspiring,
-};
 use ipir_sp::YpirSchemeParams;
+use ipir_sp::{build_reinspiring_blocks, pack_intermediate_blocks_reinspiring};
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use reinspiring::ReinspiringPreprocessed;
@@ -350,7 +348,7 @@ fn build_fixture() -> BenchFixture<'static> {
         let rpre = build_reinspiring_blocks(&preprocessed).expect("reinspiring preprocess");
         let bits = rpre
             .first()
-            .map(|b| (b.h_prime.infinity_norm_centered() as f64).log2());
+            .map(|b| (b.matrix().infinity_norm_centered() as f64).log2());
         eprintln!(
             "setup: ReinspiRING ready, blocks={}, H'_inf_bits≈{:.1}",
             rpre.len(),

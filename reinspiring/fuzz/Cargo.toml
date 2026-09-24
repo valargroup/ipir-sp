@@ -11,7 +11,8 @@ cargo-fuzz = true
 reinspiring = { path = ".." }
 inspiring = { path = "../../inspiring" }
 libfuzzer-sys = "0.4"
-spiral-rs = { package = "valar-spiral-rs", git = "https://github.com/valargroup/spiral-rs.git", rev = "6f5b66c6a5a639827c6486c59d31c7ec2d4399a8" }
+spiral-rs = { package = "valar-spiral-rs", version = "=0.5.3-rc.1" }
+ipir-sp = { path = "../../ipir-sp", features = ["native-reinspiring"] }
 rand_chacha = "0.3.1"
 
 [[bin]]
@@ -20,3 +21,13 @@ path = "fuzz_targets/pack_no_panic.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "native_wire"
+path = "fuzz_targets/native_wire.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

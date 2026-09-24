@@ -1,8 +1,8 @@
 //! Appendix D.1 mod-switch and approximate division tests.
 
 use reinspiring::modswitch::{
-    approx_div_by_d_coeff, approx_div_by_d_poly, center, ediv_infinity_bound,
-    modulus_switch_coeff, modulus_switch_poly,
+    approx_div_by_d_coeff, approx_div_by_d_poly, center, ediv_infinity_bound, modulus_switch_coeff,
+    modulus_switch_poly,
 };
 use reinspiring::params::{GadgetParams, ReinspiringParams};
 

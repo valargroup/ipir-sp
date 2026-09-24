@@ -37,9 +37,7 @@ fn reinspiring_matches_pack_b_d16_56bit() {
     secret.get_poly_mut(0, 0)[1] = params.q - 1;
     let keys = PackingKeys::generate_full(params, &to_ntt_alloc(&secret), &mut rng);
     let top = TopKeyImages::build(params);
-    let b: Vec<u64> = (0..params.d)
-        .map(|_| rng.next_u64() % params.q)
-        .collect();
+    let b: Vec<u64> = (0..params.d).map(|_| rng.next_u64() % params.q).collect();
 
     let expected = pre.pack_b(&b, &keys, &top).expect("pack_b");
     let rp = preprocess_from_inspiring(&pre, SINGLE_CRT_Q, CompileAlgo::Fast).expect("compile");

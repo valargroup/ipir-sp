@@ -3,9 +3,7 @@
 //! The default remains [`PackBackend::Inspiring`]. ReinspiRING is an exact
 //! rewrite for odd NTT-friendly moduli (byte-equal ciphertexts).
 
-use inspiring::{
-    InspiringError, PackingKeys, QueryPackPreprocessed, RlweCiphertext, TopKeyImages,
-};
+use inspiring::{InspiringError, PackingKeys, QueryPackPreprocessed, RlweCiphertext, TopKeyImages};
 use rayon::prelude::*;
 use reinspiring::{
     pack as reinspiring_pack, preprocess_from_inspiring, CompileAlgo, ReinspiringError,
@@ -32,15 +30,12 @@ fn map_reinspiring(err: ReinspiringError) -> InspiringError {
 /// Build ReinspiRING `H'` caches from inspiring digit material.
 ///
 /// Call once offline after [`crate::server::build_pack_preprocessed_blocks`].
-/// The returned blocks borrow only the long-lived [`RlweParams`] (and spiral
+/// The returned blocks borrow only the long-lived [`inspiring::RlweParams`] (and spiral
 /// allocations tied to it), not the inspiring preprocess vector itself.
 pub fn build_reinspiring_blocks<'a>(
     inspiring_pre: &[QueryPackPreprocessed<'a>],
 ) -> Result<Vec<ReinspiringPreprocessed<'a>>, InspiringError> {
-    let lift_q = inspiring_pre
-        .first()
-        .map(|p| p.params.q)
-        .unwrap_or(12289);
+    let lift_q = inspiring_pre.first().map(|p| p.params.q).unwrap_or(12289);
     inspiring_pre
         .par_iter()
         .map(|pre| {
@@ -88,8 +83,8 @@ pub fn pack_intermediate_blocks_reinspiring<'a>(
             ))
         };
     };
-    let d = first.inspiring_params.d;
-    let q = first.inspiring_params.q;
+    let d = first.inspiring_params().d;
+    let q = first.inspiring_params().q;
     if intermediate.len() != preprocessed.len() * d {
         return Err(InspiringError::LweShape(format!(
             "expected {} intermediate values for {} blocks of d={d}, got {}",
@@ -98,14 +93,14 @@ pub fn pack_intermediate_blocks_reinspiring<'a>(
             intermediate.len()
         )));
     }
-    packing_keys.validate(first.inspiring_params)?;
+    packing_keys.validate(first.inspiring_params())?;
 
     intermediate
         .par_chunks_exact(d)
         .zip(preprocessed.par_iter())
         .enumerate()
         .map(|(block_idx, (b_block, pre))| {
-            if pre.inspiring_params.d != d || pre.inspiring_params.q != q {
+            if pre.inspiring_params().d != d || pre.inspiring_params().q != q {
                 return Err(InspiringError::PreprocessMismatch(format!(
                     "reinspiring block {block_idx} uses mismatched RLWE parameters"
                 )));

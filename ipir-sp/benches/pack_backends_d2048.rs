@@ -72,25 +72,30 @@ fn bench_pack_backends_d2048(c: &mut Criterion) {
     let t0 = Instant::now();
     let inspiring_pre =
         build_pack_preprocessed_blocks(params, &[block]).expect("inspiring preprocess");
-    eprintln!("setup: InspiRING preprocess done in {:.1}s", t0.elapsed().as_secs_f64());
+    eprintln!(
+        "setup: InspiRING preprocess done in {:.1}s",
+        t0.elapsed().as_secs_f64()
+    );
 
     eprintln!("setup: building ReinspiRING H' (Compile)…");
     let t1 = Instant::now();
     let reinspiring_pre = build_reinspiring_blocks(&inspiring_pre).expect("reinspiring preprocess");
     let compile_s = t1.elapsed().as_secs_f64();
-    let h_bits = reinspiring_pre[0]
-        .h_prime
-        .infinity_norm_centered()
-        .max(1) as f64;
+    let h_bits = reinspiring_pre[0].matrix().infinity_norm_centered().max(1) as f64;
     eprintln!(
         "setup: ReinspiRING ready in {:.1}s, H'_inf_bits≈{:.1}, H' entries={}",
         compile_s,
         h_bits.log2(),
-        reinspiring_pre[0].h_prime.data.len()
+        reinspiring_pre[0].matrix().data.len()
     );
 
     let mut secret = PolyMatrixRaw::zero(&params.spiral, 1, 1);
-    for (i, c) in secret.get_poly_mut(0, 0).iter_mut().enumerate().take(params.d) {
+    for (i, c) in secret
+        .get_poly_mut(0, 0)
+        .iter_mut()
+        .enumerate()
+        .take(params.d)
+    {
         *c = match i % 3 {
             0 => 0,
             1 => 1,

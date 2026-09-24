@@ -1,11 +1,11 @@
 //! Paper-eval ReinspiRING hot path at hardware-native `q = 2^54`.
 //!
 //! ReinsPIRe §5.1 / Table 5: `d=2048`, `q=2^54`, `σ=6.4`, `ℓ=2`, `z=2^19`.
-//! Paper reports `H'·y ≈ 1.2 ms` (and full Pack ≈ 13.6 ms) for `ℓ=2`.
+//! Paper reports `H'·y ≈ 13.6 ms` (and leftover ≈ 1.2 ms) for `ℓ=2`.
 //!
 //! This microbench measures the coefficient matvec under that modulus (free
 //! reduction via bitmask). Full online Pack also needs lifted-NTT leftover
-//! (`Q > d q²`); that path is still schoolbook here and is timed separately.
+//! (`Q > d q²`); that path is now an exact three-prime NTT/CRT product and is timed separately.
 //!
 //! InspiRING cannot use even `q` (`d^{-1} mod q`), so this is not a dual-backend
 //! byte-equal run — it is the paper's intended ReinspiRING parameter set.
@@ -28,7 +28,7 @@ const Q: u64 = 1 << 54;
 const ELL: usize = 2;
 const BITS_PER: u32 = 19;
 /// Paper Table 5 target for `H'·y` at `ℓ=2`.
-const PAPER_H_PRIME_Y_MS: f64 = 1.2;
+const PAPER_H_PRIME_Y_MS: f64 = 13.6;
 
 fn paper_params() -> ReinspiringParams {
     // lift_q is unused on the schoolbook leftover path; any odd prime works.
@@ -134,23 +134,21 @@ fn bench_paper_q254(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("h_prime_matvec", D), |ben| {
         ben.iter(|| {
             let mut out = vec![0u64; h_prime.rows];
-            h_prime
-                .matvec(black_box(&y), black_box(&mut out))
-                .unwrap();
+            h_prime.matvec(black_box(&y), black_box(&mut out)).unwrap();
             black_box(out)
         });
     });
 
-    group.bench_function(BenchmarkId::new("leftover_schoolbook", D), |ben| {
+    group.bench_function(BenchmarkId::new("leftover_ntt_crt", D), |ben| {
         ben.iter(|| {
-            black_box(leftover_sum(black_box(&t_pp), black_box(&y_prime), black_box(params.q)).unwrap())
+            black_box(
+                leftover_sum(black_box(&t_pp), black_box(&y_prime), black_box(params.q)).unwrap(),
+            )
         });
     });
 
     group.finish();
-    eprintln!(
-        "paper Table 5 target H'·y ≈ {PAPER_H_PRIME_Y_MS} ms (ℓ=2, z=2^19, q=2^54)"
-    );
+    eprintln!("paper Table 5 target H'·y ≈ {PAPER_H_PRIME_Y_MS} ms (ℓ=2, z=2^19, q=2^54)");
 }
 
 criterion_group!(benches, bench_paper_q254);

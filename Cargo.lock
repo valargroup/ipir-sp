@@ -1255,6 +1255,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "sha2",
  "simplepir-kernel",
  "valar-spiral-rs",
 ]
@@ -1856,6 +1857,7 @@ dependencies = [
  "rand_chacha 0.3.1",
  "rayon",
  "serde_json",
+ "sha2",
  "thiserror",
  "valar-spiral-rs",
 ]

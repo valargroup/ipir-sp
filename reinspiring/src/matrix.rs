@@ -65,6 +65,16 @@ impl PackingMatrix {
     /// For hardware-native power-of-two `q = 2^k` (paper eval uses `q = 2^54`),
     /// reduction is a bitmask — the main win vs Barrett/NTT-friendly moduli.
     pub fn matvec(&self, v: &[u64], out: &mut [u64]) -> Result<(), ReinspiringError> {
+        if self.q < 2
+            || self.q > (1 << 56)
+            || self.cols > 32768
+            || self.rows.checked_mul(self.cols) != Some(self.data.len())
+            || self.data.iter().any(|&x| x >= self.q)
+        {
+            return Err(ReinspiringError::InvalidParams(
+                "invalid matrix shape, modulus or coefficient".into(),
+            ));
+        }
         if v.len() != self.cols {
             return Err(ReinspiringError::LweShape(format!(
                 "matvec expected {} entries, got {}",
@@ -80,6 +90,10 @@ impl PackingMatrix {
             )));
         }
         let q = self.q;
+        // Reduce once per vector, not once per matrix entry. For odd moduli
+        // the latter costs d redundant divisions per uploaded coefficient.
+        let reduced: Vec<_> = v.iter().map(|&x| x % q).collect();
+        let v = reduced.as_slice();
         let cols = self.cols;
         if q.is_power_of_two() {
             let mask = u128::from(q - 1);
@@ -97,7 +111,7 @@ impl PackingMatrix {
                 let row = &self.data[r * cols..(r + 1) * cols];
                 let mut acc = 0_u128;
                 for (a, &b) in row.iter().zip(v.iter()) {
-                    acc += u128::from(*a) * u128::from(b % q);
+                    acc += u128::from(*a) * u128::from(b);
                 }
                 *slot = (acc % u128::from(q)) as u64;
             });
