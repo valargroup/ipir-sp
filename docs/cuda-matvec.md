@@ -71,3 +71,6 @@ uses CUDA events and excludes host transfers. Wall timing includes transfers,
 event overhead, and result verification. Four callers share one device instance.
 Results depend on GPU bandwidth, CPU memory bandwidth, and thread count; selecting
 CUDA does not imply a speedup on every host or shape.
+
+The [RTX 2000 Ada validation report](evidence/cuda-2026-09-24/README.md) records
+hardware correctness results, memory usage, raw timings, and CPU quota caveats.
