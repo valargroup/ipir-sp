@@ -3,6 +3,7 @@
 #![allow(clippy::needless_range_loop)]
 
 use inspiring::automorph::{h, tau_g_pow};
+use rayon::prelude::*;
 
 use crate::error::ReinspiringError;
 use crate::matrix::PackingMatrix;
@@ -243,7 +244,7 @@ pub fn compile_fast(
             *dst = (*dst + x) % q;
         }
     }
-    compile_fast_ring_fft(&p_hat, q)
+    compile_validated_fft(p_hat, q)
 }
 
 /// Lemma 9 ring-FFT over a dense generating polynomial `P(Z) = Σ p̂_i Z^i`.
@@ -267,9 +268,33 @@ pub fn compile_fast_ring_fft(
             ));
         }
     }
-    let mut a: Vec<Vec<u64>> = p_hat.to_vec();
+    compile_validated_fft(p_hat.to_vec(), q)
+}
+
+fn compile_validated_fft(mut a: Vec<Vec<u64>>, q: u64) -> Result<PackingMatrix, ReinspiringError> {
+    let d = a.len();
     ring_fft_inplace(&mut a, q);
     let mut m = PackingMatrix::zero(d, d, q);
+    if q.is_power_of_two() {
+        // Tiled transpose: keep short runs of source coefficients and output
+        // rows in cache instead of scattering an entire column at a time.
+        m.data
+            .par_chunks_mut(32 * d)
+            .enumerate()
+            .for_each(|(tile, rows)| {
+                let first = tile * 32;
+                for col_start in (0..d).step_by(32) {
+                    for j in col_start..(col_start + 32).min(d) {
+                        for (offset, row) in rows.chunks_mut(d).enumerate() {
+                            let r = first + offset;
+                            let x = a[j][(r + d - j) & (d - 1)];
+                            row[j] = if r < j { x.wrapping_neg() } else { x } & (q - 1);
+                        }
+                    }
+                }
+            });
+        return Ok(m);
+    }
     for j in 0..d {
         let shifted = shift_negacyclic(&a[j], j, q);
         for r in 0..d {
@@ -310,6 +335,37 @@ fn ring_fft_inplace(a: &mut [Vec<u64>], q: u64) {
         }
     }
     let d = a[0].len();
+    if q.is_power_of_two() && d.is_power_of_two() {
+        let mask = q - 1;
+        let mut len = 2;
+        while len <= n {
+            let half = len / 2;
+            let step = n / len;
+            a.par_chunks_mut(len).with_min_len(4).for_each(|block| {
+                let (left, right) = block.split_at_mut(half);
+                left.par_iter_mut()
+                    .zip(right.par_iter_mut())
+                    .enumerate()
+                    .with_min_len(16)
+                    .for_each(|(k, (u, v))| {
+                        let rot = (2 * step * k) & (2 * d - 1);
+                        let old = v.clone();
+                        for i in 0..d {
+                            let src = (i + 2 * d - rot) & (2 * d - 1);
+                            let t = if src >= d {
+                                old[src - d].wrapping_neg()
+                            } else {
+                                old[src]
+                            };
+                            v[i] = u[i].wrapping_sub(t) & mask;
+                            u[i] = u[i].wrapping_add(t) & mask;
+                        }
+                    });
+            });
+            len *= 2;
+        }
+        return;
+    }
     let mut len = 2;
     while len <= n {
         let half = len / 2;

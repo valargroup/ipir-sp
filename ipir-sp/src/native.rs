@@ -283,7 +283,20 @@ pub struct NativeServer {
 impl NativeServer {
     /// Build all public preprocessing; the database must contain canonical Z_p values.
     /// Process output blocks sequentially to bound peak scratch memory.
-    pub fn build(setup: NativePublicSetup, mut db: Vec<u16>) -> Result<Self, ReinspiringError> {
+    pub fn build(setup: NativePublicSetup, db: Vec<u16>) -> Result<Self, ReinspiringError> {
+        Self::build_with_concurrency(setup, db, 1)
+    }
+    /// Build with at most `concurrent_blocks` output blocks in flight. Each
+    /// block also uses the current Rayon pool. Larger batches trade peak
+    /// scratch memory for throughput; zero is rejected before any work.
+    pub fn build_with_concurrency(
+        setup: NativePublicSetup,
+        mut db: Vec<u16>,
+        concurrent_blocks: usize,
+    ) -> Result<Self, ReinspiringError> {
+        if concurrent_blocks == 0 {
+            return Err(err("zero preprocessing concurrency"));
+        }
         let p = &setup.profile;
         let d = p.pack.d();
         let q = p.pack.q();
@@ -293,18 +306,25 @@ impl NativeServer {
         let lift = LiftContext::new(d, q)?;
         let public_polys = lift.prepare_public_dot(&setup.polys, (p.pack.p() - 1).min(q / 2))?;
         let mut pre = Vec::with_capacity(p.cols / d);
-        for block in 0..p.cols / d {
-            let masks: Result<Vec<_>, _> = (block * d..(block + 1) * d)
+        for start in (0..p.cols / d).step_by(concurrent_blocks) {
+            let end = start.saturating_add(concurrent_blocks).min(p.cols / d);
+            let batch: Result<Vec<_>, _> = (start..end)
                 .into_par_iter()
-                .map(|col| {
-                    let coeffs: Vec<Vec<u64>> = db[col * p.rows..(col + 1) * p.rows]
-                        .chunks_exact(d)
-                        .map(|poly| poly.iter().map(|&x| x as u64).collect())
+                .map(|block| {
+                    let masks: Result<Vec<_>, _> = (block * d..(block + 1) * d)
+                        .into_par_iter()
+                        .map(|col| {
+                            let coeffs: Vec<Vec<u64>> = db[col * p.rows..(col + 1) * p.rows]
+                                .chunks_exact(d)
+                                .map(|poly| poly.iter().map(|&x| x as u64).collect())
+                                .collect();
+                            lift.public_dot(&public_polys, &coeffs)
+                        })
                         .collect();
-                    lift.public_dot(&public_polys, &coeffs)
+                    NativePreprocessed::build(&setup.packing, &masks?)
                 })
                 .collect();
-            pre.push(NativePreprocessed::build(&setup.packing, &masks?)?);
+            pre.extend(batch?);
         }
         let interleaved = p.rows % 4 == 0
             && p.cols % 16 == 0
@@ -379,11 +399,12 @@ impl NativeServer {
         }
         let matrix_vector = t.elapsed();
         let t = Instant::now();
+        let prepared_keys = self.pre[0].prepare_keys(&keys)?;
         let packed: Result<Vec<_>, _> = self
             .pre
             .par_iter()
             .zip(intermediate.par_chunks_exact(d))
-            .map(|(pre, b)| pre.pack(b, &keys))
+            .map(|(pre, b)| pre.prepare_pack(&prepared_keys)?.finish(b))
             .collect();
         let packed = packed?;
         let packing = t.elapsed();

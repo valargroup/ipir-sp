@@ -121,3 +121,14 @@ fn paper_params_q254_accepted() {
     assert!(!p.is_odd_q());
     assert_eq!(p.q, 1 << 54);
 }
+
+#[test]
+fn ring_fft_normalizes_rotations_when_polynomial_count_exceeds_degree() {
+    use reinspiring::compile::ring_fft_eval_pow2;
+    // This supported helper input has n=8, d=2. At its last butterfly rot=6
+    // exceeds 2*d, so rotation must be reduced before unsigned subtraction.
+    let input = vec![vec![1, 2]; 8];
+    let mut expected = vec![vec![0, 0]; 8];
+    expected[0] = vec![8, 0];
+    assert_eq!(ring_fft_eval_pow2(&input, 16), expected);
+}

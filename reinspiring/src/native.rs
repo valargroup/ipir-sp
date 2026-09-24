@@ -6,7 +6,7 @@
 use crate::{
     compile::{collapse_kg_exponents, compile_fast, tau_coeffs},
     error::ReinspiringError,
-    lift_ntt::{centered, LiftContext, PreparedLiftOperand},
+    lift_ntt::{centered, LiftContext, PreparedLiftOperand, PreparedLiftRight},
     matrix::PackingMatrix,
     native_matrix::NativeMatrix,
 };
@@ -433,10 +433,86 @@ pub struct NativeBuildTiming {
     /// Complete build, including input validation.
     pub total: Duration,
 }
+
+/// Request-local packing key preparation, shared across blocks from one setup.
+/// Owns only uploaded ciphertext bodies, never a client secret. A dispatcher
+/// must associate this object with the same request as its database scan.
+pub struct PreparedNativeKeys {
+    id: [u8; 32],
+    y: Vec<u64>,
+    kh: PreparedLiftRight,
+}
+
+/// Packing work that can finish before the database scan. The borrowed block
+/// binds the result to its own published mask. Finishing consumes the object;
+/// request routing/binding remains the responsibility of the caller.
+pub struct PendingNativePack<'a> {
+    pre: &'a NativePreprocessed,
+    body: Vec<u64>,
+}
+impl PendingNativePack<'_> {
+    /// Add the matching scan result and return the final ciphertext.
+    pub fn finish(mut self, b: &[u64]) -> Result<NativeCiphertext, ReinspiringError> {
+        validate_poly(b, &self.pre.params)?;
+        for (dst, &x) in self.body.iter_mut().zip(b) {
+            *dst = (*dst + x) & (self.pre.params.q - 1);
+        }
+        NativeCiphertext::from_rows(&self.pre.params, self.pre.a.clone(), self.body)
+    }
+}
 impl NativePreprocessed {
+    /// Prepare uploaded key bodies once for all blocks from this setup.
+    pub fn prepare_keys(&self, keys: &NativeKeys) -> Result<PreparedNativeKeys, ReinspiringError> {
+        if keys.id != self.id {
+            return Err(invalid("packing setup mismatch"));
+        }
+        Ok(PreparedNativeKeys {
+            id: keys.id,
+            y: keys.kg.iter().flatten().copied().collect(),
+            kh: self.lift.prepare_bounded_right(
+                &keys.kh,
+                (1u64 << (self.params.bits - 1)).min(self.params.q / 2),
+            )?,
+        })
+    }
+
+    /// Compute H'y and the leftover term without waiting for the scan result.
+    pub fn prepare_pack(
+        &self,
+        keys: &PreparedNativeKeys,
+    ) -> Result<PendingNativePack<'_>, ReinspiringError> {
+        if keys.id != self.id {
+            return Err(invalid("prepared packing setup mismatch"));
+        }
+        let mut body = self.h.multiply(&keys.y)?;
+        let leftover = self.lift.sum_cached(&self.leftover, &keys.kh)?;
+        for (dst, x) in body.iter_mut().zip(leftover) {
+            *dst = (*dst + x) & (self.params.q - 1);
+        }
+        Ok(PendingNativePack { pre: self, body })
+    }
     /// Compile a d-by-d LWE mask matrix using D.2 aggregation and D.1 rounding.
     pub fn build(setup: &NativeSetup, masks: &[Vec<u64>]) -> Result<Self, ReinspiringError> {
         Self::build_timed(setup, masks).map(|(pre, _)| pre)
+    }
+    /// Build ordered independent packing blocks with bounded scratch concurrency.
+    /// The caller retains the input masks; at most `concurrent_blocks` builds
+    /// run at once, each using the current Rayon pool. Zero is invalid.
+    pub fn build_batch(
+        setup: &NativeSetup,
+        masks: &[Vec<Vec<u64>>],
+        concurrent_blocks: usize,
+    ) -> Result<Vec<Self>, ReinspiringError> {
+        if concurrent_blocks == 0 {
+            return Err(invalid("zero preprocessing concurrency"));
+        }
+        let mut result = Vec::with_capacity(masks.len());
+        for batch in masks.chunks(concurrent_blocks) {
+            let compiled: Result<Vec<_>, _> =
+                batch.par_iter().map(|m| Self::build(setup, m)).collect();
+            result.extend(compiled?);
+        }
+        Ok(result)
     }
     /// Compile with offline stage attribution; identical arithmetic to `build`.
     pub fn build_timed(
@@ -521,7 +597,7 @@ impl NativePreprocessed {
                 }
             })
             .collect();
-        let h = NativeMatrix::from_compiled(PackingMatrix::hstack(&blocks?)?)?;
+        let h = NativeMatrix::from_blocks(blocks?)?;
         let pre = Self {
             params: p.clone(),
             id: setup.id,
@@ -553,6 +629,10 @@ impl NativePreprocessed {
             out[i] = (out[i] + leftover[i] + b[i]) & (self.params.q - 1);
         }
         NativeCiphertext::from_rows(&self.params, self.a.clone(), out)
+    }
+    /// Read/XOR diagnostic for coefficient memory traffic; not a cryptographic checksum.
+    pub fn matrix_read_checksum(&self) -> u64 {
+        self.h.read_checksum()
     }
     /// Matrix-only operation for benchmark attribution.
     pub fn matrix_product(&self, keys: &NativeKeys) -> Result<Vec<u64>, ReinspiringError> {
@@ -606,29 +686,75 @@ pub fn decompose(a: &[u64], p: &NativeParams) -> Result<Vec<Vec<u64>>, Reinspiri
 // exact D.1 floor division; reducing mod q before dividing would be incorrect.
 fn aggregate_masks(masks: &[Vec<u64>], q: u64) -> Result<Vec<Vec<u64>>, ReinspiringError> {
     let d = masks.len();
-    let mut polys = vec![vec![0i128; d]; d];
-    for (j, row) in masks.iter().enumerate() {
-        for (k, poly) in polys.iter_mut().enumerate() {
+    // Each destination gets exactly one input here. Row-wise filling avoids
+    // scattering writes across the entire integer matrix.
+    let mut polys = vec![vec![0i64; d]; d];
+    polys.par_iter_mut().enumerate().for_each(|(k, poly)| {
+        for (j, row) in masks.iter().enumerate() {
             let c = if k == 0 {
-                row[0] as i128
+                row[0] as i64
             } else {
-                -(row[d - k] as i128)
+                -(row[d - k] as i64)
             };
-            let dst = (j + k) % d;
-            poly[dst] += if j + k >= d { -c } else { c };
+            poly[(j + k) & (d - 1)] = if j + k >= d { -c } else { c };
         }
+    });
+    bit_reverse_rows(&mut polys);
+    let mut len = 2;
+    // After a length-L stage, |coefficient| <= L*(q-1). Stay in i64 only
+    // while that public worst-case bound fits, then widen before the next stage.
+    while len <= d && (len as u128) * (q as u128 - 1) <= i64::MAX as u128 {
+        let half = len / 2;
+        let step = d / len;
+        polys.par_chunks_mut(len).with_min_len(4).for_each(|block| {
+            let (left, right) = block.split_at_mut(half);
+            left.par_iter_mut()
+                .zip(right.par_iter_mut())
+                .enumerate()
+                .with_min_len(16)
+                .for_each(|(k, (u, v))| {
+                    let rot = 2 * step * k;
+                    let old = v.clone();
+                    for ((u, v), &t) in u[..rot].iter_mut().zip(&mut v[..rot]).zip(&old[d - rot..])
+                    {
+                        *v = *u + t;
+                        *u -= t;
+                    }
+                    for ((u, v), &t) in u[rot..].iter_mut().zip(&mut v[rot..]).zip(&old[..d - rot])
+                    {
+                        *v = *u - t;
+                        *u += t;
+                    }
+                });
+        });
+        len *= 2;
     }
-    integer_ring_fft(&mut polys);
-    Ok(polys
+    let shift = d.trailing_zeros();
+    if len > d {
+        return Ok(polys
+            .into_par_iter()
+            .map(|poly| {
+                poly.into_iter()
+                    .map(|x| ((x >> shift) as u64) & (q - 1))
+                    .collect()
+            })
+            .collect());
+    }
+    let mut wide: Vec<Vec<i128>> = polys
         .into_iter()
+        .map(|poly| poly.into_iter().map(i128::from).collect())
+        .collect();
+    integer_ring_fft_wide(&mut wide, len);
+    Ok(wide
+        .into_par_iter()
         .map(|poly| {
             poly.into_iter()
-                .map(|c| c.div_euclid(d as i128).rem_euclid(q as i128) as u64)
+                .map(|x| ((x >> shift) as u64) & (q - 1))
                 .collect()
         })
         .collect())
 }
-fn integer_ring_fft(a: &mut [Vec<i128>]) {
+fn bit_reverse_rows<T>(a: &mut [T]) {
     let n = a.len();
     let mut j = 0;
     for i in 1..n {
@@ -642,28 +768,37 @@ fn integer_ring_fft(a: &mut [Vec<i128>]) {
             a.swap(i, j);
         }
     }
-    let mut len = 2;
-    while len <= n {
+}
+fn integer_ring_fft_wide(a: &mut [Vec<i128>], mut len: usize) {
+    let d = a.len();
+    while len <= d {
         let half = len / 2;
-        let step = n / len;
-        for base in (0..n).step_by(len) {
-            for k in 0..half {
-                let rot = 2 * step * k;
-                let (left, right) = a.split_at_mut(base + k + half);
-                let u = &mut left[base + k];
-                let v = &mut right[0];
-                let old = v.clone();
-                for i in 0..n {
-                    let src = (i + 2 * n - rot) % (2 * n);
-                    let t = if src >= n { -old[src - n] } else { old[src] };
-                    v[i] = u[i] - t;
-                    u[i] += t;
-                }
-            }
-        }
+        let step = d / len;
+        a.par_chunks_mut(len).with_min_len(4).for_each(|block| {
+            let (left, right) = block.split_at_mut(half);
+            left.par_iter_mut()
+                .zip(right.par_iter_mut())
+                .enumerate()
+                .with_min_len(16)
+                .for_each(|(k, (u, v))| {
+                    let rot = 2 * step * k;
+                    let old = v.clone();
+                    for ((u, v), &t) in u[..rot].iter_mut().zip(&mut v[..rot]).zip(&old[d - rot..])
+                    {
+                        *v = *u + t;
+                        *u -= t;
+                    }
+                    for ((u, v), &t) in u[rot..].iter_mut().zip(&mut v[rot..]).zip(&old[..d - rot])
+                    {
+                        *v = *u - t;
+                        *u += t;
+                    }
+                });
+        });
         len *= 2;
     }
 }
+
 fn invalid(s: &str) -> ReinspiringError {
     ReinspiringError::InvalidParams(s.into())
 }
@@ -682,6 +817,44 @@ mod oracle_tests {
         io::Write,
         process::{Command, Stdio},
     };
+    #[test]
+    fn mixed_width_aggregation_matches_direct_integer_definition() {
+        for d in [8, 256] {
+            for q in [1u64 << 16, 1u64 << 56] {
+                for offset in [0, 1] {
+                    // At d=256,q=2^56 the diagonal gives a positive sum above
+                    // i64::MAX; the shifted diagonal gives a negative overflow.
+                    let mut masks = vec![vec![0; d]; d];
+                    for (r, row) in masks.iter_mut().enumerate() {
+                        if r + offset < d {
+                            row[r + offset] = q - 1;
+                        }
+                    }
+                    let actual = aggregate_masks(&masks, q).unwrap();
+                    for (index, row) in actual.iter().enumerate() {
+                        let g = 2 * index + 1;
+                        let mut expected = vec![0i128; d];
+                        for (j, mask) in masks.iter().enumerate() {
+                            for k in 0..d {
+                                let c = if k == 0 {
+                                    mask[0] as i128
+                                } else {
+                                    -(mask[d - k] as i128)
+                                };
+                                let e = (k * g + j) % (2 * d);
+                                expected[e % d] += if e >= d { -c } else { c };
+                            }
+                        }
+                        let expected: Vec<_> = expected
+                            .into_iter()
+                            .map(|x| x.div_euclid(d as i128).rem_euclid(q as i128) as u64)
+                            .collect();
+                        assert_eq!(*row, expected, "d={d},q={q},offset={offset},g={g}");
+                    }
+                }
+            }
+        }
+    }
     #[test]
     fn python_integer_trace_matches_fft_compiled_pack() {
         for ell in [2, 3] {

@@ -77,3 +77,40 @@ fn immutable_server_handles_concurrent_fresh_queries() {
         }
     });
 }
+
+#[test]
+fn batched_preprocessing_preserves_block_order_and_wire_responses() {
+    let p = NativeParams::new(8, 54, 14, 19, 2, SecretDistribution::Gaussian).unwrap();
+    let profile = NativeProfile::new(p, 16, 40).unwrap();
+    let setup = || NativePublicSetup::new(profile.clone(), [5; 32], [6; 32]);
+    let db: Vec<_> = (0..40)
+        .flat_map(|c| (0..16).map(move |r| (c * 71 + r * 13) as u16))
+        .collect();
+    assert!(NativeServer::build_with_concurrency(setup(), db.clone(), 0).is_err());
+    let serial = NativeServer::build(setup(), db.clone()).unwrap();
+    for concurrency in [2, 3, usize::MAX] {
+        let batched =
+            NativeServer::build_with_concurrency(setup(), db.clone(), concurrency).unwrap();
+        assert_eq!(
+            serial.published().to_bytes(),
+            batched.published().to_bytes()
+        );
+        for row in [0, 8, 15] {
+            let req = NativeRequest::generate_with_rng(
+                serial.setup(),
+                row,
+                &mut ChaCha20Rng::seed_from_u64(row as u64 + 42),
+            )
+            .unwrap();
+            let expected = serial.respond(req.bytes()).unwrap().0;
+            let actual = batched.respond(req.bytes()).unwrap().0;
+            assert_eq!(actual, expected);
+            assert_eq!(
+                req.decode(&batched.published(), &actual).unwrap(),
+                (0..40)
+                    .map(|c| (c * 71 + row * 13) as u64)
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+}

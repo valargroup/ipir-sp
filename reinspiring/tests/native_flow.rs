@@ -67,6 +67,14 @@ fn cached_public_lifts_match_schoolbook_and_generic_at_capacity_boundaries() {
                     }
                 }
                 assert_eq!(ctx.sum_prepared(&cached, &b).unwrap(), expected);
+                let right = ctx.prepare_right(&b).unwrap();
+                assert_eq!(ctx.sum_cached(&cached, &right).unwrap(), expected);
+                assert!(LiftContext::new(d, q - 1)
+                    .unwrap()
+                    .sum_cached(&cached, &right)
+                    .is_err());
+                let short = ctx.prepare_right(&b[..2]).unwrap();
+                assert!(ctx.sum_cached(&cached, &short).is_err());
                 assert_eq!(
                     ctx.sum_prepared(&cached, &b).unwrap(),
                     ctx.sum(&a, &b).unwrap()
@@ -77,8 +85,32 @@ fn cached_public_lifts_match_schoolbook_and_generic_at_capacity_boundaries() {
                     .sum_prepared(&cached, &b)
                     .is_err());
             }
+            assert!(ctx.prepare_right(&[]).is_err());
+            assert!(ctx.prepare_right(&[vec![q; d]]).is_err());
             assert!(ctx.prepare_public(&[]).is_err());
             assert!(ctx.prepare_public(&[vec![q; d]]).is_err());
+        }
+    }
+}
+
+#[test]
+fn cached_leftover_checks_the_sum_before_combining_inverse_transforms() {
+    let d = 16;
+    let q = 1u64 << 56;
+    let ell = 3;
+    let ctx = LiftContext::new(d, q).unwrap();
+    let limit = ((4398046568449u128 * 4398046666753u128 - 1)
+        / (2 * d as u128 * ell as u128 * (q / 2) as u128)) as u64;
+    for bound in [limit, limit + 1] {
+        for value in [bound, q - bound] {
+            let a = vec![vec![value; d]; ell];
+            let b = vec![vec![q / 2; d]; ell];
+            let left = ctx.prepare_public(&a).unwrap();
+            let right = ctx.prepare_right(&b).unwrap();
+            assert_eq!(
+                ctx.sum_cached(&left, &right).unwrap(),
+                ctx.sum(&a, &b).unwrap()
+            );
         }
     }
 }
@@ -178,7 +210,7 @@ fn public_dot_matches_independent_products_and_checks_aggregate_capacity() {
 #[test]
 fn compile_fft_handles_arbitrary_odd_and_repeated_exponents() {
     for q in [12289, 1 << 54] {
-        for d in [4, 8, 16] {
+        for d in [2, 4, 8, 16, 64] {
             let exps = vec![1, 3, 3, (2 * d - 1) as u64];
             let mut rng = ChaCha20Rng::seed_from_u64(4);
             let ts: Vec<Vec<_>> = (0..exps.len())
@@ -224,6 +256,19 @@ fn roundtrip(d: usize, ell: usize, sampler: SecretDistribution) {
             .map(|(a, &m)| s.encrypt_lwe(a, m, &mut rng).unwrap())
             .collect();
         let ct = pre.pack(&b, &keys).unwrap();
+        let prepared = pre.prepare_keys(&keys).unwrap();
+        let pending = pre.prepare_pack(&prepared).unwrap();
+        assert_eq!(pending.finish(&b).unwrap().rows(), ct.rows());
+        assert!(pre
+            .prepare_pack(&prepared)
+            .unwrap()
+            .finish(&b[..d - 1])
+            .is_err());
+        assert!(pre
+            .prepare_pack(&prepared)
+            .unwrap()
+            .finish(&vec![p.q(); d])
+            .is_err());
         let error = s.phase_error(&ct, &messages).unwrap();
         assert_eq!(
             s.decrypt(&ct).unwrap(),
@@ -232,6 +277,9 @@ fn roundtrip(d: usize, ell: usize, sampler: SecretDistribution) {
         );
         assert!(error < p.q() / p.p() / 2);
         let bad = NativeSetup::new(p.clone(), [2; 32]);
+        let other_pre = NativePreprocessed::build(&bad, &masks).unwrap();
+        assert!(other_pre.prepare_pack(&prepared).is_err());
+        assert!(other_pre.prepare_keys(&keys).is_err());
         assert!(pre
             .pack(&b, &NativeKeys::generate(&bad, &s, &mut rng).unwrap())
             .is_err());

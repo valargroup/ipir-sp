@@ -1,4 +1,4 @@
-//! Reproducible full-wire native IPIR-SP benchmark. Args: rows cols pbits ell samples.
+//! Reproducible full-wire native IPIR-SP benchmark. Args: rows cols pbits ell samples concurrent_setup_blocks.
 use ipir_sp::native::*;
 use rand_chacha::{
     rand_core::{RngCore, SeedableRng},
@@ -16,6 +16,7 @@ fn main() {
     let pbits = *args.get(2).unwrap_or(&14);
     let ell = *args.get(3).unwrap_or(&2);
     let samples = *args.get(4).unwrap_or(&30);
+    let concurrency = *args.get(5).unwrap_or(&1);
     let pack = NativeParams::new(
         2048,
         54,
@@ -37,13 +38,13 @@ fn main() {
         .map(|&r| (0..cols).map(|c| db[c * rows + r] as u64).collect())
         .collect();
     let t = Instant::now();
-    let server = NativeServer::build(setup, db).unwrap();
+    let server = NativeServer::build_with_concurrency(setup, db, concurrency).unwrap();
     let offline = t.elapsed().as_secs_f64();
     let published =
         NativePublished::from_bytes(server.setup(), &server.published().to_bytes()).unwrap();
     println!(
         "{}",
-        serde_json::json!({"kind":"setup","backend":"native","rows":rows,"cols":cols,"pbits":pbits,"ell":ell,"threads":rayon::current_num_threads(),"offline_s":offline,"coeff_bytes":server.coefficient_bytes(),"published_bytes":published.to_bytes().len()})
+        serde_json::json!({"kind":"setup","backend":"native","rows":rows,"cols":cols,"pbits":pbits,"ell":ell,"threads":rayon::current_num_threads(),"offline_s":offline,"concurrency":concurrency,"coeff_bytes":server.coefficient_bytes(),"published_bytes":published.to_bytes().len()})
     );
     let mut rng = ChaCha20Rng::seed_from_u64(0x2418);
     let threads =

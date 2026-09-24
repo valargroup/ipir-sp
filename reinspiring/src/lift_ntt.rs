@@ -1,9 +1,9 @@
 //! Exact negacyclic products via pinned auxiliary NTT primes and signed CRT.
 //!
 //! Spiral supplies the NTT and pointwise multiplication. Generic products and
-//! online leftovers are reconstructed separately before summing limbs. Public
-//! preprocessing can accumulate before reconstruction only after checking the
-//! capacity bound for the entire sum with `prepare_public_dot`.
+//! online leftovers use per-product reconstruction unless a checked bound
+//! proves that the entire signed sum fits two primes. Public preprocessing
+//! checks full-sum capacity with `prepare_public_dot` before accumulation.
 use crate::error::ReinspiringError;
 use spiral_rs::{
     params::Params,
@@ -31,6 +31,16 @@ pub struct PreparedLiftOperand {
     q: u64,
     // limb, prime, NTT coefficient; immutable and independent of request data.
     transforms: Vec<Vec<Vec<u64>>>,
+    sum_fits_two: bool,
+}
+
+/// Request-local NTT transforms of uploaded (public) key bodies. Reusable
+/// across packing blocks with the same degree and modulus, never across keys.
+pub struct PreparedLiftRight {
+    d: usize,
+    q: u64,
+    // limb, prime, coefficient; up to three primes, checked by sum_cached.
+    transforms: Vec<Vec<Vec<u64>>>,
 }
 /// Cached public operands for an exact integer sum of products. Unlike
 /// `PreparedLiftOperand`, capacity covers the entire sum before reconstruction.
@@ -52,6 +62,189 @@ impl PreparedLiftOperand {
 }
 
 impl LiftContext {
+    /// Transform uploaded bodies once per request, independently of database
+    /// scan output. Canonical validation is performed before retaining data.
+    pub fn prepare_right(&self, b: &[Vec<u64>]) -> Result<PreparedLiftRight, ReinspiringError> {
+        self.prepare_right_primes(b, 3)
+    }
+
+    /// Native packing digits have a profile-wide public bound. Use it to
+    /// prepare enough primes for every block, independent of the first block.
+    pub(crate) fn prepare_bounded_right(
+        &self,
+        b: &[Vec<u64>],
+        left_bound: u64,
+    ) -> Result<PreparedLiftRight, ReinspiringError> {
+        if left_bound > self.q / 2 {
+            return Err(ReinspiringError::InvalidParams(
+                "invalid public left bound".into(),
+            ));
+        }
+        let bound = 2 * self.d as u128 * left_bound as u128 * (self.q / 2) as u128;
+        let count = if bound < PRIMES[0] as u128 * PRIMES[1] as u128 {
+            2
+        } else {
+            3
+        };
+        self.prepare_right_primes(b, count)
+    }
+
+    fn prepare_right_primes(
+        &self,
+        b: &[Vec<u64>],
+        count: usize,
+    ) -> Result<PreparedLiftRight, ReinspiringError> {
+        if b.is_empty() {
+            return Err(ReinspiringError::LweShape(
+                "empty prepared right operand".into(),
+            ));
+        }
+        let mut transforms = Vec::with_capacity(b.len());
+        for poly in b {
+            self.validate(poly)?;
+            let mut primes = Vec::with_capacity(count);
+            for params in &self.params[..count] {
+                let mut raw = PolyMatrixRaw::zero(params, 1, 1);
+                for (dst, &x) in raw.as_mut_slice().iter_mut().zip(poly) {
+                    *dst = centered(x, self.q).rem_euclid(params.modulus as i128) as u64;
+                }
+                primes.push(to_ntt_alloc(&raw).as_slice().to_vec());
+            }
+            transforms.push(primes);
+        }
+        Ok(PreparedLiftRight {
+            d: self.d,
+            q: self.q,
+            transforms,
+        })
+    }
+
+    /// Exact sum with both operands transformed. Preserve the existing public
+    /// per-product capacity checks: reconstruct each limb before summing modulo q.
+    pub fn sum_cached(
+        &self,
+        a: &PreparedLiftOperand,
+        b: &PreparedLiftRight,
+    ) -> Result<Vec<u64>, ReinspiringError> {
+        if a.d != self.d
+            || b.d != self.d
+            || a.q != self.q
+            || b.q != self.q
+            || a.transforms.len() != b.transforms.len()
+            || a.transforms
+                .iter()
+                .zip(&b.transforms)
+                .any(|(left, right)| left.len() > right.len())
+        {
+            return Err(ReinspiringError::LweShape("cached operand mismatch".into()));
+        }
+        if a.sum_fits_two {
+            return self.sum_cached_two(a, b);
+        }
+        let mut result = vec![0u64; self.d];
+        for (left_primes, right_primes) in a.transforms.iter().zip(&b.transforms) {
+            let mut residues = Vec::with_capacity(left_primes.len());
+            for ((params, lhs), rhs) in self.params.iter().zip(left_primes).zip(right_primes) {
+                let mut left = PolyMatrixNTT::zero(params, 1, 1);
+                let mut right = PolyMatrixNTT::zero(params, 1, 1);
+                left.as_mut_slice().copy_from_slice(lhs);
+                right.as_mut_slice().copy_from_slice(rhs);
+                let mut out = PolyMatrixNTT::zero(params, 1, 1);
+                multiply(&mut out, &left, &right);
+                residues.push(from_ntt_alloc(&out).as_slice().to_vec());
+            }
+            let product: u128 = PRIMES[..residues.len()]
+                .iter()
+                .map(|&x| x as u128)
+                .product();
+            for (i, dst) in result.iter_mut().enumerate() {
+                let mut x = residues[0][i] as u128;
+                let mut m = PRIMES[0] as u128;
+                for j in 1..residues.len() {
+                    let p = PRIMES[j] as u128;
+                    let delta = (residues[j][i] as u128 + p - x % p) % p;
+                    x += m * (delta * self.inverses[j - 1] as u128 % p);
+                    m *= p;
+                }
+                let signed = if x > product / 2 {
+                    x as i128 - product as i128
+                } else {
+                    x as i128
+                };
+                *dst = (*dst + signed.rem_euclid(self.q as i128) as u64) % self.q;
+            }
+        }
+        Ok(result)
+    }
+
+    // Only reachable with a checked bound for the full integer sum, unlike
+    // the generic per-limb path. Two inverse NTTs per block regardless of ell.
+    fn sum_cached_two(
+        &self,
+        a: &PreparedLiftOperand,
+        b: &PreparedLiftRight,
+    ) -> Result<Vec<u64>, ReinspiringError> {
+        let mut residues = Vec::with_capacity(2);
+        for (j, params) in self.params[..2].iter().enumerate() {
+            let mut sum = PolyMatrixNTT::zero(params, 1, 1);
+            let mut left = PolyMatrixNTT::zero(params, 1, 1);
+            let mut right = PolyMatrixNTT::zero(params, 1, 1);
+            let mut out = PolyMatrixNTT::zero(params, 1, 1);
+            for (lhs, rhs) in a.transforms.iter().zip(&b.transforms) {
+                left.as_mut_slice().copy_from_slice(&lhs[j]);
+                right.as_mut_slice().copy_from_slice(&rhs[j]);
+                multiply(&mut out, &left, &right);
+                for (dst, &x) in sum.as_mut_slice().iter_mut().zip(out.as_slice()) {
+                    *dst = (*dst + x) % params.modulus;
+                }
+            }
+            residues.push(from_ntt_alloc(&sum).as_slice().to_vec());
+        }
+        let p0 = PRIMES[0] as u128;
+        let p1 = PRIMES[1] as u128;
+        let product = p0 * p1;
+        Ok((0..self.d)
+            .map(|i| {
+                let x = residues[0][i] as u128;
+                let delta = (residues[1][i] as u128 + p1 - x % p1) % p1;
+                let x = x + p0 * (delta * self.inverses[0] as u128 % p1);
+                let signed = if x > product / 2 {
+                    x as i128 - product as i128
+                } else {
+                    x as i128
+                };
+                if self.q.is_power_of_two() {
+                    (signed as u64) & (self.q - 1)
+                } else {
+                    signed.rem_euclid(self.q as i128) as u64
+                }
+            })
+            .collect())
+    }
+    // Both inputs are canonical auxiliary-prime residues, p0 < p1. The
+    // caller has already proven signed reconstruction capacity for the sum.
+    fn reconstruct_two(&self, r0: u64, r1: u64) -> u64 {
+        let p0 = PRIMES[0] as u128;
+        let p1 = PRIMES[1] as u128;
+        let product = p0 * p1;
+        let delta = r1 + PRIMES[1] - r0;
+        let delta = if delta >= PRIMES[1] {
+            delta - PRIMES[1]
+        } else {
+            delta
+        };
+        let x = r0 as u128 + p0 * (delta as u128 * self.inverses[0] as u128 % p1);
+        let signed = if x > product / 2 {
+            x as i128 - product as i128
+        } else {
+            x as i128
+        };
+        if self.q.is_power_of_two() {
+            signed as u64 & (self.q - 1)
+        } else {
+            signed.rem_euclid(self.q as i128) as u64
+        }
+    }
     /// Construct for d in 2..=4096 and q in 2..=2^56.
     pub fn new(d: usize, q: u64) -> Result<Self, ReinspiringError> {
         if !(2..=4096).contains(&d) || !d.is_power_of_two() || !(2..=1 << 56).contains(&q) {
@@ -146,6 +339,7 @@ impl LiftContext {
             return Err(ReinspiringError::LweShape("empty prepared operand".into()));
         }
         let mut transforms = Vec::with_capacity(a.len());
+        let mut sum_max = Some(0u128);
         for poly in a {
             self.validate(poly)?;
             let max = poly
@@ -153,6 +347,7 @@ impl LiftContext {
                 .map(|&x| centered(x, self.q).unsigned_abs())
                 .max()
                 .unwrap();
+            sum_max = sum_max.and_then(|sum| sum.checked_add(max));
             let bound = 2 * self.d as u128 * max * (self.q / 2) as u128;
             let count = if (PRIMES[0] as u128) * (PRIMES[1] as u128) > bound {
                 2
@@ -173,6 +368,9 @@ impl LiftContext {
             d: self.d,
             q: self.q,
             transforms,
+            sum_fits_two: sum_max
+                .and_then(|sum| sum.checked_mul(2 * self.d as u128 * (self.q / 2) as u128))
+                .is_some_and(|bound| bound < PRIMES[0] as u128 * PRIMES[1] as u128),
         })
     }
 
@@ -327,14 +525,33 @@ impl LiftContext {
             for (lhs, rhs) in operands.iter().zip(b) {
                 left.as_mut_slice().copy_from_slice(lhs);
                 for (dst, &x) in raw.as_mut_slice().iter_mut().zip(rhs) {
-                    *dst = centered(x, self.q).rem_euclid(params.modulus as i128) as u64;
+                    let signed = centered(x, self.q);
+                    *dst = if a.right_bound < params.modulus {
+                        if signed < 0 {
+                            (signed + params.modulus as i128) as u64
+                        } else {
+                            signed as u64
+                        }
+                    } else {
+                        signed.rem_euclid(params.modulus as i128) as u64
+                    };
                 }
                 multiply(&mut product, &left, &to_ntt_alloc(&raw));
                 for (dst, &x) in sum.as_mut_slice().iter_mut().zip(product.as_slice()) {
-                    *dst = (*dst + x) % params.modulus;
+                    let value = *dst + x;
+                    *dst = if value >= params.modulus {
+                        value - params.modulus
+                    } else {
+                        value
+                    };
                 }
             }
             residues.push(from_ntt_alloc(&sum).as_slice().to_vec());
+        }
+        if residues.len() == 2 {
+            return Ok((0..self.d)
+                .map(|i| self.reconstruct_two(residues[0][i], residues[1][i]))
+                .collect());
         }
         let product: u128 = PRIMES[..residues.len()]
             .iter()
