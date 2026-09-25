@@ -55,12 +55,24 @@ fn word(w: &mut impl Write, n: u64) -> io::Result<()> {
 /// Write validated preprocessing in a CPU-independent, aligned format.
 /// Matrices use signed 32/64-bit words, so readers need no VBMI capability.
 pub fn write(w: &mut impl Write, blocks: &[NativePreprocessed]) -> io::Result<()> {
-    w.write_all(b"RNMAP001")?;
+    let two_mask = blocks.first().is_some_and(|b| b.a_other.is_some());
+    if blocks.iter().any(|b| b.a_other.is_some() != two_mask) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "mixed preprocessing modes",
+        ));
+    }
+    w.write_all(if two_mask { b"RNMAP002" } else { b"RNMAP001" })?;
     word(w, blocks.len() as u64)?;
     for block in blocks {
         w.write_all(&block.id)?;
         for &x in &block.a {
             word(w, x)?;
+        }
+        if let Some(other) = &block.a_other {
+            for &x in other {
+                word(w, x)?;
+            }
         }
         // A packed compiler result is converted offline, never on the router.
         let h = block.h.to_compiled();
@@ -77,13 +89,15 @@ pub fn write(w: &mut impl Write, blocks: &[NativePreprocessed]) -> io::Result<()
                 w.write_all(&x.to_le_bytes())?;
             }
         }
-        word(w, block.leftover.transforms.len() as u64)?;
-        word(w, u64::from(block.leftover.sum_fits_two))?;
-        for limb in &block.leftover.transforms {
-            word(w, limb.len() as u64)?;
-            for prime in limb {
-                for &x in prime {
-                    word(w, x)?;
+        if let Some(leftover) = &block.leftover {
+            word(w, leftover.transforms.len() as u64)?;
+            word(w, u64::from(leftover.sum_fits_two))?;
+            for limb in &leftover.transforms {
+                word(w, limb.len() as u64)?;
+                for prime in limb {
+                    for &x in prime {
+                        word(w, x)?;
+                    }
                 }
             }
         }
@@ -135,7 +149,12 @@ pub fn read(
         file: Arc::new(file),
         at: offset,
     };
-    if r.take(8)? != b"RNMAP001" || r.word()? != count as u64 {
+    let two_mask = match r.take(8)? {
+        b"RNMAP001" => false,
+        b"RNMAP002" => true,
+        _ => return Err(bad()),
+    };
+    if r.word()? != count as u64 {
         return Err(bad());
     }
     let p: NativeParams = setup.params().clone();
@@ -153,6 +172,15 @@ pub fn read(
         if a.iter().any(|&x| x >= q) {
             return Err(bad());
         }
+        let a_other = if two_mask {
+            let other = (0..d).map(|_| r.word()).collect::<Result<Vec<_>, _>>()?;
+            if other.iter().any(|&x| x >= q) {
+                return Err(bad());
+            }
+            Some(other)
+        } else {
+            None
+        };
         let words = match r.word()? {
             4 => Words::Narrow(r.storage::<i32>(d * d * ell)?),
             8 => {
@@ -164,46 +192,52 @@ pub fn read(
             }
             _ => return Err(bad()),
         };
-        if r.word()? != ell as u64 {
-            return Err(bad());
-        }
-        let sum_fits_two = match r.word()? {
-            0 => false,
-            1 => true,
-            _ => return Err(bad()),
-        };
-        let mut transforms = Vec::with_capacity(ell);
-        for _ in 0..ell {
-            let n = r.word()? as usize;
-            if !(2..=3).contains(&n) {
+        let leftover = if two_mask {
+            None
+        } else {
+            if r.word()? != ell as u64 {
                 return Err(bad());
             }
-            let mut limb = Vec::with_capacity(n);
-            for &prime in &primes[..n] {
-                let values = (0..d).map(|_| r.word()).collect::<Result<Vec<_>, _>>()?;
-                if values.iter().any(|&x| x >= prime) {
+            let sum_fits_two = match r.word()? {
+                0 => false,
+                1 => true,
+                _ => return Err(bad()),
+            };
+            let mut transforms = Vec::with_capacity(ell);
+            for _ in 0..ell {
+                let n = r.word()? as usize;
+                if !(2..=3).contains(&n) {
                     return Err(bad());
                 }
-                limb.push(values);
+                let mut limb = Vec::with_capacity(n);
+                for &prime in &primes[..n] {
+                    let values = (0..d).map(|_| r.word()).collect::<Result<Vec<_>, _>>()?;
+                    if values.iter().any(|&x| x >= prime) {
+                        return Err(bad());
+                    }
+                    limb.push(values);
+                }
+                transforms.push(limb);
             }
-            transforms.push(limb);
-        }
+            Some(PreparedLiftOperand {
+                d,
+                q,
+                transforms,
+                sum_fits_two,
+            })
+        };
         result.push(NativePreprocessed {
             params: p.clone(),
             id,
             a,
+            a_other,
             h: NativeMatrix {
                 rows: d,
                 cols: d * ell,
                 q,
                 words,
             },
-            leftover: PreparedLiftOperand {
-                d,
-                q,
-                transforms,
-                sum_fits_two,
-            },
+            leftover,
             lift: LiftContext::new(d, q)?,
         });
     }
@@ -241,11 +275,26 @@ mod tests {
         let mut rng = ChaCha20Rng::from_seed([3; 32]);
         let secret = crate::native::NativeSecret::sample(&params, &mut rng);
         let keys = NativeKeys::generate(&setup, &secret, &mut rng).unwrap();
-        for value in [0, params.q() - 1, 123456789] {
-            let input = vec![value; 8];
-            let a = pre.pack(&input, &keys).unwrap();
-            let b = mapped[0].pack(&input, &keys).unwrap();
-            assert_eq!(a.rows(), b.rows());
+        for bits in [54, 48, 46] {
+            let mut words = keys.words();
+            let step = 1u64 << (54 - bits);
+            for x in &mut words[params.ell() * params.d()..] {
+                *x = ((*x + step / 2) / step * step) & (params.q() - 1);
+            }
+            let keys = NativeKeys::from_words(&setup, &words).unwrap();
+            for value in [0, params.q() - 1, 123456789] {
+                let input = vec![value; 8];
+                let a = pre.pack(&input, &keys).unwrap();
+                let b = mapped[0].pack(&input, &keys).unwrap();
+                assert_eq!(a.rows(), b.rows());
+                let prepared = mapped[0].prepare_keys(&keys).unwrap();
+                let split = mapped[0]
+                    .prepare_pack(&prepared)
+                    .unwrap()
+                    .finish(&input)
+                    .unwrap();
+                assert_eq!(a.rows(), split.rows());
+            }
         }
         assert!(read(mapping(&bytes), 0, &NativeSetup::new(params, [1; 32]), 1).is_err());
         assert!(read(mapping(&bytes[..bytes.len() - 1]), 0, &setup, 1).is_err());
@@ -254,5 +303,43 @@ mod tests {
         bytes.pop();
         bytes[0] ^= 1;
         assert!(read(mapping(&bytes), 0, &setup, 1).is_err());
+    }
+    #[test]
+    fn mapped_two_mask_matches_owned_and_rejects_legacy_mode() {
+        let params = NativeParams::new(8, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+        let setup = NativeSetup::new(params.clone(), [52; 32]);
+        let masks = (0..8)
+            .map(|r| {
+                (0..8)
+                    .map(|c| ((r * 29 + c * 41 + 1) as u64 * 123456789) % params.q())
+                    .collect()
+            })
+            .collect::<Vec<Vec<_>>>();
+        let pre = NativePreprocessed::build_two_mask(&setup, &masks).unwrap();
+        let mut bytes = Vec::new();
+        write(&mut bytes, std::slice::from_ref(&pre)).unwrap();
+        assert_eq!(&bytes[..8], b"RNMAP002");
+        let mapped = read(mapping(&bytes), 0, &setup, 1).unwrap();
+        let mut rng = ChaCha20Rng::from_seed([83; 32]);
+        let secret = crate::native::NativeSecret::sample(&params, &mut rng);
+        let keys = NativeKeys::generate_one_key(&setup, &secret, &mut rng).unwrap();
+        let input = vec![123456789; 8];
+        assert_eq!(
+            pre.pack_two_mask(&input, &keys).unwrap().rows(),
+            mapped[0].pack_two_mask(&input, &keys).unwrap().rows()
+        );
+        assert_eq!(
+            mapped[0]
+                .prepare_pack(&mapped[0].prepare_keys(&keys).unwrap())
+                .unwrap()
+                .finish_two_mask(&input)
+                .unwrap()
+                .rows(),
+            pre.pack_two_mask(&input, &keys).unwrap().rows()
+        );
+        assert!(read(mapping(&bytes[..bytes.len() - 1]), 0, &setup, 1).is_err());
+        let mut wrong = bytes.clone();
+        wrong[..8].copy_from_slice(b"RNMAP001");
+        assert!(read(mapping(&wrong), 0, &setup, 1).is_err());
     }
 }

@@ -1,0 +1,18 @@
+{
+  "base_commit": "c5075a4059dadedf63d14e9009711338d202a022",
+  "working_tree_changes": true,
+  "host": "Apple M4 Max / Mac16,6 / Darwin arm64",
+  "ram_bytes": 137438953472,
+  "rustc": "1.89.0 (29483883e 2025-08-04)",
+  "rayon_threads": 8,
+  "source_sha256": {
+    "ipir-sp/src/native.rs": "ad58b1eb02ed50717a33a88278adf75f38b7295d23af837a932a7d80dabbfc68",
+    "ipir-sp/examples/native_noise.rs": "afd7d22dc3c3157a3b4579dd835340336429d2ba66433a3d0c1700f43ae73e99",
+    "ipir-sp/examples/native_e2e.rs": "577d162a87f083f476a59c6c7d6f2fb7d2880925d64829a6c43980df27455586",
+    "reinspiring/src/native.rs": "3900c20b6de5e678166a1a877c8a6f55b5c63dd07072f5c36955ee030d43c7c9",
+    "reinspiring/src/noise.rs": "dd8e65abb6dd6b0342496b388327563829cd63bda1f93152a429e64834bd8f2a",
+    "reinspiring/tools/security/certify_native.py": "f3c080f9fc82cbd245769db4c6d856a8c75f5132c267be3ec98ad56eadc9beb7",
+    "Cargo.lock": "9ec8a9e6bf7148ca3c263314f2720eee38f38b4fb0e0c8295d795c4dbd86dbc3"
+  },
+  "timing_limit": "Validation runs overlapped builds/tests; not controlled performance comparisons."
+}

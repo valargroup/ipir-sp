@@ -1,0 +1,854 @@
+{
+  "29": {
+    "files": [
+      "paired-29.jsonl",
+      "quiet-29-1.jsonl",
+      "quiet-29-2.jsonl",
+      "quiet-29-3.jsonl"
+    ],
+    "baseline": {
+      "samples": 120,
+      "median_ms": {
+        "client_ms": 24.1295835,
+        "server_ms": 32.728832999999995,
+        "decode_ms": 0.2324585,
+        "packing_ms": 4.609833500000001
+      },
+      "mean_server_ms": 65.46333013333333,
+      "max_phase_error": 14354664781
+    },
+    "two_mask": {
+      "samples": 120,
+      "median_ms": {
+        "client_ms": 22.5229375,
+        "server_ms": 32.2062085,
+        "decode_ms": 0.23233350000000003,
+        "packing_ms": 3.976375
+      },
+      "mean_server_ms": 61.58228471666666,
+      "max_phase_error": 23957864448
+    },
+    "ratios": {
+      "client_generation": 0.9334159248956785,
+      "client_decode": 0.9994622696094142,
+      "server_throughput": 1.0630221082982376
+    },
+    "online_monitoring": [
+      {
+        "mask_bits": 29,
+        "attempt": 1,
+        "exit_code": 0,
+        "online_observations": [
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 3
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 2
+          }
+        ],
+        "observed_online_quiet": false
+      },
+      {
+        "mask_bits": 29,
+        "attempt": 2,
+        "exit_code": 0,
+        "online_observations": [
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          }
+        ],
+        "observed_online_quiet": false
+      },
+      {
+        "mask_bits": 29,
+        "attempt": 3,
+        "exit_code": 0,
+        "online_observations": [
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 3
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 3
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 3
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 3
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 1,
+            "other_busy_processes": 1
+          }
+        ],
+        "observed_online_quiet": false
+      }
+    ],
+    "performance_gate": "unverified: unrelated activity detected in every controlled-repeat attempt"
+  },
+  "32": {
+    "files": [
+      "paired-32.jsonl",
+      "quiet-32-1.jsonl",
+      "quiet-32-2.jsonl",
+      "quiet-32-3.jsonl"
+    ],
+    "baseline": {
+      "samples": 120,
+      "median_ms": {
+        "client_ms": 26.1667085,
+        "server_ms": 34.476124999999996,
+        "decode_ms": 0.24818749999999998,
+        "packing_ms": 4.8671045
+      },
+      "mean_server_ms": 35.97717183333334,
+      "max_phase_error": 14354664781
+    },
+    "two_mask": {
+      "samples": 120,
+      "median_ms": {
+        "client_ms": 24.273395999999998,
+        "server_ms": 34.000917,
+        "decode_ms": 0.24795849999999997,
+        "packing_ms": 4.1993335
+      },
+      "mean_server_ms": 34.210037533333335,
+      "max_phase_error": 15665725440
+    },
+    "ratios": {
+      "client_generation": 0.9276442239573235,
+      "client_decode": 0.9990773105011332,
+      "server_throughput": 1.051655432949413
+    },
+    "online_monitoring": [
+      {
+        "mask_bits": 32,
+        "attempt": 1,
+        "exit_code": 0,
+        "online_observations": [
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 3
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          }
+        ],
+        "observed_online_quiet": false
+      },
+      {
+        "mask_bits": 32,
+        "attempt": 2,
+        "exit_code": 0,
+        "online_observations": [
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          }
+        ],
+        "observed_online_quiet": false
+      },
+      {
+        "mask_bits": 32,
+        "attempt": 3,
+        "exit_code": 0,
+        "online_observations": [
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 2
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 0
+          },
+          {
+            "compilers": 0,
+            "other_busy_processes": 1
+          }
+        ],
+        "observed_online_quiet": false
+      }
+    ],
+    "performance_gate": "unverified: unrelated activity detected in every controlled-repeat attempt"
+  }
+}

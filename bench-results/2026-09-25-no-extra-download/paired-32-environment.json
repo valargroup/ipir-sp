@@ -1,0 +1,7 @@
+{
+  "mask_bits": 32,
+  "exit_code": 0,
+  "compiler_overlap_samples": 17,
+  "polls": 42,
+  "initial_compiler_quiet": true
+}

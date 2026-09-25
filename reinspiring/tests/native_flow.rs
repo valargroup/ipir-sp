@@ -238,6 +238,42 @@ fn native_encryption_to_decryption_both_samplers_and_limb_counts() {
         }
     }
 }
+#[test]
+fn one_key_two_mask_matches_packing_phase_and_split_path() {
+    for d in [2, 4, 8, 16, 64] {
+        let p = NativeParams::new(d, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+        let setup = NativeSetup::new(p.clone(), [23; 32]);
+        let mut rng = ChaCha20Rng::seed_from_u64(311 + d as u64);
+        let masks: Vec<Vec<_>> = (0..d)
+            .map(|_| (0..d).map(|_| rng.next_u64() & (p.q() - 1)).collect())
+            .collect();
+        let pre = NativePreprocessed::build_two_mask(&setup, &masks).unwrap();
+        let secret = NativeSecret::sample(&p, &mut rng);
+        let keys = NativeKeys::generate_one_key(&setup, &secret, &mut rng).unwrap();
+        let messages: Vec<_> = (0..d).map(|_| rng.next_u64() & (p.p() - 1)).collect();
+        let bodies: Vec<_> = masks
+            .iter()
+            .zip(&messages)
+            .map(|(a, &m)| secret.encrypt_lwe(a, m, &mut rng).unwrap())
+            .collect();
+        let ct = pre.pack_two_mask(&bodies, &keys).unwrap();
+        let prepared = pre.prepare_keys(&keys).unwrap();
+        let split = pre
+            .prepare_pack(&prepared)
+            .unwrap()
+            .finish_two_mask(&bodies)
+            .unwrap();
+        assert_eq!(ct.rows(), split.rows());
+        assert_eq!(secret.decrypt_two_mask(&ct).unwrap(), messages);
+        assert!(secret.phase_error_two_mask(&ct, &messages).unwrap() < p.q() / p.p() / 2);
+        assert!(pre.pack(&bodies, &keys).is_err());
+        assert!(pre
+            .prepare_pack(&prepared)
+            .unwrap()
+            .finish(&bodies)
+            .is_err());
+    }
+}
 fn roundtrip(d: usize, ell: usize, sampler: SecretDistribution) {
     let p = NativeParams::new(d, 54, 14, 19, ell, sampler).unwrap();
     let setup = NativeSetup::new(p.clone(), [1; 32]);

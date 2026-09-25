@@ -1,0 +1,108 @@
+{
+  "mask_bits": 32,
+  "attempt": 3,
+  "exit_code": 0,
+  "online_observations": [
+    {
+      "compilers": 0,
+      "other_busy_processes": 0
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 0
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 0
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 0
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 2
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 0
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 0
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 0
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 0
+    },
+    {
+      "compilers": 0,
+      "other_busy_processes": 1
+    }
+  ],
+  "observed_online_quiet": false
+}

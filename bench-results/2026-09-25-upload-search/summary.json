@@ -1,0 +1,58 @@
+{
+  "one_mask": {
+    "samples": 60,
+    "median_ms": {
+      "client_ms": 33.6970415,
+      "server_ms": 77.654271,
+      "decode_ms": 0.2673335,
+      "packing_ms": 14.544229000000001
+    },
+    "mean_server_ms": 80.82531316666666,
+    "p95_ms": {
+      "client_ms": 70.769917,
+      "server_ms": 148.080042,
+      "decode_ms": 0.721458
+    },
+    "upload_bytes": 230948,
+    "response_bytes": 90180,
+    "max_phase_error": 14354664781
+  },
+  "two_mask": {
+    "samples": 60,
+    "median_ms": {
+      "client_ms": 28.144875,
+      "server_ms": 68.15879149999999,
+      "decode_ms": 0.26768749999999997,
+      "packing_ms": 12.292271
+    },
+    "mean_server_ms": 73.89886725,
+    "p95_ms": {
+      "client_ms": 72.470209,
+      "server_ms": 126.29812500000001,
+      "decode_ms": 0.7462080000000001
+    },
+    "upload_bytes": 203300,
+    "response_bytes": 90180,
+    "max_phase_error": 14673893560
+  },
+  "observed_ratios": {
+    "client_generation": 0.835232820068195,
+    "client_decode": 1.0013241887006303,
+    "server_throughput": 1.093728715668056
+  },
+  "environment": [
+    {
+      "run": 1,
+      "exit_code": 0,
+      "polls": 77,
+      "compiler_overlap_samples": 55
+    },
+    {
+      "run": 2,
+      "exit_code": 0,
+      "polls": 56,
+      "compiler_overlap_samples": 13
+    }
+  ],
+  "performance_gate": "unverified: shared host, unrelated builds/tests overlapped; observed ratios are exploratory"
+}

@@ -9,6 +9,22 @@ use spiral_rs::{
     params::Params,
     poly::{from_ntt_alloc, multiply, to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw},
 };
+use zeroize::{Zeroize, Zeroizing};
+
+// Spiral matrix allocations do not erase their contents on drop. These guards
+// protect decoder scratch through normal return or unwinding.
+struct SecretRaw<'a, 'b>(&'b mut PolyMatrixRaw<'a>);
+impl Drop for SecretRaw<'_, '_> {
+    fn drop(&mut self) {
+        self.0.as_mut_slice().zeroize();
+    }
+}
+struct SecretNtt<'a, 'b>(&'b mut PolyMatrixNTT<'a>);
+impl Drop for SecretNtt<'_, '_> {
+    fn drop(&mut self) {
+        self.0.as_mut_slice().zeroize();
+    }
+}
 
 // Distinct primes, each 1 mod 8192. Their product fits i128 and exceeds
 // d*q^2 for every supported degree/modulus. Keep separate Spiral Params:
@@ -34,8 +50,8 @@ pub struct PreparedLiftOperand {
     pub(crate) sum_fits_two: bool,
 }
 
-/// Request-local NTT transforms of uploaded (public) key bodies. Reusable
-/// across packing blocks with the same degree and modulus, never across keys.
+/// Request-local NTT transforms of key bodies or a private decoder secret.
+/// Erased on drop; reusable only within the request and matching profile.
 pub struct PreparedLiftRight {
     d: usize,
     q: u64,
@@ -54,6 +70,21 @@ pub struct PreparedPublicDot {
     transforms: Vec<Vec<Vec<u64>>>,
 }
 
+impl Drop for PreparedLiftRight {
+    fn drop(&mut self) {
+        self.clear_secret();
+    }
+}
+
+impl PreparedLiftRight {
+    pub(crate) fn clear_secret(&mut self) {
+        use zeroize::Zeroize;
+        for poly in self.transforms.iter_mut().flatten() {
+            poly.zeroize();
+        }
+    }
+}
+
 impl PreparedLiftOperand {
     /// Heap bytes retained by the public NTT coefficients.
     pub fn storage_bytes(&self) -> usize {
@@ -62,6 +93,64 @@ impl PreparedLiftOperand {
 }
 
 impl LiftContext {
+    // Only native decoder may use this: its sampled secret has the public
+    // finite support bound supplied here. No secret-dependent capacity choice.
+    pub(crate) fn prepare_decode_masks(
+        &self,
+        masks: &[Vec<u64>],
+        support: u64,
+    ) -> Result<PreparedLiftOperand, ReinspiringError> {
+        let dot = self.prepare_public_dot(masks, support)?;
+        if dot.transforms.len() != 2 {
+            return Err(ReinspiringError::InvalidParams(
+                "decoder requires two-prime capacity".into(),
+            ));
+        }
+        Ok(PreparedLiftOperand {
+            d: self.d,
+            q: self.q,
+            sum_fits_two: true,
+            transforms: (0..masks.len())
+                .map(|i| dot.transforms.iter().map(|p| p[i].clone()).collect())
+                .collect(),
+        })
+    }
+
+    pub(crate) fn prepare_decode_secret(
+        &self,
+        secret: &[u64],
+        conjugate: bool,
+    ) -> Result<PreparedLiftRight, ReinspiringError> {
+        let mut out = PreparedLiftRight {
+            d: self.d,
+            q: self.q,
+            transforms: vec![Vec::with_capacity(2)],
+        };
+        for params in &self.params[..2] {
+            let mut raw_storage = PolyMatrixRaw::zero(params, 1, 1);
+            let raw = SecretRaw(&mut raw_storage);
+            for (dst, &x) in raw.0.as_mut_slice().iter_mut().zip(secret) {
+                *dst = centered(x, self.q).rem_euclid(params.modulus as i128) as u64;
+            }
+            let mut transformed_storage = PolyMatrixNTT::zero(params, 1, 1);
+            let transformed = SecretNtt(&mut transformed_storage);
+            spiral_rs::poly::to_ntt(transformed.0, raw.0);
+            out.transforms[0].push(transformed.0.as_slice().to_vec());
+        }
+        if conjugate {
+            // Spiral stores evaluations in bit-reversed order. Negating an
+            // odd evaluation exponent complements all index bits, which also
+            // complements the bit-reversed index.
+            out.transforms.push(
+                out.transforms[0]
+                    .iter()
+                    .map(|p| p.iter().rev().copied().collect())
+                    .collect(),
+            );
+        }
+        Ok(out)
+    }
+
     /// Transform uploaded bodies once per request, independently of database
     /// scan output. Canonical validation is performed before retaining data.
     pub fn prepare_right(&self, b: &[Vec<u64>]) -> Result<PreparedLiftRight, ReinspiringError> {
@@ -184,43 +273,40 @@ impl LiftContext {
         a: &PreparedLiftOperand,
         b: &PreparedLiftRight,
     ) -> Result<Vec<u64>, ReinspiringError> {
-        let mut residues = Vec::with_capacity(2);
+        let mut residues = Zeroizing::new(vec![vec![0u64; self.d]; 2]);
         for (j, params) in self.params[..2].iter().enumerate() {
-            let mut sum = PolyMatrixNTT::zero(params, 1, 1);
+            let mut sum_storage = PolyMatrixNTT::zero(params, 1, 1);
+            let sum = SecretNtt(&mut sum_storage);
             let mut left = PolyMatrixNTT::zero(params, 1, 1);
-            let mut right = PolyMatrixNTT::zero(params, 1, 1);
-            let mut out = PolyMatrixNTT::zero(params, 1, 1);
+            let mut right_storage = PolyMatrixNTT::zero(params, 1, 1);
+            let right = SecretNtt(&mut right_storage);
+            let mut out_storage = PolyMatrixNTT::zero(params, 1, 1);
+            let out = SecretNtt(&mut out_storage);
             for (lhs, rhs) in a.transforms.iter().zip(&b.transforms) {
                 left.as_mut_slice().copy_from_slice(&lhs[j]);
-                right.as_mut_slice().copy_from_slice(&rhs[j]);
-                multiply(&mut out, &left, &right);
-                for (dst, &x) in sum.as_mut_slice().iter_mut().zip(out.as_slice()) {
-                    *dst = (*dst + x) % params.modulus;
+                right.0.as_mut_slice().copy_from_slice(&rhs[j]);
+                multiply(out.0, &left, right.0);
+                for (dst, &x) in sum.0.as_mut_slice().iter_mut().zip(out.0.as_slice()) {
+                    let value = *dst + x;
+                    *dst = if value >= params.modulus {
+                        value - params.modulus
+                    } else {
+                        value
+                    };
                 }
             }
-            residues.push(from_ntt_alloc(&sum).as_slice().to_vec());
+            // Each context has exactly one CRT prime. Invert in our guarded
+            // allocation; from_ntt_alloc would copy secrets to Spiral's TLS.
+            spiral_rs::ntt::ntt_inverse(params, sum.0.as_mut_slice());
+            for (i, dst) in residues[j].iter_mut().enumerate() {
+                *dst = params.crt_compose(sum.0.as_slice(), i);
+            }
         }
-        let p0 = PRIMES[0] as u128;
-        let p1 = PRIMES[1] as u128;
-        let product = p0 * p1;
         Ok((0..self.d)
-            .map(|i| {
-                let x = residues[0][i] as u128;
-                let delta = (residues[1][i] as u128 + p1 - x % p1) % p1;
-                let x = x + p0 * (delta * self.inverses[0] as u128 % p1);
-                let signed = if x > product / 2 {
-                    x as i128 - product as i128
-                } else {
-                    x as i128
-                };
-                if self.q.is_power_of_two() {
-                    (signed as u64) & (self.q - 1)
-                } else {
-                    signed.rem_euclid(self.q as i128) as u64
-                }
-            })
+            .map(|i| self.reconstruct_two(residues[0][i], residues[1][i]))
             .collect())
     }
+
     // Both inputs are canonical auxiliary-prime residues, p0 < p1. The
     // caller has already proven signed reconstruction capacity for the sum.
     fn reconstruct_two(&self, r0: u64, r1: u64) -> u64 {
@@ -635,4 +721,36 @@ pub fn lifted_mul_mod_q(
         ));
     }
     LiftContext::new(a.len(), q)?.multiply(a, b)
+}
+
+#[cfg(test)]
+mod secret_scratch_tests {
+    use super::*;
+    #[test]
+    fn matrix_guards_erase_on_return_error_and_unwind() {
+        let context = LiftContext::new(8, 1 << 54).unwrap();
+        let params = &context.params[0];
+        for exit in 0..3 {
+            let mut raw = PolyMatrixRaw::zero(params, 1, 1);
+            let mut ntt = PolyMatrixNTT::zero(params, 1, 1);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let raw = SecretRaw(&mut raw);
+                let ntt = SecretNtt(&mut ntt);
+                raw.0.as_mut_slice().fill(17);
+                ntt.0.as_mut_slice().fill(23);
+                match exit {
+                    0 => Ok(()),
+                    1 => Err(()),
+                    _ => panic!("exercise secret scratch unwinding"),
+                }
+            }));
+            assert!(raw.as_slice().iter().all(|&x| x == 0));
+            assert!(ntt.as_slice().iter().all(|&x| x == 0));
+            match exit {
+                0 => assert_eq!(result.unwrap(), Ok(())),
+                1 => assert_eq!(result.unwrap(), Err(())),
+                _ => assert!(result.is_err()),
+            }
+        }
+    }
 }
