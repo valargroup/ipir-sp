@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-rc.4 — 2026-09-25
+
+Fourth release candidate for `ipir-sp`, adding the experimental ReinspiRING
+implementation from PR #17. Existing `inspiring` rc.1 and `simplepir-kernel`
+rc.2 dependency versions are unchanged.
 
 - Add the `reinspiring` crate with an exact odd-modulus packing adapter and an
   experimental native power-of-two implementation, portable SIMD dispatch,
