@@ -413,12 +413,12 @@ impl NativeCiphertext {
 
 /// Immutable public preprocessing. Online data cannot alter its mask trace.
 pub struct NativePreprocessed {
-    params: NativeParams,
-    id: [u8; 32],
-    a: Vec<u64>,
-    h: NativeMatrix,
-    leftover: PreparedLiftOperand,
-    lift: LiftContext,
+    pub(crate) params: NativeParams,
+    pub(crate) id: [u8; 32],
+    pub(crate) a: Vec<u64>,
+    pub(crate) h: NativeMatrix,
+    pub(crate) leftover: PreparedLiftOperand,
+    pub(crate) lift: LiftContext,
 }
 
 /// Offline stage durations, excluding caller-side database-hint construction.

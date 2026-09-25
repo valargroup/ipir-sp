@@ -76,6 +76,11 @@ pub struct NttAutomorphTable {
 }
 
 impl NttAutomorphTable {
+    pub(crate) fn from_prepared(exponent: u64, indices: Box<[u32]>, d: usize) -> Option<Self> {
+        let table = Self { exponent, indices };
+        table.validate_permutation(d).then_some(table)
+    }
+
     /// Automorphism exponent modulo `2d`.
     #[must_use]
     pub fn exponent(&self) -> u64 {

@@ -103,6 +103,10 @@ impl NativePublicSetup {
             packing,
         }
     }
+    /// Public first-dimension masks for distributed hint construction.
+    pub fn query_masks(&self) -> &[Vec<u64>] {
+        &self.polys
+    }
     /// Profile and dimensions.
     pub fn profile(&self) -> &NativeProfile {
         &self.profile

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-rc.5 — 2026-09-25
+
+- Publish the distributed-serving APIs needed by wallet-pir: bounded prepared
+  packing codecs, immutable mapped matrices, native query-mask access, and
+  exact power-of-two CPU/CUDA matrix-vector evaluation.
+- Reject empty matrix dimensions through the new fallible evaluation API.
+- Supporting crate versions: `inspiring` 0.1.0-rc.2, `simplepir-kernel`
+  0.1.0-rc.3, and `reinspiring` 0.1.1. Publish those before `ipir-sp` rc.5
+  if publishing to crates.io; the Git release tag contains all four crates.
+- Mapped artifacts require authenticated, immutable files owned by the trusted
+  coordinator. Native experimental security gates remain unchanged.
+
 ## 0.1.0-rc.4 — 2026-09-25
 
 Fourth release candidate for `ipir-sp`, adding the experimental ReinspiRING

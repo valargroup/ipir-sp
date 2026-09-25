@@ -1,6 +1,6 @@
 [package]
 name = "reinspiring"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
@@ -11,7 +11,9 @@ keywords = ["fhe", "lattice", "rlwe", "lwe", "pir"]
 categories = ["cryptography"]
 
 [dependencies]
-inspiring = { path = "../inspiring", version = "=0.1.0-rc.1" }
+memmap2 = "0.9"
+bytemuck = "1"
+inspiring = { path = "../inspiring", version = "=0.1.0-rc.2" }
 spiral-rs = { workspace = true }
 thiserror = "1.0"
 rayon = "1"
