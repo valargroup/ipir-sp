@@ -61,3 +61,11 @@ required-features = ["experimental-key-reuse", "experimental-params"]
 [[example]]
 name = "native_e2e"
 required-features = ["native-reinspiring"]
+
+[[example]]
+name = "native_real_data"
+required-features = ["native-reinspiring"]
+
+[[example]]
+name = "native_gpu_check"
+required-features = ["cuda"]
