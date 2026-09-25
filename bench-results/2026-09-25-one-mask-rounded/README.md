@@ -45,6 +45,15 @@ norms. No independence between rounding error and secret is assumed. The
 deterministic budget, finite-sampler Chernoff calculation and union bound are
 unchanged from [the argument](../../reinspiring/tools/security/NATIVE_CERTIFICATE.md).
 
+The independent degree-8 schoolbook oracle checks every one-mask precision
+screen from 24 through 32 bits, including the final K_h contribution. It also
+checks the exact phase change against `(rounded(a) - a) * s` for the actual
+packing mask and explicit rounding-tie and modular-wraparound coefficients.
+Integration tests exercise one-mask 28..=32 and two-mask 27..=32 publication,
+plus lossless 54-bit publication in both modes, through serialization and
+ordinary/prepared decoding. Negative cases cover setup, mode and precision
+mismatches, malformed lengths and versions, and noncanonical padding.
+
 ## Reproduction
 
 ```sh

@@ -126,6 +126,25 @@ def run(v):
         candidates.append(dict(bits=b,weights=envelope(secret,digits)))
     result = dict(a=a, b=body,noise=baseline,one_limb=candidates,
                   kh_l1=norms([x for limb in final_digits for x in limb])[0])
+    result['public_mask_screens'] = []
+    for precision in range(24, min(32, q.bit_length()-1)+1):
+        step = q >> precision
+        rounded = [((x+step//2)//step*step) % q for x in a]
+        delta = [(y-x) % q for x,y in zip(a,rounded)]
+        combined = [row[:] for row in secret_weights]
+        add_product(combined, delta, 1)
+        screen = dict(bits=precision, noise=envelope(combined,final_digits))
+        if 'secret' in v:
+            # Explicit ties and wraparound complement the actual packing mask.
+            boundary = [0, step//2-1, step//2, step//2+1,
+                        q-step//2-1, q-step//2, q-step//2+1, q-1]
+            screen['phase_cases'] = []
+            for mask in [a, [boundary[i % len(boundary)] for i in range(d)]]:
+                rounded = [((x+step//2)//step*step) % q for x in mask]
+                delta = [(y-x) % q for x,y in zip(mask,rounded)]
+                screen['phase_cases'].append(dict(mask=mask, rounded=rounded,
+                                                  delta=mul(delta,v['secret'],q)))
+        result['public_mask_screens'].append(screen)
     if v.get('include_weights'):
         result.update(secret_weights=secret_weights,kg_weights=kg_weights,final_digits=final_digits)
     return result
