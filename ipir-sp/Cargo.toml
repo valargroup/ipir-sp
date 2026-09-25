@@ -1,6 +1,6 @@
 [package]
 name = "ipir-sp"
-version = "0.1.0-rc.2"
+version = "0.1.0-rc.3"
 edition = "2021"
 rust-version = "1.78"
 license = "MIT OR Apache-2.0"
@@ -10,7 +10,7 @@ repository = "https://github.com/valargroup/ipir-sp"
 [dependencies]
 inspiring = { path = "../inspiring", version = "=0.1.0-rc.1" }
 reinspiring = { path = "../reinspiring", version = "0.1.0" }
-simplepir-kernel = { path = "../simplepir-kernel", version = "=0.1.0-rc.1" }
+simplepir-kernel = { path = "../simplepir-kernel", version = "=0.1.0-rc.2" }
 spiral-rs = { workspace = true }
 # Operating-system entropy for client seeds only. Public CRS expansion goes
 # through `sampling`, so the wire format does not depend on this version.

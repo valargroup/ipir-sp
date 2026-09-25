@@ -652,7 +652,7 @@ fn collapse_uploaded_body_b<'a>(
         schedule.push(CollapseTerm {
             body: kg_body,
             table: Some(&left[image_idx]),
-            digits: &digits_ntt[digit_idx],
+            digits: (&digits_ntt[digit_idx]).into(),
         });
     }
     let right_base = left.len();
@@ -660,16 +660,66 @@ fn collapse_uploaded_body_b<'a>(
         schedule.push(CollapseTerm {
             body: kg_body,
             table: Some(&right[image_idx]),
-            digits: &digits_ntt[right_base + digit_idx],
+            digits: (&digits_ntt[right_base + digit_idx]).into(),
         });
     }
     schedule.push(CollapseTerm {
         body: kh_body,
         table: None,
-        digits: &digits_ntt[params.d - 2],
+        digits: (&digits_ntt[params.d - 2]).into(),
     });
     debug_assert_eq!(schedule.len(), params.d - 1);
 
+    collapse_terms(params, b, &schedule)
+}
+
+// Rayon tasks reuse bounded scratch buffers on their executing thread. Never
+// hold the RefCell borrow across a Rayon call; nested work may use the same thread.
+thread_local! {
+    static PACKING_SCRATCH: std::cell::RefCell<Vec<Vec<u128>>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+struct PackingScratch(Vec<u128>);
+impl PackingScratch {
+    fn new(lanes: usize) -> Self {
+        let mut data = PACKING_SCRATCH
+            .with(|p| p.borrow_mut().pop())
+            .unwrap_or_default();
+        data.resize(lanes, 0);
+        data.fill(0);
+        Self(data)
+    }
+}
+impl std::ops::Deref for PackingScratch {
+    type Target = [u128];
+    fn deref(&self) -> &[u128] {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for PackingScratch {
+    fn deref_mut(&mut self) -> &mut [u128] {
+        &mut self.0
+    }
+}
+impl Drop for PackingScratch {
+    fn drop(&mut self) {
+        // Do not retain ciphertext-derived intermediate values between queries.
+        self.0.fill(0);
+        let data = std::mem::take(&mut self.0);
+        PACKING_SCRATCH.with(|p| {
+            let mut pool = p.borrow_mut();
+            // Bound retained scratch even under nested Rayon scheduling.
+            if pool.len() < 4 && data.capacity() <= 16384 {
+                pool.push(data);
+            }
+        });
+    }
+}
+
+fn collapse_terms<'a>(
+    params: &'a RlweParams,
+    b: PolyMatrixNTT<'a>,
+    schedule: &[CollapseTerm<'_, 'a>],
+) -> PolyMatrixNTT<'a> {
     let spiral = &params.spiral;
     let d = spiral.poly_len;
     let lanes = d * spiral.crt_count;
@@ -681,14 +731,14 @@ fn collapse_uploaded_body_b<'a>(
     let partials = schedule
         .par_chunks(collapse_steps_per_task(schedule.len()))
         .map(|chunk| {
-            let mut acc = vec![0_u128; lanes];
+            let mut acc = PackingScratch::new(lanes);
             for term in chunk {
                 accumulate_collapse_term(spiral, term, &mut acc);
             }
             acc
         })
         .reduce(
-            || vec![0_u128; lanes],
+            || PackingScratch::new(lanes),
             |mut lhs, rhs| {
                 for (slot, add) in lhs.iter_mut().zip(rhs.iter()) {
                     *slot += *add;
@@ -714,6 +764,45 @@ fn collapse_uploaded_body_b<'a>(
         }
     }
     out
+}
+
+/// Packing from validated public mapped slices, using the same fused arithmetic.
+/// The decoder checks lengths, residues and permutations before reaching here.
+pub(crate) fn pack_mapped_block<'a>(
+    params: &'a RlweParams,
+    b_scalars: &[u64],
+    keys: &PackingKeys<'a>,
+    left: &[NttAutomorphTable],
+    right: &[NttAutomorphTable],
+    digits: &[DigitView<'_>],
+    a_final: &[u64],
+) -> RlweCiphertext<'a> {
+    assert!(fused_accumulator_fits(params, keys.kg_body.cols));
+    let mut raw = PolyMatrixRaw::zero(&params.spiral, 1, 1);
+    raw.as_mut_slice().copy_from_slice(b_scalars);
+    let mut schedule = Vec::with_capacity(params.d - 1);
+    for (idx, table) in left.iter().rev().chain(right.iter().rev()).enumerate() {
+        schedule.push(CollapseTerm {
+            body: &keys.kg_body,
+            table: Some(table),
+            digits: digits[idx],
+        });
+    }
+    schedule.push(CollapseTerm {
+        body: &keys.kh_body,
+        table: None,
+        digits: digits[params.d - 2],
+    });
+    let b = collapse_terms(params, to_ntt_alloc(&raw), &schedule);
+    let mut out = PolyMatrixNTT::zero(&params.spiral, 2, 1);
+    let lanes = params.d * params.spiral.crt_count;
+    out.as_mut_slice()[..lanes].copy_from_slice(a_final);
+    out.as_mut_slice()[lanes..].copy_from_slice(b.as_slice());
+    RlweCiphertext { inner: out }
+}
+
+pub(crate) fn mapped_accumulator_supported(params: &RlweParams) -> bool {
+    fused_accumulator_fits(params, params.gadget.ell)
 }
 
 /// Collapse `k` queries against one shared digit stream.
@@ -772,17 +861,17 @@ fn collapse_uploaded_body_b_batched<'a>(
     // query, so a term names its table and digits plus which of the two bodies
     // to use. Execution order matches `collapse_uploaded_body_b` exactly, which
     // is the order `digits_ntt` was recorded in.
-    struct BatchedTerm<'t, 'a> {
+    struct BatchedTerm<'t> {
         table: Option<&'t NttAutomorphTable>,
-        digits: &'t PolyMatrixNTT<'a>,
+        digits: DigitView<'t>,
         use_kh: bool,
     }
 
-    let mut schedule: Vec<BatchedTerm<'_, 'a>> = Vec::with_capacity(params.d - 1);
+    let mut schedule: Vec<BatchedTerm<'_>> = Vec::with_capacity(params.d - 1);
     for (digit_idx, image_idx) in (0..left.len()).rev().enumerate() {
         schedule.push(BatchedTerm {
             table: Some(&left[image_idx]),
-            digits: &digits_ntt[digit_idx],
+            digits: (&digits_ntt[digit_idx]).into(),
             use_kh: false,
         });
     }
@@ -790,13 +879,13 @@ fn collapse_uploaded_body_b_batched<'a>(
     for (digit_idx, image_idx) in (0..right.len()).rev().enumerate() {
         schedule.push(BatchedTerm {
             table: Some(&right[image_idx]),
-            digits: &digits_ntt[right_base + digit_idx],
+            digits: (&digits_ntt[right_base + digit_idx]).into(),
             use_kh: false,
         });
     }
     schedule.push(BatchedTerm {
         table: None,
-        digits: &digits_ntt[params.d - 2],
+        digits: (&digits_ntt[params.d - 2]).into(),
         use_kh: true,
     });
     debug_assert_eq!(schedule.len(), params.d - 1);
@@ -868,10 +957,39 @@ fn collapse_uploaded_body_b_batched<'a>(
 ///
 /// `table` is `None` for the final `K_h` step, which uses the body row directly
 /// rather than an automorphic image of it.
+#[derive(Clone, Copy)]
+pub(crate) struct DigitView<'a> {
+    data: &'a [u64],
+    rows: usize,
+    cols: usize,
+    lanes: usize,
+}
+impl<'a> DigitView<'a> {
+    pub(crate) fn new(data: &'a [u64], rows: usize, lanes: usize) -> Self {
+        assert_eq!(data.len(), rows * lanes);
+        Self {
+            data,
+            rows,
+            cols: 1,
+            lanes,
+        }
+    }
+    fn get_poly(&self, row: usize, col: usize) -> &'a [u64] {
+        assert_eq!(col, 0);
+        &self.data[row * self.lanes..(row + 1) * self.lanes]
+    }
+}
+impl<'a> From<&'a PolyMatrixNTT<'_>> for DigitView<'a> {
+    fn from(m: &'a PolyMatrixNTT<'_>) -> Self {
+        assert_eq!(m.cols, 1);
+        Self::new(m.as_slice(), m.rows, m.params.poly_len * m.params.crt_count)
+    }
+}
+
 struct CollapseTerm<'t, 'a> {
     body: &'t PolyMatrixNTT<'a>,
     table: Option<&'t NttAutomorphTable>,
-    digits: &'t PolyMatrixNTT<'a>,
+    digits: DigitView<'t>,
 }
 
 /// Whether one `u128` accumulator can hold every product of a whole block.
@@ -1602,7 +1720,7 @@ mod tests {
             let term = CollapseTerm {
                 body: &body,
                 table,
-                digits: &digits,
+                digits: (&digits).into(),
             };
 
             let mut fast = vec![0_u128; d];
@@ -1664,7 +1782,7 @@ mod tests {
             let term = CollapseTerm {
                 body: &body,
                 table,
-                digits: &digits,
+                digits: (&digits).into(),
             };
 
             let mut fast = vec![0_u128; d * params.spiral.crt_count];
