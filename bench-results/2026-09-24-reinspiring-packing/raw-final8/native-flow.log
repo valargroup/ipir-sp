@@ -1,0 +1,12 @@
+   Compiling reinspiring v0.1.0 (/root/optimized/reinspiring)
+   Compiling ipir-sp v0.1.0-rc.2 (/root/optimized/ipir-sp)
+    Finished `release` profile [optimized] target(s) in 20.62s
+     Running tests/native_flow.rs (target/release/deps/native_flow-4de91c7c21101d6e)
+
+running 3 tests
+test immutable_server_handles_concurrent_fresh_queries ... ok
+test batched_preprocessing_preserves_block_order_and_wire_responses ... ok
+test native_ipir_full_wire_roundtrip_and_binding_rejections ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

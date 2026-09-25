@@ -1,0 +1,9 @@
+   Compiling cudarc v0.17.3
+    Checking libloading v0.8.9
+    Checking reinspiring v0.1.0 (/Users/roman/projects/ipir-sp-reinspiring/reinspiring)
+ Documenting reinspiring v0.1.0 (/Users/roman/projects/ipir-sp-reinspiring/reinspiring)
+    Checking simplepir-kernel v0.1.0-rc.1 (/Users/roman/projects/ipir-sp-reinspiring/simplepir-kernel)
+ Documenting ipir-sp v0.1.0-rc.2 (/Users/roman/projects/ipir-sp-reinspiring/ipir-sp)
+    Checking ipir-sp v0.1.0-rc.2 (/Users/roman/projects/ipir-sp-reinspiring/ipir-sp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.66s
+   Generated /Users/roman/projects/ipir-sp-reinspiring/target/doc/ipir_sp/index.html and 3 other files

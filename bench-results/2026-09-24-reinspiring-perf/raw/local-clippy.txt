@@ -1,0 +1,3 @@
+    Checking reinspiring v0.1.0 (/Users/roman/projects/ipir-sp-reinspiring/reinspiring)
+    Checking ipir-sp v0.1.0-rc.2 (/Users/roman/projects/ipir-sp-reinspiring/ipir-sp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.72s

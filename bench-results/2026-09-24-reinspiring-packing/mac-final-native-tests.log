@@ -1,0 +1,30 @@
+   Compiling libloading v0.8.9
+   Compiling reinspiring v0.1.0 (/Users/roman/projects/ipir-sp-reinspiring/reinspiring)
+   Compiling cudarc v0.17.3
+   Compiling simplepir-kernel v0.1.0-rc.1 (/Users/roman/projects/ipir-sp-reinspiring/simplepir-kernel)
+   Compiling ipir-sp v0.1.0-rc.2 (/Users/roman/projects/ipir-sp-reinspiring/ipir-sp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.93s
+     Running tests/native_flow.rs (target/debug/deps/native_flow-6d4d29f10bfee2a7)
+
+running 3 tests
+test immutable_server_handles_concurrent_fresh_queries ... ok
+test batched_preprocessing_preserves_block_order_and_wire_responses ... ok
+test native_ipir_full_wire_roundtrip_and_binding_rejections ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+     Running tests/native_flow.rs (target/debug/deps/native_flow-7354fb412aea0128)
+
+running 9 tests
+test native_paper_degree_roundtrip ... ignored, degree-2048 cryptographic validation; run explicitly in release
+test decomposition_reconstructs_with_documented_rounding_error ... ok
+test cached_leftover_checks_the_sum_before_combining_inverse_transforms ... ok
+test crt_matches_schoolbook_signed_and_boundary_inputs ... ok
+test compact_matrix_matches_wide_oracle_at_all_storage_and_modulus_boundaries ... ok
+test cached_public_lifts_match_schoolbook_and_generic_at_capacity_boundaries ... ok
+test compile_fft_handles_arbitrary_odd_and_repeated_exponents ... ok
+test public_dot_matches_independent_products_and_checks_aggregate_capacity ... ok
+test native_encryption_to_decryption_both_samplers_and_limb_counts ... ok
+
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.12s
+

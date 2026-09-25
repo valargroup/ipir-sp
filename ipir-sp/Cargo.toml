@@ -2,13 +2,14 @@
 name = "ipir-sp"
 version = "0.1.0-rc.3"
 edition = "2021"
-rust-version = "1.78"
+rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 description = "IPIR-SP glue crate using InspiRING.Pack as the ring-packing primitive."
 repository = "https://github.com/valargroup/ipir-sp"
 
 [dependencies]
 inspiring = { path = "../inspiring", version = "=0.1.0-rc.1" }
+reinspiring = { path = "../reinspiring", version = "0.1.0" }
 simplepir-kernel = { path = "../simplepir-kernel", version = "=0.1.0-rc.2" }
 spiral-rs = { workspace = true }
 # Operating-system entropy for client seeds only. Public CRS expansion goes
@@ -23,6 +24,7 @@ rayon = "1"
 serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0"
 sha1 = "0.10.6"
+sha2 = "0.10"
 actix-cors = { version = "=0.7.0", optional = true }
 actix-web = { version = "=4.11.0", optional = true }
 reqwest = { version = "0.12", features = ["blocking"], optional = true }
@@ -32,6 +34,7 @@ default = []
 cuda = ["simplepir-kernel/cuda"]
 experimental-key-reuse = []
 experimental-params = []
+native-reinspiring = []
 http_server = ["dep:actix-cors", "dep:actix-web"]
 http_client = ["dep:reqwest"]
 
@@ -44,9 +47,17 @@ harness = false
 required-features = ["experimental-params"]
 
 [[bench]]
+name = "pack_backends_d2048"
+harness = false
+
+[[bench]]
 name = "client_decode"
 harness = false
 
 [[example]]
 name = "key_reuse_bench"
 required-features = ["experimental-key-reuse", "experimental-params"]
+
+[[example]]
+name = "native_e2e"
+required-features = ["native-reinspiring"]

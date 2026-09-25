@@ -1,0 +1,15 @@
+689bcebd5335eeb14b89032c20e60c379f244d40
+ ipir-sp/src/native.rs            |  17 ++---
+ reinspiring/src/lift_ntt.rs      | 150 +++++++++++++++++++++++++++++++++++++--
+ reinspiring/src/native.rs        |  72 +++++++++++--------
+ reinspiring/tests/native_flow.rs |  92 ++++++++++++++++++++++++
+ 4 files changed, 286 insertions(+), 45 deletions(-)
+rustc 1.89.0 (29483883e 2025-08-04)
+binary: rustc
+commit-hash: 29483883eed69d5fb4db01964cdf2af4d86e9cb2
+commit-date: 2025-08-04
+host: x86_64-unknown-linux-gnu
+release: 1.89.0
+LLVM version: 20.1.7
+RUSTFLAGS=-C target-cpu=native
+RAYON_NUM_THREADS=8

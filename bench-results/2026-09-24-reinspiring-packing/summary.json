@@ -1,0 +1,1956 @@
+{
+  "packing": {
+    "baseline-b1-e2-t1-c1": {
+      "runs": [
+        {
+          "file": "packing-baseline-b1-e2-t1-c1-r1.jsonl",
+          "setup_s": 2.510614112,
+          "online_ms": 4.090516,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 33636352,
+          "peak_rss_bytes": 406470656
+        }
+      ],
+      "setup_s": {
+        "median": 2.510614112,
+        "min": 2.510614112,
+        "max": 2.510614112,
+        "values": [
+          2.510614112
+        ]
+      },
+      "online_ms": {
+        "median": 4.090516,
+        "min": 4.090516,
+        "max": 4.090516,
+        "values": [
+          4.090516
+        ]
+      },
+      "key_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "contribution_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "finish_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 33636352,
+        "min": 33636352,
+        "max": 33636352,
+        "values": [
+          33636352
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 406470656,
+        "min": 406470656,
+        "max": 406470656,
+        "values": [
+          406470656
+        ]
+      }
+    },
+    "baseline-b1-e2-t8-c1": {
+      "runs": [
+        {
+          "file": "packing-baseline-b1-e2-t8-c1-r1.jsonl",
+          "setup_s": 1.421892127,
+          "online_ms": 1.2454195000000001,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 33636352,
+          "peak_rss_bytes": 540852224
+        },
+        {
+          "file": "packing-baseline-b1-e2-t8-c1-r2.jsonl",
+          "setup_s": 1.410923474,
+          "online_ms": 1.1990725,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 33636352,
+          "peak_rss_bytes": 540839936
+        },
+        {
+          "file": "packing-baseline-b1-e2-t8-c1-r3.jsonl",
+          "setup_s": 1.406092754,
+          "online_ms": 1.124806,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 33636352,
+          "peak_rss_bytes": 540839936
+        }
+      ],
+      "setup_s": {
+        "median": 1.410923474,
+        "min": 1.406092754,
+        "max": 1.421892127,
+        "values": [
+          1.421892127,
+          1.410923474,
+          1.406092754
+        ]
+      },
+      "online_ms": {
+        "median": 1.1990725,
+        "min": 1.124806,
+        "max": 1.2454195000000001,
+        "values": [
+          1.2454195000000001,
+          1.1990725,
+          1.124806
+        ]
+      },
+      "key_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "contribution_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "finish_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 33636352,
+        "min": 33636352,
+        "max": 33636352,
+        "values": [
+          33636352,
+          33636352,
+          33636352
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 540839936,
+        "min": 540839936,
+        "max": 540852224,
+        "values": [
+          540852224,
+          540839936,
+          540839936
+        ]
+      }
+    },
+    "baseline-b1-e3-t1-c1": {
+      "runs": [
+        {
+          "file": "packing-baseline-b1-e3-t1-c1-r1.jsonl",
+          "setup_s": 3.973856778,
+          "online_ms": 6.4736595,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 50446336,
+          "peak_rss_bytes": 557453312
+        }
+      ],
+      "setup_s": {
+        "median": 3.973856778,
+        "min": 3.973856778,
+        "max": 3.973856778,
+        "values": [
+          3.973856778
+        ]
+      },
+      "online_ms": {
+        "median": 6.4736595,
+        "min": 6.4736595,
+        "max": 6.4736595,
+        "values": [
+          6.4736595
+        ]
+      },
+      "key_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "contribution_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "finish_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 50446336,
+        "min": 50446336,
+        "max": 50446336,
+        "values": [
+          50446336
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 557453312,
+        "min": 557453312,
+        "max": 557453312,
+        "values": [
+          557453312
+        ]
+      }
+    },
+    "baseline-b1-e3-t8-c1": {
+      "runs": [
+        {
+          "file": "packing-baseline-b1-e3-t8-c1-r1.jsonl",
+          "setup_s": 1.940048382,
+          "online_ms": 1.8841495,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 50446336,
+          "peak_rss_bytes": 608829440
+        },
+        {
+          "file": "packing-baseline-b1-e3-t8-c1-r2.jsonl",
+          "setup_s": 1.932096959,
+          "online_ms": 1.9252340000000001,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 50446336,
+          "peak_rss_bytes": 608698368
+        },
+        {
+          "file": "packing-baseline-b1-e3-t8-c1-r3.jsonl",
+          "setup_s": 1.933531613,
+          "online_ms": 1.8509879999999999,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 50446336,
+          "peak_rss_bytes": 608567296
+        }
+      ],
+      "setup_s": {
+        "median": 1.933531613,
+        "min": 1.932096959,
+        "max": 1.940048382,
+        "values": [
+          1.940048382,
+          1.932096959,
+          1.933531613
+        ]
+      },
+      "online_ms": {
+        "median": 1.8841495,
+        "min": 1.8509879999999999,
+        "max": 1.9252340000000001,
+        "values": [
+          1.8841495,
+          1.9252340000000001,
+          1.8509879999999999
+        ]
+      },
+      "key_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "contribution_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "finish_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 50446336,
+        "min": 50446336,
+        "max": 50446336,
+        "values": [
+          50446336,
+          50446336,
+          50446336
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 608698368,
+        "min": 608567296,
+        "max": 608829440,
+        "values": [
+          608829440,
+          608698368,
+          608567296
+        ]
+      }
+    },
+    "baseline-b16-e2-t1-c1": {
+      "runs": [
+        {
+          "file": "packing-baseline-b16-e2-t1-c1-r1.jsonl",
+          "setup_s": 38.245916154,
+          "online_ms": 64.936125,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 538181632,
+          "peak_rss_bytes": 1420787712
+        }
+      ],
+      "setup_s": {
+        "median": 38.245916154,
+        "min": 38.245916154,
+        "max": 38.245916154,
+        "values": [
+          38.245916154
+        ]
+      },
+      "online_ms": {
+        "median": 64.936125,
+        "min": 64.936125,
+        "max": 64.936125,
+        "values": [
+          64.936125
+        ]
+      },
+      "key_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "contribution_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "finish_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 538181632,
+        "min": 538181632,
+        "max": 538181632,
+        "values": [
+          538181632
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 1420787712,
+        "min": 1420787712,
+        "max": 1420787712,
+        "values": [
+          1420787712
+        ]
+      }
+    },
+    "baseline-b16-e2-t8-c1": {
+      "runs": [
+        {
+          "file": "packing-baseline-b16-e2-t8-c1-r1.jsonl",
+          "setup_s": 21.560892489,
+          "online_ms": 12.6977725,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 538181632,
+          "peak_rss_bytes": 1622503424
+        },
+        {
+          "file": "packing-baseline-b16-e2-t8-c1-r2.jsonl",
+          "setup_s": 21.531537339,
+          "online_ms": 13.0794885,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 538181632,
+          "peak_rss_bytes": 1622618112
+        },
+        {
+          "file": "packing-baseline-b16-e2-t8-c1-r3.jsonl",
+          "setup_s": 21.515678585,
+          "online_ms": 12.7084755,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 538181632,
+          "peak_rss_bytes": 1622601728
+        }
+      ],
+      "setup_s": {
+        "median": 21.531537339,
+        "min": 21.515678585,
+        "max": 21.560892489,
+        "values": [
+          21.560892489,
+          21.531537339,
+          21.515678585
+        ]
+      },
+      "online_ms": {
+        "median": 12.7084755,
+        "min": 12.6977725,
+        "max": 13.0794885,
+        "values": [
+          12.6977725,
+          13.0794885,
+          12.7084755
+        ]
+      },
+      "key_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "contribution_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "finish_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 538181632,
+        "min": 538181632,
+        "max": 538181632,
+        "values": [
+          538181632,
+          538181632,
+          538181632
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 1622601728,
+        "min": 1622503424,
+        "max": 1622618112,
+        "values": [
+          1622503424,
+          1622618112,
+          1622601728
+        ]
+      }
+    },
+    "baseline-b16-e2-t8-c8": {
+      "runs": [
+        {
+          "file": "packing-baseline-b16-e2-t8-c8-r1.jsonl",
+          "setup_s": 8.320097507,
+          "online_ms": 12.315272,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 538181632,
+          "peak_rss_bytes": 3179266048
+        },
+        {
+          "file": "packing-baseline-b16-e2-t8-c8-r2.jsonl",
+          "setup_s": 8.303232135,
+          "online_ms": 12.388427499999999,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 538181632,
+          "peak_rss_bytes": 3227103232
+        },
+        {
+          "file": "packing-baseline-b16-e2-t8-c8-r3.jsonl",
+          "setup_s": 8.314955008,
+          "online_ms": 12.689824999999999,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 538181632,
+          "peak_rss_bytes": 3149758464
+        }
+      ],
+      "setup_s": {
+        "median": 8.314955008,
+        "min": 8.303232135,
+        "max": 8.320097507,
+        "values": [
+          8.320097507,
+          8.303232135,
+          8.314955008
+        ]
+      },
+      "online_ms": {
+        "median": 12.388427499999999,
+        "min": 12.315272,
+        "max": 12.689824999999999,
+        "values": [
+          12.315272,
+          12.388427499999999,
+          12.689824999999999
+        ]
+      },
+      "key_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "contribution_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "finish_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 538181632,
+        "min": 538181632,
+        "max": 538181632,
+        "values": [
+          538181632,
+          538181632,
+          538181632
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 3179266048,
+        "min": 3149758464,
+        "max": 3227103232,
+        "values": [
+          3179266048,
+          3227103232,
+          3149758464
+        ]
+      }
+    },
+    "baseline-b16-e3-t1-c1": {
+      "runs": [
+        {
+          "file": "packing-baseline-b16-e3-t1-c1-r1.jsonl",
+          "setup_s": 60.871129579,
+          "online_ms": 98.255818,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 807141376,
+          "peak_rss_bytes": 1824194560
+        }
+      ],
+      "setup_s": {
+        "median": 60.871129579,
+        "min": 60.871129579,
+        "max": 60.871129579,
+        "values": [
+          60.871129579
+        ]
+      },
+      "online_ms": {
+        "median": 98.255818,
+        "min": 98.255818,
+        "max": 98.255818,
+        "values": [
+          98.255818
+        ]
+      },
+      "key_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "contribution_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "finish_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 807141376,
+        "min": 807141376,
+        "max": 807141376,
+        "values": [
+          807141376
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 1824194560,
+        "min": 1824194560,
+        "max": 1824194560,
+        "values": [
+          1824194560
+        ]
+      }
+    },
+    "baseline-b16-e3-t8-c8": {
+      "runs": [
+        {
+          "file": "packing-baseline-b16-e3-t8-c8-r1.jsonl",
+          "setup_s": 13.562205509,
+          "online_ms": 18.9411415,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 807141376,
+          "peak_rss_bytes": 4283523072
+        },
+        {
+          "file": "packing-baseline-b16-e3-t8-c8-r2.jsonl",
+          "setup_s": 13.579618192,
+          "online_ms": 19.481126,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 807141376,
+          "peak_rss_bytes": 4055449600
+        },
+        {
+          "file": "packing-baseline-b16-e3-t8-c8-r3.jsonl",
+          "setup_s": 13.534424719,
+          "online_ms": 18.818174999999997,
+          "key_ms": 0.0,
+          "contribution_ms": 0.0,
+          "finish_ms": 0.0,
+          "coefficient_bytes": 807141376,
+          "peak_rss_bytes": 4191907840
+        }
+      ],
+      "setup_s": {
+        "median": 13.562205509,
+        "min": 13.534424719,
+        "max": 13.579618192,
+        "values": [
+          13.562205509,
+          13.579618192,
+          13.534424719
+        ]
+      },
+      "online_ms": {
+        "median": 18.9411415,
+        "min": 18.818174999999997,
+        "max": 19.481126,
+        "values": [
+          18.9411415,
+          19.481126,
+          18.818174999999997
+        ]
+      },
+      "key_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "contribution_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "finish_ms": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 807141376,
+        "min": 807141376,
+        "max": 807141376,
+        "values": [
+          807141376,
+          807141376,
+          807141376
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 4191907840,
+        "min": 4055449600,
+        "max": 4283523072,
+        "values": [
+          4283523072,
+          4055449600,
+          4191907840
+        ]
+      }
+    },
+    "final-b1-e2-t1-c1": {
+      "runs": [
+        {
+          "file": "packing-final-b1-e2-t1-c1-r1.jsonl",
+          "setup_s": 1.385723573,
+          "online_ms": 2.1640875,
+          "key_ms": 0.219251,
+          "contribution_ms": 1.940519,
+          "finish_ms": 0.003554,
+          "coefficient_bytes": 29442052,
+          "peak_rss_bytes": 339693568
+        }
+      ],
+      "setup_s": {
+        "median": 1.385723573,
+        "min": 1.385723573,
+        "max": 1.385723573,
+        "values": [
+          1.385723573
+        ]
+      },
+      "online_ms": {
+        "median": 2.1640875,
+        "min": 2.1640875,
+        "max": 2.1640875,
+        "values": [
+          2.1640875
+        ]
+      },
+      "key_ms": {
+        "median": 0.219251,
+        "min": 0.219251,
+        "max": 0.219251,
+        "values": [
+          0.219251
+        ]
+      },
+      "contribution_ms": {
+        "median": 1.940519,
+        "min": 1.940519,
+        "max": 1.940519,
+        "values": [
+          1.940519
+        ]
+      },
+      "finish_ms": {
+        "median": 0.003554,
+        "min": 0.003554,
+        "max": 0.003554,
+        "values": [
+          0.003554
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 29442052,
+        "min": 29442052,
+        "max": 29442052,
+        "values": [
+          29442052
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 339693568,
+        "min": 339693568,
+        "max": 339693568,
+        "values": [
+          339693568
+        ]
+      }
+    },
+    "final-b1-e2-t8-c1": {
+      "runs": [
+        {
+          "file": "packing-final-b1-e2-t8-c1-r1.jsonl",
+          "setup_s": 0.664927405,
+          "online_ms": 0.906707,
+          "key_ms": 0.21658249999999998,
+          "contribution_ms": 0.680256,
+          "finish_ms": 0.0043445,
+          "coefficient_bytes": 29442052,
+          "peak_rss_bytes": 373293056
+        },
+        {
+          "file": "packing-final-b1-e2-t8-c1-r2.jsonl",
+          "setup_s": 0.655958796,
+          "online_ms": 0.9100565,
+          "key_ms": 0.21903849999999997,
+          "contribution_ms": 0.6833799999999999,
+          "finish_ms": 0.0042305,
+          "coefficient_bytes": 29442052,
+          "peak_rss_bytes": 374472704
+        },
+        {
+          "file": "packing-final-b1-e2-t8-c1-r3.jsonl",
+          "setup_s": 0.653836956,
+          "online_ms": 0.9034925,
+          "key_ms": 0.21770299999999998,
+          "contribution_ms": 0.678806,
+          "finish_ms": 0.0045465,
+          "coefficient_bytes": 29442052,
+          "peak_rss_bytes": 373161984
+        }
+      ],
+      "setup_s": {
+        "median": 0.655958796,
+        "min": 0.653836956,
+        "max": 0.664927405,
+        "values": [
+          0.664927405,
+          0.655958796,
+          0.653836956
+        ]
+      },
+      "online_ms": {
+        "median": 0.906707,
+        "min": 0.9034925,
+        "max": 0.9100565,
+        "values": [
+          0.906707,
+          0.9100565,
+          0.9034925
+        ]
+      },
+      "key_ms": {
+        "median": 0.21770299999999998,
+        "min": 0.21658249999999998,
+        "max": 0.21903849999999997,
+        "values": [
+          0.21658249999999998,
+          0.21903849999999997,
+          0.21770299999999998
+        ]
+      },
+      "contribution_ms": {
+        "median": 0.680256,
+        "min": 0.678806,
+        "max": 0.6833799999999999,
+        "values": [
+          0.680256,
+          0.6833799999999999,
+          0.678806
+        ]
+      },
+      "finish_ms": {
+        "median": 0.0043445,
+        "min": 0.0042305,
+        "max": 0.0045465,
+        "values": [
+          0.0043445,
+          0.0042305,
+          0.0045465
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 29442052,
+        "min": 29442052,
+        "max": 29442052,
+        "values": [
+          29442052,
+          29442052,
+          29442052
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 373293056,
+        "min": 373161984,
+        "max": 374472704,
+        "values": [
+          373293056,
+          374472704,
+          373161984
+        ]
+      }
+    },
+    "final-b1-e3-t1-c1": {
+      "runs": [
+        {
+          "file": "packing-final-b1-e3-t1-c1-r1.jsonl",
+          "setup_s": 2.3755293379999998,
+          "online_ms": 4.2577195,
+          "key_ms": 0.33027700000000004,
+          "contribution_ms": 3.9104929999999998,
+          "finish_ms": 0.005374,
+          "coefficient_bytes": 44154884,
+          "peak_rss_bytes": 406761472
+        }
+      ],
+      "setup_s": {
+        "median": 2.3755293379999998,
+        "min": 2.3755293379999998,
+        "max": 2.3755293379999998,
+        "values": [
+          2.3755293379999998
+        ]
+      },
+      "online_ms": {
+        "median": 4.2577195,
+        "min": 4.2577195,
+        "max": 4.2577195,
+        "values": [
+          4.2577195
+        ]
+      },
+      "key_ms": {
+        "median": 0.33027700000000004,
+        "min": 0.33027700000000004,
+        "max": 0.33027700000000004,
+        "values": [
+          0.33027700000000004
+        ]
+      },
+      "contribution_ms": {
+        "median": 3.9104929999999998,
+        "min": 3.9104929999999998,
+        "max": 3.9104929999999998,
+        "values": [
+          3.9104929999999998
+        ]
+      },
+      "finish_ms": {
+        "median": 0.005374,
+        "min": 0.005374,
+        "max": 0.005374,
+        "values": [
+          0.005374
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 44154884,
+        "min": 44154884,
+        "max": 44154884,
+        "values": [
+          44154884
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 406761472,
+        "min": 406761472,
+        "max": 406761472,
+        "values": [
+          406761472
+        ]
+      }
+    },
+    "final-b1-e3-t8-c1": {
+      "runs": [
+        {
+          "file": "packing-final-b1-e3-t8-c1-r1.jsonl",
+          "setup_s": 1.128071033,
+          "online_ms": 1.587485,
+          "key_ms": 0.3294675,
+          "contribution_ms": 1.251614,
+          "finish_ms": 0.0049325,
+          "coefficient_bytes": 44154884,
+          "peak_rss_bytes": 474480640
+        },
+        {
+          "file": "packing-final-b1-e3-t8-c1-r2.jsonl",
+          "setup_s": 1.133630912,
+          "online_ms": 1.573369,
+          "key_ms": 0.3288645,
+          "contribution_ms": 1.2365410000000001,
+          "finish_ms": 0.004784,
+          "coefficient_bytes": 44154884,
+          "peak_rss_bytes": 474349568
+        },
+        {
+          "file": "packing-final-b1-e3-t8-c1-r3.jsonl",
+          "setup_s": 1.132196239,
+          "online_ms": 1.5785150000000001,
+          "key_ms": 0.330386,
+          "contribution_ms": 1.244143,
+          "finish_ms": 0.0047015,
+          "coefficient_bytes": 44154884,
+          "peak_rss_bytes": 474349568
+        }
+      ],
+      "setup_s": {
+        "median": 1.132196239,
+        "min": 1.128071033,
+        "max": 1.133630912,
+        "values": [
+          1.128071033,
+          1.133630912,
+          1.132196239
+        ]
+      },
+      "online_ms": {
+        "median": 1.5785150000000001,
+        "min": 1.573369,
+        "max": 1.587485,
+        "values": [
+          1.587485,
+          1.573369,
+          1.5785150000000001
+        ]
+      },
+      "key_ms": {
+        "median": 0.3294675,
+        "min": 0.3288645,
+        "max": 0.330386,
+        "values": [
+          0.3294675,
+          0.3288645,
+          0.330386
+        ]
+      },
+      "contribution_ms": {
+        "median": 1.244143,
+        "min": 1.2365410000000001,
+        "max": 1.251614,
+        "values": [
+          1.251614,
+          1.2365410000000001,
+          1.244143
+        ]
+      },
+      "finish_ms": {
+        "median": 0.004784,
+        "min": 0.0047015,
+        "max": 0.0049325,
+        "values": [
+          0.0049325,
+          0.004784,
+          0.0047015
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 44154884,
+        "min": 44154884,
+        "max": 44154884,
+        "values": [
+          44154884,
+          44154884,
+          44154884
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 474349568,
+        "min": 474349568,
+        "max": 474480640,
+        "values": [
+          474480640,
+          474349568,
+          474349568
+        ]
+      }
+    },
+    "final-b16-e2-t1-c1": {
+      "runs": [
+        {
+          "file": "packing-final-b16-e2-t1-c1-r1.jsonl",
+          "setup_s": 21.040568077,
+          "online_ms": 37.173013,
+          "key_ms": 0.2220875,
+          "contribution_ms": 36.850115,
+          "finish_ms": 0.09832949999999999,
+          "coefficient_bytes": 471072832,
+          "peak_rss_bytes": 1290096640
+        }
+      ],
+      "setup_s": {
+        "median": 21.040568077,
+        "min": 21.040568077,
+        "max": 21.040568077,
+        "values": [
+          21.040568077
+        ]
+      },
+      "online_ms": {
+        "median": 37.173013,
+        "min": 37.173013,
+        "max": 37.173013,
+        "values": [
+          37.173013
+        ]
+      },
+      "key_ms": {
+        "median": 0.2220875,
+        "min": 0.2220875,
+        "max": 0.2220875,
+        "values": [
+          0.2220875
+        ]
+      },
+      "contribution_ms": {
+        "median": 36.850115,
+        "min": 36.850115,
+        "max": 36.850115,
+        "values": [
+          36.850115
+        ]
+      },
+      "finish_ms": {
+        "median": 0.09832949999999999,
+        "min": 0.09832949999999999,
+        "max": 0.09832949999999999,
+        "values": [
+          0.09832949999999999
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 471072832,
+        "min": 471072832,
+        "max": 471072832,
+        "values": [
+          471072832
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 1290096640,
+        "min": 1290096640,
+        "max": 1290096640,
+        "values": [
+          1290096640
+        ]
+      }
+    },
+    "final-b16-e2-t8-c1": {
+      "runs": [
+        {
+          "file": "packing-final-b16-e2-t8-c1-r1.jsonl",
+          "setup_s": 9.98079485,
+          "online_ms": 8.7398105,
+          "key_ms": 0.2254225,
+          "contribution_ms": 8.4029075,
+          "finish_ms": 0.1114825,
+          "coefficient_bytes": 471072832,
+          "peak_rss_bytes": 1572335616
+        },
+        {
+          "file": "packing-final-b16-e2-t8-c1-r2.jsonl",
+          "setup_s": 9.999106116,
+          "online_ms": 8.945462,
+          "key_ms": 0.221945,
+          "contribution_ms": 8.60926,
+          "finish_ms": 0.1127775,
+          "coefficient_bytes": 471072832,
+          "peak_rss_bytes": 1543962624
+        },
+        {
+          "file": "packing-final-b16-e2-t8-c1-r3.jsonl",
+          "setup_s": 10.310851226,
+          "online_ms": 8.451184,
+          "key_ms": 0.22038800000000003,
+          "contribution_ms": 8.1287025,
+          "finish_ms": 0.100231,
+          "coefficient_bytes": 471072832,
+          "peak_rss_bytes": 1602957312
+        }
+      ],
+      "setup_s": {
+        "median": 9.999106116,
+        "min": 9.98079485,
+        "max": 10.310851226,
+        "values": [
+          9.98079485,
+          9.999106116,
+          10.310851226
+        ]
+      },
+      "online_ms": {
+        "median": 8.7398105,
+        "min": 8.451184,
+        "max": 8.945462,
+        "values": [
+          8.7398105,
+          8.945462,
+          8.451184
+        ]
+      },
+      "key_ms": {
+        "median": 0.221945,
+        "min": 0.22038800000000003,
+        "max": 0.2254225,
+        "values": [
+          0.2254225,
+          0.221945,
+          0.22038800000000003
+        ]
+      },
+      "contribution_ms": {
+        "median": 8.4029075,
+        "min": 8.1287025,
+        "max": 8.60926,
+        "values": [
+          8.4029075,
+          8.60926,
+          8.1287025
+        ]
+      },
+      "finish_ms": {
+        "median": 0.1114825,
+        "min": 0.100231,
+        "max": 0.1127775,
+        "values": [
+          0.1114825,
+          0.1127775,
+          0.100231
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 471072832,
+        "min": 471072832,
+        "max": 471072832,
+        "values": [
+          471072832,
+          471072832,
+          471072832
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 1572335616,
+        "min": 1543962624,
+        "max": 1602957312,
+        "values": [
+          1572335616,
+          1543962624,
+          1602957312
+        ]
+      }
+    },
+    "final-b16-e2-t8-c8": {
+      "runs": [
+        {
+          "file": "packing-final-b16-e2-t8-c8-r1.jsonl",
+          "setup_s": 4.538130322,
+          "online_ms": 8.498208,
+          "key_ms": 0.221734,
+          "contribution_ms": 8.1666035,
+          "finish_ms": 0.110999,
+          "coefficient_bytes": 471072832,
+          "peak_rss_bytes": 2634088448
+        },
+        {
+          "file": "packing-final-b16-e2-t8-c8-r2.jsonl",
+          "setup_s": 4.550214809,
+          "online_ms": 8.503468999999999,
+          "key_ms": 0.2213155,
+          "contribution_ms": 8.171352,
+          "finish_ms": 0.11192450000000001,
+          "coefficient_bytes": 471072832,
+          "peak_rss_bytes": 2663030784
+        },
+        {
+          "file": "packing-final-b16-e2-t8-c8-r3.jsonl",
+          "setup_s": 4.534336971,
+          "online_ms": 8.587277,
+          "key_ms": 0.2216885,
+          "contribution_ms": 8.247075,
+          "finish_ms": 0.1088305,
+          "coefficient_bytes": 471072832,
+          "peak_rss_bytes": 2640232448
+        }
+      ],
+      "setup_s": {
+        "median": 4.538130322,
+        "min": 4.534336971,
+        "max": 4.550214809,
+        "values": [
+          4.538130322,
+          4.550214809,
+          4.534336971
+        ]
+      },
+      "online_ms": {
+        "median": 8.503468999999999,
+        "min": 8.498208,
+        "max": 8.587277,
+        "values": [
+          8.498208,
+          8.503468999999999,
+          8.587277
+        ]
+      },
+      "key_ms": {
+        "median": 0.2216885,
+        "min": 0.2213155,
+        "max": 0.221734,
+        "values": [
+          0.221734,
+          0.2213155,
+          0.2216885
+        ]
+      },
+      "contribution_ms": {
+        "median": 8.171352,
+        "min": 8.1666035,
+        "max": 8.247075,
+        "values": [
+          8.1666035,
+          8.171352,
+          8.247075
+        ]
+      },
+      "finish_ms": {
+        "median": 0.110999,
+        "min": 0.1088305,
+        "max": 0.11192450000000001,
+        "values": [
+          0.110999,
+          0.11192450000000001,
+          0.1088305
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 471072832,
+        "min": 471072832,
+        "max": 471072832,
+        "values": [
+          471072832,
+          471072832,
+          471072832
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 2640232448,
+        "min": 2634088448,
+        "max": 2663030784,
+        "values": [
+          2634088448,
+          2663030784,
+          2640232448
+        ]
+      }
+    },
+    "final-b16-e3-t1-c1": {
+      "runs": [
+        {
+          "file": "packing-final-b16-e3-t1-c1-r1.jsonl",
+          "setup_s": 35.878334631,
+          "online_ms": 60.203718,
+          "key_ms": 0.33292299999999997,
+          "contribution_ms": 59.752825,
+          "finish_ms": 0.11281300000000001,
+          "coefficient_bytes": 706478144,
+          "peak_rss_bytes": 1578106880
+        }
+      ],
+      "setup_s": {
+        "median": 35.878334631,
+        "min": 35.878334631,
+        "max": 35.878334631,
+        "values": [
+          35.878334631
+        ]
+      },
+      "online_ms": {
+        "median": 60.203718,
+        "min": 60.203718,
+        "max": 60.203718,
+        "values": [
+          60.203718
+        ]
+      },
+      "key_ms": {
+        "median": 0.33292299999999997,
+        "min": 0.33292299999999997,
+        "max": 0.33292299999999997,
+        "values": [
+          0.33292299999999997
+        ]
+      },
+      "contribution_ms": {
+        "median": 59.752825,
+        "min": 59.752825,
+        "max": 59.752825,
+        "values": [
+          59.752825
+        ]
+      },
+      "finish_ms": {
+        "median": 0.11281300000000001,
+        "min": 0.11281300000000001,
+        "max": 0.11281300000000001,
+        "values": [
+          0.11281300000000001
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 706478144,
+        "min": 706478144,
+        "max": 706478144,
+        "values": [
+          706478144
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 1578106880,
+        "min": 1578106880,
+        "max": 1578106880,
+        "values": [
+          1578106880
+        ]
+      }
+    },
+    "final-b16-e3-t8-c8": {
+      "runs": [
+        {
+          "file": "packing-final-b16-e3-t8-c8-r1.jsonl",
+          "setup_s": 7.990577117,
+          "online_ms": 13.3475845,
+          "key_ms": 0.3353229999999999,
+          "contribution_ms": 12.903443500000002,
+          "finish_ms": 0.114617,
+          "coefficient_bytes": 706478144,
+          "peak_rss_bytes": 3197456384
+        },
+        {
+          "file": "packing-final-b16-e3-t8-c8-r2.jsonl",
+          "setup_s": 7.973618593,
+          "online_ms": 13.825673,
+          "key_ms": 0.33481950000000005,
+          "contribution_ms": 13.3752855,
+          "finish_ms": 0.1100325,
+          "coefficient_bytes": 706478144,
+          "peak_rss_bytes": 3256442880
+        },
+        {
+          "file": "packing-final-b16-e3-t8-c8-r3.jsonl",
+          "setup_s": 8.023389053,
+          "online_ms": 13.4322535,
+          "key_ms": 0.3313745,
+          "contribution_ms": 12.986608,
+          "finish_ms": 0.10683400000000001,
+          "coefficient_bytes": 706478144,
+          "peak_rss_bytes": 3182399488
+        }
+      ],
+      "setup_s": {
+        "median": 7.990577117,
+        "min": 7.973618593,
+        "max": 8.023389053,
+        "values": [
+          7.990577117,
+          7.973618593,
+          8.023389053
+        ]
+      },
+      "online_ms": {
+        "median": 13.4322535,
+        "min": 13.3475845,
+        "max": 13.825673,
+        "values": [
+          13.3475845,
+          13.825673,
+          13.4322535
+        ]
+      },
+      "key_ms": {
+        "median": 0.33481950000000005,
+        "min": 0.3313745,
+        "max": 0.3353229999999999,
+        "values": [
+          0.3353229999999999,
+          0.33481950000000005,
+          0.3313745
+        ]
+      },
+      "contribution_ms": {
+        "median": 12.986608,
+        "min": 12.903443500000002,
+        "max": 13.3752855,
+        "values": [
+          12.903443500000002,
+          13.3752855,
+          12.986608
+        ]
+      },
+      "finish_ms": {
+        "median": 0.1100325,
+        "min": 0.10683400000000001,
+        "max": 0.114617,
+        "values": [
+          0.114617,
+          0.1100325,
+          0.10683400000000001
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 706478144,
+        "min": 706478144,
+        "max": 706478144,
+        "values": [
+          706478144,
+          706478144,
+          706478144
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 3197456384,
+        "min": 3182399488,
+        "max": 3256442880,
+        "values": [
+          3197456384,
+          3256442880,
+          3182399488
+        ]
+      }
+    }
+  },
+  "e2e": {
+    "baseline": {
+      "runs": [
+        {
+          "file": "e2e-baseline-r1.jsonl",
+          "setup_s": 36.930301903,
+          "coefficient_bytes": 538181632,
+          "peak_rss_bytes": 2987843584,
+          "packing_ms": 11.984751,
+          "matvec_ms": 35.351539,
+          "server_ms": 49.057497999999995
+        },
+        {
+          "file": "e2e-baseline-r2.jsonl",
+          "setup_s": 38.369753622,
+          "coefficient_bytes": 538181632,
+          "peak_rss_bytes": 2920407040,
+          "packing_ms": 12.132682,
+          "matvec_ms": 35.08828,
+          "server_ms": 49.012698
+        },
+        {
+          "file": "e2e-baseline-r3.jsonl",
+          "setup_s": 36.961377894,
+          "coefficient_bytes": 538181632,
+          "peak_rss_bytes": 2924732416,
+          "packing_ms": 12.147113,
+          "matvec_ms": 34.399770000000004,
+          "server_ms": 48.357205
+        }
+      ],
+      "setup_s": {
+        "median": 36.961377894,
+        "min": 36.930301903,
+        "max": 38.369753622,
+        "values": [
+          36.930301903,
+          38.369753622,
+          36.961377894
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 538181632,
+        "min": 538181632,
+        "max": 538181632,
+        "values": [
+          538181632,
+          538181632,
+          538181632
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 2924732416,
+        "min": 2920407040,
+        "max": 2987843584,
+        "values": [
+          2987843584,
+          2920407040,
+          2924732416
+        ]
+      },
+      "packing_ms": {
+        "median": 12.132682,
+        "min": 11.984751,
+        "max": 12.147113,
+        "values": [
+          11.984751,
+          12.132682,
+          12.147113
+        ]
+      },
+      "matvec_ms": {
+        "median": 35.08828,
+        "min": 34.399770000000004,
+        "max": 35.351539,
+        "values": [
+          35.351539,
+          35.08828,
+          34.399770000000004
+        ]
+      },
+      "server_ms": {
+        "median": 49.012698,
+        "min": 48.357205,
+        "max": 49.057497999999995,
+        "values": [
+          49.057497999999995,
+          49.012698,
+          48.357205
+        ]
+      }
+    },
+    "final": {
+      "runs": [
+        {
+          "file": "e2e-final-r1.jsonl",
+          "setup_s": 18.133583915,
+          "coefficient_bytes": 471072832,
+          "peak_rss_bytes": 3549192192,
+          "packing_ms": 8.406779,
+          "matvec_ms": 35.21865,
+          "server_ms": 45.661754
+        },
+        {
+          "file": "e2e-final-r2.jsonl",
+          "setup_s": 18.377252777,
+          "coefficient_bytes": 471072832,
+          "peak_rss_bytes": 3575083008,
+          "packing_ms": 8.371962,
+          "matvec_ms": 35.468029,
+          "server_ms": 45.830422000000006
+        },
+        {
+          "file": "e2e-final-r3.jsonl",
+          "setup_s": 18.538220035,
+          "coefficient_bytes": 471072832,
+          "peak_rss_bytes": 3443879936,
+          "packing_ms": 8.457048,
+          "matvec_ms": 35.147321000000005,
+          "server_ms": 45.654301000000004
+        }
+      ],
+      "setup_s": {
+        "median": 18.377252777,
+        "min": 18.133583915,
+        "max": 18.538220035,
+        "values": [
+          18.133583915,
+          18.377252777,
+          18.538220035
+        ]
+      },
+      "coefficient_bytes": {
+        "median": 471072832,
+        "min": 471072832,
+        "max": 471072832,
+        "values": [
+          471072832,
+          471072832,
+          471072832
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 3549192192,
+        "min": 3443879936,
+        "max": 3575083008,
+        "values": [
+          3549192192,
+          3575083008,
+          3443879936
+        ]
+      },
+      "packing_ms": {
+        "median": 8.406779,
+        "min": 8.371962,
+        "max": 8.457048,
+        "values": [
+          8.406779,
+          8.371962,
+          8.457048
+        ]
+      },
+      "matvec_ms": {
+        "median": 35.21865,
+        "min": 35.147321000000005,
+        "max": 35.468029,
+        "values": [
+          35.21865,
+          35.468029,
+          35.147321000000005
+        ]
+      },
+      "server_ms": {
+        "median": 45.661754,
+        "min": 45.654301000000004,
+        "max": 45.830422000000006,
+        "values": [
+          45.661754,
+          45.830422000000006,
+          45.654301000000004
+        ]
+      }
+    }
+  },
+  "actual_inspiring": {
+    "1": {
+      "native_l3_leftover": {
+        "median": 0.7028775,
+        "min": 0.7008885,
+        "max": 0.706774,
+        "values": [
+          0.7028775,
+          0.7008885,
+          0.706774
+        ]
+      },
+      "reinspiring_odd": {
+        "median": 14.20634,
+        "min": 14.0828415,
+        "max": 14.255576,
+        "values": [
+          14.20634,
+          14.0828415,
+          14.255576
+        ]
+      },
+      "native_l3_matrix": {
+        "median": 2.500213,
+        "min": 2.4732745,
+        "max": 2.5509475,
+        "values": [
+          2.5509475,
+          2.500213,
+          2.4732745
+        ]
+      },
+      "native_l3_pack": {
+        "median": 3.3275500000000005,
+        "min": 3.2506114999999998,
+        "max": 3.6085640000000003,
+        "values": [
+          3.6085640000000003,
+          3.2506114999999998,
+          3.3275500000000005
+        ]
+      },
+      "native_l2_pack": {
+        "median": 2.0142365,
+        "min": 1.9791694999999998,
+        "max": 2.0407339999999996,
+        "values": [
+          1.9791694999999998,
+          2.0142365,
+          2.0407339999999996
+        ]
+      },
+      "inspiring_odd": {
+        "median": 10.025590000000001,
+        "min": 9.9875085,
+        "max": 10.076145499999999,
+        "values": [
+          9.9875085,
+          10.076145499999999,
+          10.025590000000001
+        ]
+      },
+      "native_l2_matrix": {
+        "median": 1.532097,
+        "min": 1.505226,
+        "max": 1.553628,
+        "values": [
+          1.505226,
+          1.553628,
+          1.532097
+        ]
+      },
+      "native_l2_leftover": {
+        "median": 0.462827,
+        "min": 0.4610865,
+        "max": 0.4631965,
+        "values": [
+          0.462827,
+          0.4610865,
+          0.4631965
+        ]
+      }
+    },
+    "8": {
+      "native_l3_leftover": {
+        "median": 0.7073,
+        "min": 0.704947,
+        "max": 0.7172419999999999,
+        "values": [
+          0.7172419999999999,
+          0.704947,
+          0.7073
+        ]
+      },
+      "reinspiring_odd": {
+        "median": 4.4434055,
+        "min": 4.368929,
+        "max": 4.5218405,
+        "values": [
+          4.4434055,
+          4.368929,
+          4.5218405
+        ]
+      },
+      "native_l3_matrix": {
+        "median": 0.6069990000000001,
+        "min": 0.6043765000000001,
+        "max": 0.618254,
+        "values": [
+          0.6069990000000001,
+          0.6043765000000001,
+          0.618254
+        ]
+      },
+      "native_l3_pack": {
+        "median": 1.360295,
+        "min": 1.3560984999999999,
+        "max": 1.3745150000000002,
+        "values": [
+          1.3745150000000002,
+          1.3560984999999999,
+          1.360295
+        ]
+      },
+      "native_l2_pack": {
+        "median": 0.921045,
+        "min": 0.9101090000000001,
+        "max": 0.9306570000000001,
+        "values": [
+          0.9101090000000001,
+          0.921045,
+          0.9306570000000001
+        ]
+      },
+      "inspiring_odd": {
+        "median": 2.343896,
+        "min": 2.326625,
+        "max": 2.3460324999999997,
+        "values": [
+          2.3460324999999997,
+          2.326625,
+          2.343896
+        ]
+      },
+      "native_l2_matrix": {
+        "median": 0.429152,
+        "min": 0.42456550000000004,
+        "max": 0.4305195,
+        "values": [
+          0.429152,
+          0.4305195,
+          0.42456550000000004
+        ]
+      },
+      "native_l2_leftover": {
+        "median": 0.467516,
+        "min": 0.46625649999999996,
+        "max": 0.4692335,
+        "values": [
+          0.467516,
+          0.46625649999999996,
+          0.4692335
+        ]
+      }
+    }
+  },
+  "exact_fixture_shapes": 4,
+  "exact_ciphertext_samples_per_variant": 120
+}

@@ -1,0 +1,35 @@
+{
+  "source_commit": "59a09f20ed153b6e16ff40953bbc1e6b188a0a07",
+  "baseline_commit": "689bcebd5335eeb14b89032c20e60c379f244d40",
+  "source_patch_sha256": "cd603d50cd98ef63519285be0e1b2e2372994b3ecf145cb6d3bf003696bb9008",
+  "host": {
+    "droplet_id": 603313135,
+    "name": "roman-reinspiring-preprocess-20260924",
+    "ip": "206.189.99.113",
+    "project": "misc (Valargroup)",
+    "region": "ams3",
+    "size": "g-8vcpu-32gb-intel",
+    "root_disk_gb": 120,
+    "cpu": "Xeon Gold 6548N",
+    "image": "Ubuntu 24.04",
+    "ssh": "Roman public key only; no private key, secret env, volume or SSH alias copied/created"
+  },
+  "validation": {
+    "linux-tests.txt": {
+      "passed": 203,
+      "failed": 0,
+      "ignored": 2
+    },
+    "linux-debug-tests.txt": {
+      "passed": 203,
+      "failed": 0,
+      "ignored": 2
+    }
+  },
+  "verified_remote_artifacts": 27,
+  "linux_additional_checks": "explicit native degree-2048, clippy, fmt, rustdoc, all-target check and both workflow bench builds passed",
+  "cleanup": {
+    "status": "deleted; absence verified",
+    "verified_at_utc": "2026-09-24T13:26:28.047078+00:00"
+  }
+}

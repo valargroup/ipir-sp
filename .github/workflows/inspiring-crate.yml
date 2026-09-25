@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/inspiring-crate.yml"
+      - "reinspiring/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "inspiring/Cargo.toml"
@@ -29,6 +30,7 @@ on:
   push:
     paths:
       - ".github/workflows/inspiring-crate.yml"
+      - "reinspiring/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "inspiring/Cargo.toml"
@@ -84,20 +86,20 @@ jobs:
             ${{ runner.os }}-cargo-rust-crates-
 
       - name: cargo fmt --check
-        run: cargo fmt -p inspiring -p ipir-sp -p simplepir-kernel -- --check
+        run: cargo fmt -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel -- --check
 
       - name: cargo doc
         # Build docs to catch broken intra-doc links early. `--no-deps` so we
         # don't try to docgen spiral-rs.
-        run: cargo doc -p inspiring -p ipir-sp -p simplepir-kernel --no-deps --all-features
+        run: cargo doc -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --no-deps --all-features
         env:
           RUSTDOCFLAGS: "-D warnings"
 
       - name: cargo clippy
-        run: cargo clippy -p inspiring -p ipir-sp -p simplepir-kernel --all-targets --all-features -- -D warnings
+        run: cargo clippy -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --all-targets --all-features -- -D warnings
 
       - name: cargo check
-        run: cargo check -p inspiring -p ipir-sp -p simplepir-kernel --all-targets --all-features
+        run: cargo check -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --all-targets --all-features
 
   tests:
     name: Tests and benches
@@ -139,7 +141,10 @@ jobs:
             ${{ runner.os }}-cargo-rust-crates-tests-
 
       - name: cargo test
-        run: cargo test -p inspiring -p ipir-sp -p simplepir-kernel --all-features --no-fail-fast
+        run: cargo test -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --all-features --no-fail-fast
+
+      - name: Native degree-2048 correctness
+        run: cargo test -p reinspiring --release --test native_flow native_paper_degree_roundtrip -- --ignored
 
       - name: cargo bench inspiring --no-run
         run: cargo bench -p inspiring --bench pack --no-run

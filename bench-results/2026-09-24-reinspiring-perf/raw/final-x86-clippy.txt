@@ -1,0 +1,30 @@
+    Checking inspiring v0.1.0-rc.1 (/root/after/inspiring)
+   Compiling zstd-safe v7.2.4
+    Checking zstd-sys v2.0.16+zstd.1.5.7
+    Checking hyper-util v0.1.20
+    Checking tower v0.5.3
+    Checking actix-router v0.5.4
+    Checking actix-server v2.6.0
+    Checking cookie v0.16.2
+    Checking tokio-native-tls v0.3.1
+   Compiling actix-web-codegen v4.3.0
+    Checking http-body-util v0.1.3
+    Checking zstd v0.13.3
+    Checking reinspiring v0.1.0 (/root/after/reinspiring)
+   Compiling actix-macros v0.2.4
+    Checking actix-http v3.11.2
+   Compiling convert_case v0.4.0
+    Checking impl-more v0.1.9
+    Checking tower-http v0.6.10
+    Checking rustls-pki-types v1.14.1
+   Compiling derive_more v0.99.20
+    Checking env_filter v1.0.1
+    Checking jiff v0.2.24
+    Checking simplepir-kernel v0.1.0-rc.1 (/root/after/simplepir-kernel)
+    Checking hyper-tls v0.6.0
+    Checking reqwest v0.12.28
+    Checking actix-web v4.11.0
+    Checking env_logger v0.11.10
+    Checking actix-cors v0.7.0
+    Checking ipir-sp v0.1.0-rc.2 (/root/after/ipir-sp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.60s

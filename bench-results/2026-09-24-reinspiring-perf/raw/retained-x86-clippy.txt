@@ -1,0 +1,5 @@
+    Checking inspiring v0.1.0-rc.1 (/root/after/inspiring)
+    Checking reinspiring v0.1.0 (/root/after/reinspiring)
+    Checking simplepir-kernel v0.1.0-rc.1 (/root/after/simplepir-kernel)
+    Checking ipir-sp v0.1.0-rc.2 (/root/after/ipir-sp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.24s

@@ -1,0 +1,83 @@
+   Compiling reinspiring v0.1.0 (/root/optimized/reinspiring)
+    Finished `release` profile [optimized] target(s) in 16.87s
+     Running unittests src/lib.rs (target/release/deps/reinspiring-c069fc3dfff24796)
+
+running 8 tests
+test native_matrix::tests::blocks_reject_malformed_and_mismatched_shapes ... ok
+test native_kernel::tests::dispatched_kernels_match_scalar_with_signs_overflow_and_tails ... ok
+test native_matrix::tests::blocks_roundtrip_and_multiply_at_storage_boundaries ... ok
+test native_kernel::tests::packed_widths_match_scalar_at_signed_bounds_and_vector_tails ... ok
+test native_kernel::tests::prepared_byte_dot_is_exact_with_carries_full_u16_chunks_and_tails ... ok
+test native_kernel::tests::interleaved_matrix_matches_independent_scalar_across_accumulator_windows ... ok
+test native::oracle_tests::python_integer_trace_matches_fft_compiled_pack ... ok
+test native::oracle_tests::mixed_width_aggregation_matches_direct_integer_definition ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/compile_unit.rs (target/release/deps/compile_unit-733d7f7094d3096a)
+
+running 9 tests
+test collapse_schedule_length ... ok
+test hstack_three_limbs ... ok
+test fast_matches_fused_on_collapse_schedule ... ok
+test naive_matrix_matches_fused ... ok
+test paper_params_q254_accepted ... ok
+test tau_identity ... ok
+test ring_fft_normalizes_rotations_when_polynomial_count_exceeds_degree ... ok
+test negacyclic_matches_schoolbook ... ok
+test pow2_matvec_matches_generic_mod ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/modswitch_d1.rs (target/release/deps/modswitch_d1-fb5df72313589f9f)
+
+running 8 tests
+test approx_div_by_d_small_error ... ok
+test approx_div_poly_length ... ok
+test center_roundtrip_range ... ok
+test ediv_bound_is_d_squared ... ok
+test even_q_params_accepted ... ok
+test lemma10_style_noise_on_random_poly ... ok
+test modulus_switch_dq_to_q ... ok
+test modulus_switch_identity_when_same ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_flow.rs (target/release/deps/native_flow-936f1f0dfe5e0f01)
+
+running 9 tests
+test native_paper_degree_roundtrip ... ignored, degree-2048 cryptographic validation; run explicitly in release
+test decomposition_reconstructs_with_documented_rounding_error ... ok
+test cached_leftover_checks_the_sum_before_combining_inverse_transforms ... ok
+test crt_matches_schoolbook_signed_and_boundary_inputs ... ok
+test compact_matrix_matches_wide_oracle_at_all_storage_and_modulus_boundaries ... ok
+test compile_fft_handles_arbitrary_odd_and_repeated_exponents ... ok
+test cached_public_lifts_match_schoolbook_and_generic_at_capacity_boundaries ... ok
+test public_dot_matches_independent_products_and_checks_aggregate_capacity ... ok
+test native_encryption_to_decryption_both_samplers_and_limb_counts ... ok
+
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/pack_equivalence.rs (target/release/deps/pack_equivalence-ae6ef476591a2bb5)
+
+running 4 tests
+test degree_two_has_only_the_final_h_switch ... ok
+test reinspiring_matches_pack_b_tiny_naive ... ok
+test reinspiring_matches_pack_b_tiny_fast ... ok
+test compile_naive_and_fast_agree ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/production_params_equivalence.rs (target/release/deps/production_params_equivalence-ba5382d82d9fb481)
+
+running 1 test
+test reinspiring_matches_pack_b_d16_56bit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests reinspiring
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

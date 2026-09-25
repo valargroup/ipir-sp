@@ -1,0 +1,18 @@
+   Compiling clap_builder v4.6.0
+   Compiling regex-automata v0.4.14
+   Compiling regex v1.12.3
+   Compiling clap v4.6.1
+   Compiling criterion v0.5.1
+   Compiling reinspiring v0.1.0 (/root/reinspiring/reinspiring)
+    Finished `release` profile [optimized] target(s) in 16.68s
+     Running tests/native_flow.rs (target/release/deps/native_flow-cc7a611ca8cf43ac)
+
+running 5 tests
+test decomposition_reconstructs_with_documented_rounding_error ... ok
+test compile_fft_handles_arbitrary_odd_and_repeated_exponents ... ok
+test crt_matches_schoolbook_signed_and_boundary_inputs ... ok
+test native_encryption_to_decryption_both_samplers_and_limb_counts ... ok
+test native_paper_degree_roundtrip ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.34s
+

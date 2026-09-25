@@ -1,0 +1,588 @@
+   Compiling cfg-if v1.0.4
+   Compiling memchr v2.8.0
+   Compiling itoa v1.0.18
+   Compiling libc v0.2.186
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.228
+   Compiling zerocopy v0.8.48
+   Compiling typenum v1.20.0
+   Compiling zmij v1.0.21
+   Compiling cpufeatures v0.2.17
+   Compiling crossbeam-utils v0.8.21
+   Compiling regex-syntax v0.8.10
+   Compiling either v1.15.0
+   Compiling aho-corasick v1.1.4
+   Compiling generic-array v0.14.7
+   Compiling crossbeam-epoch v0.9.18
+   Compiling utf8parse v0.2.2
+   Compiling anstyle-parse v1.0.0
+   Compiling crossbeam-deque v0.8.6
+   Compiling getrandom v0.2.17
+   Compiling anstyle v1.0.14
+   Compiling rayon-core v1.13.0
+   Compiling rand_core v0.6.4
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling anstyle-query v1.1.5
+   Compiling digest v0.10.7
+   Compiling colorchoice v1.0.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling subtle v2.6.1
+   Compiling anstream v1.0.0
+   Compiling sha2 v0.10.9
+   Compiling pin-project-lite v0.2.17
+   Compiling rayon v1.12.0
+   Compiling fastrand v2.4.1
+   Compiling thiserror v1.0.69
+   Compiling strsim v0.11.1
+   Compiling regex-automata v0.4.14
+   Compiling clap_lex v1.1.0
+   Compiling serde_json v1.0.149
+   Compiling serde v1.0.228
+   Compiling clap_builder v4.6.0
+   Compiling smallvec v1.15.1
+   Compiling bytes v1.11.1
+   Compiling log v0.4.29
+   Compiling ciborium-io v0.2.2
+   Compiling plotters-backend v0.3.7
+   Compiling num-traits v0.2.19
+   Compiling itertools v0.10.5
+   Compiling plotters-svg v0.3.7
+   Compiling cast v0.3.0
+   Compiling same-file v1.0.6
+   Compiling futures-core v0.3.32
+   Compiling walkdir v2.5.0
+   Compiling tinytemplate v1.2.1
+   Compiling jobserver v0.1.34
+   Compiling ppv-lite86 v0.2.21
+   Compiling regex v1.12.3
+   Compiling half v2.7.1
+   Compiling plotters v0.3.7
+   Compiling clap v4.6.1
+   Compiling is-terminal v0.4.17
+   Compiling anes v0.1.6
+   Compiling rand_chacha v0.3.1
+   Compiling ciborium-ll v0.2.2
+   Compiling ciborium v0.2.2
+   Compiling oorandom v11.1.5
+   Compiling cc v1.2.62
+   Compiling rand v0.8.6
+   Compiling criterion-plot v0.5.0
+   Compiling scopeguard v1.2.0
+   Compiling lock_api v0.4.14
+   Compiling parking_lot_core v0.9.12
+   Compiling criterion v0.5.1
+   Compiling errno v0.3.14
+   Compiling valar-spiral-rs v0.5.3-rc.1
+   Compiling signal-hook-registry v1.4.8
+   Compiling zerofrom v0.1.7
+   Compiling parking_lot v0.12.5
+   Compiling mio v1.2.0
+   Compiling socket2 v0.6.3
+   Compiling inspiring v0.1.0-rc.1 (/root/optimized/inspiring)
+   Compiling futures-sink v0.3.32
+   Compiling stable_deref_trait v1.2.1
+   Compiling yoke v0.8.2
+   Compiling tokio v1.52.3
+   Compiling zerovec v0.11.6
+   Compiling tracing-core v0.1.36
+   Compiling slab v0.4.12
+   Compiling futures-io v0.3.32
+   Compiling writeable v0.6.3
+   Compiling percent-encoding v2.3.2
+   Compiling litemap v0.8.2
+   Compiling futures-task v0.3.32
+   Compiling tracing v0.1.44
+   Compiling tinystr v0.8.3
+   Compiling fnv v1.0.7
+   Compiling potential_utf v0.1.5
+   Compiling icu_locale_core v2.2.0
+   Compiling futures-util v0.3.32
+   Compiling zerotrie v0.2.4
+   Compiling zeroize v1.8.2
+   Compiling bitflags v2.11.1
+   Compiling hashbrown v0.17.1
+   Compiling utf8_iter v1.0.4
+   Compiling equivalent v1.0.2
+   Compiling icu_collections v2.2.0
+   Compiling openssl-sys v0.9.115
+   Compiling indexmap v2.14.0
+   Compiling icu_provider v2.2.0
+   Compiling icu_normalizer_data v2.2.0
+   Compiling icu_properties_data v2.2.0
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling http v1.4.0
+   Compiling icu_properties v2.2.0
+   Compiling icu_normalizer v2.2.0
+   Compiling httparse v1.10.1
+   Compiling getrandom v0.3.4
+   Compiling http-body v1.0.1
+   Compiling reinspiring v0.1.0 (/root/optimized/reinspiring)
+   Compiling form_urlencoded v1.2.2
+   Compiling idna_adapter v1.2.2
+   Compiling base64 v0.22.1
+   Compiling alloc-no-stdlib v2.0.4
+   Compiling foreign-types-shared v0.1.1
+   Compiling local-waker v0.1.4
+   Compiling foreign-types v0.3.2
+   Compiling alloc-stdlib v0.2.2
+   Compiling openssl v0.10.79
+   Compiling idna v1.1.0
+   Compiling rand_core v0.9.5
+   Compiling http v0.2.12
+   Compiling regex-lite v0.1.9
+   Compiling atomic-waker v1.1.2
+   Compiling tokio-util v0.7.18
+   Compiling time-core v0.1.6
+   Compiling tower-service v0.3.3
+   Compiling adler2 v2.0.1
+   Compiling try-lock v0.2.5
+   Compiling powerfmt v0.2.0
+   Compiling num-conv v0.1.0
+   Compiling simd-adler32 v0.3.9
+   Compiling bytestring v1.4.0
+   Compiling time-macros v0.2.24
+   Compiling miniz_oxide v0.8.9
+   Compiling deranged v0.5.8
+   Compiling want v0.3.1
+   Compiling h2 v0.4.14
+   Compiling native-tls v0.2.18
+   Compiling actix-rt v2.11.0
+   Compiling url v2.5.8
+   Compiling rand_chacha v0.9.0
+   Compiling brotli-decompressor v5.0.0
+   Compiling crc32fast v1.5.0
+   Compiling actix-utils v3.0.1
+   Compiling futures-channel v0.3.32
+   Compiling actix-service v2.0.3
+   Compiling encoding_rs v0.8.35
+   Compiling mime v0.3.17
+   Compiling openssl-probe v0.2.1
+   Compiling ryu v1.0.23
+   Compiling serde_urlencoded v0.7.1
+   Compiling brotli v8.0.2
+   Compiling flate2 v1.1.9
+   Compiling rand v0.9.4
+   Compiling time v0.3.44
+   Compiling actix-router v0.5.4
+   Compiling derive_more v2.1.1
+   Compiling h2 v0.3.27
+   Compiling actix-codec v0.5.2
+   Compiling local-channel v0.1.5
+   Compiling sync_wrapper v1.0.2
+   Compiling sha1 v0.10.6
+   Compiling socket2 v0.5.10
+   Compiling httpdate v1.0.3
+   Compiling hyper v1.9.0
+   Compiling tower-layer v0.3.3
+   Compiling ipnet v2.12.0
+   Compiling foldhash v0.1.5
+   Compiling language-tags v0.3.2
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.20
+   Compiling tokio-native-tls v0.3.1
+   Compiling actix-server v2.6.0
+   Compiling cookie v0.16.2
+   Compiling actix-web-codegen v4.3.0
+   Compiling http-body-util v0.1.3
+   Compiling impl-more v0.1.9
+   Compiling tower-http v0.6.10
+   Compiling rustls-pki-types v1.14.1
+   Compiling env_filter v1.0.1
+   Compiling hyper-tls v0.6.0
+   Compiling jiff v0.2.24
+   Compiling reqwest v0.12.28
+   Compiling simplepir-kernel v0.1.0-rc.1 (/root/optimized/simplepir-kernel)
+   Compiling env_logger v0.11.10
+   Compiling zstd-safe v7.2.4
+   Compiling zstd v0.13.3
+   Compiling actix-http v3.11.2
+   Compiling actix-web v4.11.0
+   Compiling actix-cors v0.7.0
+   Compiling ipir-sp v0.1.0-rc.2 (/root/optimized/ipir-sp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 31.15s
+     Running unittests src/lib.rs (target/preprocessing-benchmark/debug/deps/inspiring-ec90d4625674f952)
+
+running 64 tests
+test automorph::tests::h_returns_negation_exponent ... ok
+test automorph::tests::tau_g_pow_returns_powers_mod_2d ... ok
+test automorph::tests::ntt_table_automorphism_handles_multi_polynomial_matrices ... ok
+test automorph::tests::tau_ntt_matches_tau_raw_after_round_trip ... ok
+test automorph::tests::tau_raw_applies_negacyclic_automorphism ... ok
+test automorph::tests::tau_g_power_tables_match_left_and_right_exponents ... ok
+test automorph::tests::trace_keeps_only_d_times_constant_coefficient ... ok
+test automorph::tests::ntt_table_automorphism_matches_round_trip_for_all_odd_exponents ... ok
+test collapse::tests::collapse_half_runs_one_switch_per_supplied_image ... ok
+test automorph::tests::double_ntt_automorphism_matches_independent_applications ... ok
+test collapse::tests::collapse_one_drops_one_component_and_increments_switch_count ... ok
+test intermediate::tests::scaled_tau_ntt_applies_automorphism_and_d_inverse_scaling ... ok
+test collapse::tests::collapse_runs_exactly_d_minus_one_switches ... ok
+test intermediate::tests::aggregate_panics_on_wrong_number_of_inputs - should panic ... ok
+test intermediate::tests::transform_a_hat_matches_algorithm_1_slots ... ok
+test intermediate::tests::transform_a_hat_is_independent_of_b ... ok
+test intermediate::tests::aggregate_b_tilde_is_literal_b_vector_for_transform_outputs ... ok
+test intermediate::tests::aggregate_a_hat_matches_weighted_sum_formula ... ok
+test intermediate::tests::transform_panics_on_wrong_lwe_shape - should panic ... ok
+test intermediate::tests::transform_returns_constant_b_tilde_and_d_a_hat_slots ... ok
+test key_switching::tests::ks_setup_then_ks_switch_recovers_plaintext_under_target_secret ... ok
+test key_switching::tests::automorphic_image_yields_ks_for_rotated_secret_pair ... ok
+test key_switching::tests::high_carry_key_switch_preserves_zero_phase ... ok
+test key_switching::tests::signed_gadget_invert_uses_balanced_digits_and_reconstructs ... ok
+test key_switching::tests::spiral_gadget_invert_reconstructs_each_coefficient_mod_q ... ok
+test key_switching::tests::ks_call_count_increments_once_per_ks_switch ... ok
+test lwe::tests::a_tilde_embeds_lwe_a_with_negative_exponents ... ok
+test key_switching::tests::spiral_matrix_multiply_accumulates_along_inner_dim ... ok
+test key_switching::tests::ks_switch_with_precomputed_digits_matches_full_switch ... ok
+test lwe::tests::a_tilde_panics_on_wrong_shape - should panic ... ok
+test key_switching::tests::signed_gadget_invert_retains_top_carry ... ok
+test params::tests::gadget_params_z_returns_power_of_two_base ... ok
+test lwe::tests::a_tilde_reduces_inputs_mod_q ... ok
+test lwe::tests::b_tilde_returns_constant_polynomial_reduced_mod_q ... ok
+test lwe::tests::validate_accepts_exactly_d_ciphertexts_with_d_coefficients_each ... ok
+test params::tests::mod_inverse_returns_none_when_not_coprime ... ok
+test lwe::tests::validate_rejects_wrong_ciphertext_length ... ok
+test lwe::tests::validate_rejects_wrong_batch_length ... ok
+test params::tests::new_rejects_invalid_parameters ... ok
+test params::tests::mod_inverse_returns_inverse_when_it_exists ... ok
+test params::tests::to_spiral_params_returns_matching_backing_params ... ok
+test params::tests::new_accepts_valid_parameters_and_caches_derived_values ... ok
+test preprocess::tests::accumulate_collapse_term_ell3_specialization_matches_generic ... ok
+test preprocess::tests::accumulate_collapse_term_orderings_agree ... ok
+test preprocess::tests::build_rejects_wrong_crs_shape ... ok
+test preprocess::tests::fused_accumulator_bound_gates_on_q_and_ell ... ok
+test pack::tests::pack_uses_preprocessed_a_and_online_b_values ... ok
+test preprocess::tests::build_precomputes_affine_collapse_cache ... ok
+test preprocess::tests::cached_automorphism_tables_are_permutations ... ok
+test preprocess::tests::batched_pack_rejects_mismatched_lengths ... ok
+test pack::tests::pack_runs_no_online_key_switch_products ... ok
+test preprocess::tests::permuted_body_multiply_matches_materialized_body_image ... ok
+test preprocess::tests::switch_with_permuted_body_matches_materialized_key_product ... ok
+test preprocess::tests::top_key_images_cache_matching_body_automorphism_tables ... ok
+test preprocess::tests::transpose_square_moves_every_element ... ok
+test preprocess::tests::pack_with_uploaded_key_bodies_returns_rlwe_ciphertext ... ok
+test preprocess::tests::batched_pack_matches_sequential ... ok
+test preprocess::tests::switch_with_body_matches_materialized_key_product ... ok
+test preprocess::tests::query_preprocess_stores_fixed_c1_trace ... ok
+test preprocess::tests::pack_b_prevalidated_matches_pack_b ... ok
+test preprocess::tests::build_a_agg_matches_direct_transform ... ok
+test preprocess::tests::fused_collapse_matches_stepwise_cascade ... ok
+test preprocess_reuse::tests::reused_masks_match_reference_for_boundaries_and_gadget_widths ... ok
+test preprocess_reuse::tests::reused_masks_match_reference_at_production_parameters ... ok
+
+test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.69s
+
+     Running tests/aggregate_correctness.rs (target/preprocessing-benchmark/debug/deps/aggregate_correctness-05b3016cf03f8d85)
+
+running 2 tests
+test aggregate_routes_b_values_to_matching_coefficients ... ok
+test aggregate_decrypts_to_one_encoded_message_per_slot ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/collapse_correctness.rs (target/preprocessing-benchmark/debug/deps/collapse_correctness-c641349b147d33e7)
+
+running 6 tests
+test automorphic_key_image_switches_matching_tau_g_secret_pair ... ok
+test collapse_one_with_noiseless_key_switching_preserves_plaintext ... ok
+test collapse_one_with_real_key_switching_preserves_plaintext ... ok
+test high_carry_multi_switch_collapse_preserves_zero_plaintext ... ok
+test tau_h_automorphic_key_image_switches_matching_right_half_secret_pair ... ok
+test collapse_output_decrypts_under_ternary_base_secret_to_packed_messages ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/inspiring_vs_cdks_recursion.rs (target/preprocessing-benchmark/debug/deps/inspiring_vs_cdks_recursion-4d4c00140f8a9d6d)
+
+running 3 tests
+test preprocessing_evaluates_linear_cascade_not_cdks_tree_shape ... ok
+test pack_uses_precomputed_cascade_without_online_key_switch_products ... ok
+test preprocessing_api_accepts_exactly_two_base_key_switching_matrices ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/lemma1_trace.rs (target/preprocessing-benchmark/debug/deps/lemma1_trace-2d40a52047da5c3c)
+
+running 1 test
+test trace_keeps_only_d_times_constant_for_d8_and_d16 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/noise_theorem2.rs (target/preprocessing-benchmark/debug/deps/noise_theorem2-67e616d9c703cacc)
+
+running 1 test
+test empirical_pack_noise_stays_within_decryption_margin ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/offline_online_equivalence.rs (target/preprocessing-benchmark/debug/deps/offline_online_equivalence-9166ec3c33947d0e)
+
+running 2 tests
+test online_pack_matches_all_online_execution_for_same_crs ... ok
+test online_pack_matches_all_online_execution_for_multiple_b_vectors ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/pack_roundtrip.rs (target/preprocessing-benchmark/debug/deps/pack_roundtrip-d81c34e30dcf5d48)
+
+running 1 test
+test pack_roundtrip_recovers_all_message_slots_for_many_seeds ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/parameter_validation.rs (target/preprocessing-benchmark/debug/deps/parameter_validation-3f5363544dd0c7fd)
+
+running 2 tests
+test rlwe_params_reject_invalid_shapes_and_moduli ... ok
+test lwe_batch_validation_rejects_wrong_batch_and_ciphertext_lengths ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/python_oracle_match.rs (target/preprocessing-benchmark/debug/deps/python_oracle_match-5934162286149c3b)
+
+running 1 test
+test rust_stages_match_python_oracle_fixture_for_d8_seed_42 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/skeleton_smoke.rs (target/preprocessing-benchmark/debug/deps/skeleton_smoke-58ed041e14a55e9f)
+
+running 1 test
+test public_api_surface_is_wired_up ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/transform_correctness.rs (target/preprocessing-benchmark/debug/deps/transform_correctness-d6fd3c96e61b5ac7)
+
+running 6 tests
+test embedding_helpers_match_stage_1_contract ... ok
+test a_hat_is_independent_of_b ... ok
+test params_and_batch_validation_are_enforced ... ok
+test trace_keeps_only_scaled_constant_coefficient ... ok
+test transform_matches_algorithm_1_formula ... ok
+test transform_decrypts_under_widened_secret_to_constant_message ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/preprocessing-benchmark/debug/deps/ipir_sp-8c63fde2bcd899e4)
+
+running 62 tests
+test bits::tests::write_and_read_bits_match_ypir_layout ... ok
+test bits::tests::contiguous_roundtrip_handles_non_byte_widths ... ok
+test client::tests::client_secret_reduces_coefficients_mod_q ... ok
+test client::tests::branch_free_modular_helpers_match_reference ... ok
+test client::tests::encrypted_selection_query_rejects_out_of_range_target_row - should panic ... ok
+test client::tests::encrypted_selection_query_matches_scalar_reference ... ok
+test client::tests::encrypted_selection_query_is_randomized ... ok
+test client::tests::expected_phase_error_rejects_wrong_shape_and_plaintext_range ... ok
+test client::tests::monomial_inner_product_matches_full_negacyclic_multiply ... ok
+test client::tests::generate_fresh_query_returns_full_packing_key_bodies ... ok
+test client::tests::ntt_decode_multiply_matches_scalar_negacyclic_multiply ... ok
+test client::tests::ntt_query_inner_products_match_scalar_monomial_inner_products ... ok
+test client::tests::experimental_client_rejects_inconsistent_pair ... ok
+test client::tests::sampled_ternary_secret_uses_mod_q_minus_one_for_negative_one ... ok
+test client::tests::simple_query_packed_bytes_roundtrip ... ok
+test modulus_switch::tests::query_coeff_switch_is_identity_at_full_width ... ok
+test client::tests::public_setup_pins_the_crs_expansion ... ok
+test modulus_switch::tests::query_modulus_bits_tracks_shape_and_never_exceeds_q ... ok
+test modulus_switch::tests::recover_rlwe_rows_matches_expected_quantization ... ok
+test modulus_switch::tests::rescale_matches_expected_rounding ... ok
+test modulus_switch::tests::serialize_rlwe_response_concatenates_ciphertexts ... ok
+test modulus_switch::tests::switch_and_recover_roundtrip_with_expected_quantization ... ok
+test modulus_switch::tests::switch_rlwe_ciphertext_reads_two_raw_rows ... ok
+test modulus_switch::tests::switch_rlwe_rows_uses_ypir_row_order_and_moduli ... ok
+test params::tests::p16_profiles_have_six_instances_and_33_record_capacity ... ok
+test params::tests::production_profile_rejects_bad_shapes_without_panicking ... ok
+test params::tests::production_profiles_reject_weak_and_inconsistent_parts ... ok
+test params::tests::simplepir_params_match_ypir_scenario_shape ... ok
+test params::tests::ypir_params_serialize_stably ... ok
+test sampling::tests::accepted_draws_map_to_their_top_bits_and_rejections_match_the_zone ... ok
+test sampling::tests::matches_rand_0_8_gen_range_for_pinned_seed ... ok
+test modulus_switch::tests::query_coeff_switch_roundtrips_within_the_rounding_bound ... ok
+test serialize::tests::deserialize_packing_keys_rejects_unreduced_coefficients ... ok
+test serialize::tests::deserialize_u64s_le_rejects_truncated_value ... ok
+test serialize::tests::packing_keys_roundtrip_kg_then_kh_bodies ... ok
+test serialize::tests::serialized_packing_keys_len_packs_two_body_rows_at_modulus_width ... ok
+test server::tests::crs_block_converts_to_inspiring_ntt_shape ... ok
+test sampling::tests::outputs_stay_below_bound_and_cover_small_ranges ... ok
+test server::tests::crs_blocks_match_the_hint_materialize_and_extract_route ... ok
+test server::tests::extract_crs_block_maps_hint_columns_to_crs_rows ... ok
+test server::tests::generate_hint_column_from_query_ntts_matches_scalar_column_reference ... ok
+test server::tests::generate_hint_from_query_polys_maps_single_block_to_hint_layout ... ok
+test server::tests::default_kernel_matches_scalar_kernel ... ok
+test server::tests::generate_hint_from_query_polys_matches_scalar_negacyclic_reference ... ok
+test server::tests::generate_hint_from_query_polys_sums_multiple_row_blocks ... ok
+test server::tests::ingest_orders_agree_on_the_same_matrix ... ok
+test server::tests::multiply_query_matches_plain_matrix_vector_product_mod_q ... ok
+test server::tests::offline_precompute_splits_one_block_per_rlwe_output ... ok
+test server::tests::pack_intermediate_blocks_rejects_wrong_intermediate_length ... ok
+test client::reusable::tests::same_matrix_same_secret_exposes_selector_difference ... ok
+test server::tests::pack_intermediate_blocks_routes_b_values_with_uploaded_packing_keys ... ok
+test server::tests::ingest_row_major_matches_naive_scatter ... ok
+test server::tests::perform_offline_precomputation_simplepir_generates_blocks_from_db ... ok
+test client::tests::expected_phase_error_handles_zero_and_modular_wraparound ... ok
+test server::tests::server_stores_row_major_input_as_column_major ... ok
+test server::tests::polynomial_to_ntt_roundtrips_reduced_coefficients ... ok
+test client::tests::rounding_residual_can_be_small_after_wrong_plaintext_decode ... ok
+test server::tests::perform_online_computation_simplepir_with_uploaded_packing_keys_serializes_response ... ok
+test client::tests::gaussian_secret_matches_backend_sampler_and_expected_scale ... ok
+test server::tests::production_server_rejects_rlwe_from_another_profile ... ok
+test client::tests::fresh_query_seed_replays_gaussian_secret_keys_and_query ... ok
+test client::reusable::tests::pool_slots_are_unique_bounded_and_retries_are_immutable ... ok
+
+test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+
+     Running unittests src/bin/client.rs (target/preprocessing-benchmark/debug/deps/client-0f5e76754e7135ad)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/server.rs (target/preprocessing-benchmark/debug/deps/server-3fd1c0743e4e592f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_flow.rs (target/preprocessing-benchmark/debug/deps/native_flow-34323421ab2f34b2)
+
+running 2 tests
+test immutable_server_handles_concurrent_fresh_queries ... ok
+test native_ipir_full_wire_roundtrip_and_binding_rejections ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/offline_online_flow.rs (target/preprocessing-benchmark/debug/deps/offline_online_flow-b1163dc7a3e6ea09)
+
+running 6 tests
+test mocked_db_query_decodes_exact_expected_row_bytes ... ok
+test online_response_uses_one_uploaded_packing_key_for_all_outputs ... ok
+test generated_offline_hint_feeds_preprocessing_and_online_response ... ok
+test client_keys_drive_server_online_response_serialization ... ok
+test ipir_client_facade_matches_server_full_online_shape ... ok
+test encrypted_pir_query_decodes_exact_expected_row_bytes ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/pack_backend_dual.rs (target/preprocessing-benchmark/debug/deps/pack_backend_dual-4fd6f80fbec3956c)
+
+running 2 tests
+test reinspiring_backend_matches_inspiring_on_tiny_shape ... ok
+test reinspiring_backend_matches_inspiring_on_prodlike_nonzero_crs ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/pack_correctness_vectors.rs (target/preprocessing-benchmark/debug/deps/pack_correctness_vectors-25581e95f98f5c0d)
+
+running 4 tests
+test write_fixtures_when_env_set ... ok
+test manifest_lists_committed_fixtures ... ok
+test tiny_fixture_inspiring_and_reinspiring_match_golden ... ok
+test prodlike_fixture_inspiring_and_reinspiring_match_golden ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/production_params_flow.rs (target/preprocessing-benchmark/debug/deps/production_params_flow-6cf3621c0bd814cf)
+
+running 3 tests
+test production_params_wire_sizes_shrink ... ok
+test production_params_round_trip_recovers_the_target_row ... ok
+test p16_profiles_round_trip_with_decryption_margin ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.39s
+
+     Running tests/reusable_flow.rs (target/preprocessing-benchmark/debug/deps/reusable_flow-5f2ec2026fba5950)
+
+running 1 test
+test reused_keys_recover_boundary_rows_across_sets_and_fresh_batches ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.69s
+
+     Running unittests src/lib.rs (target/preprocessing-benchmark/debug/deps/reinspiring-5f4987b70d842d3e)
+
+running 4 tests
+test native_kernel::tests::dispatched_kernels_match_scalar_with_signs_overflow_and_tails ... ok
+test native::oracle_tests::python_integer_trace_matches_fft_compiled_pack ... ok
+test native_kernel::tests::prepared_byte_dot_is_exact_with_carries_full_u16_chunks_and_tails ... ok
+test native_kernel::tests::interleaved_matrix_matches_independent_scalar_across_accumulator_windows ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running tests/compile_unit.rs (target/preprocessing-benchmark/debug/deps/compile_unit-44d300ee44ebc505)
+
+running 8 tests
+test collapse_schedule_length ... ok
+test hstack_three_limbs ... ok
+test paper_params_q254_accepted ... ok
+test tau_identity ... ok
+test fast_matches_fused_on_collapse_schedule ... ok
+test negacyclic_matches_schoolbook ... ok
+test pow2_matvec_matches_generic_mod ... ok
+test naive_matrix_matches_fused ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/modswitch_d1.rs (target/preprocessing-benchmark/debug/deps/modswitch_d1-21f38de3866ca83a)
+
+running 8 tests
+test approx_div_by_d_small_error ... ok
+test center_roundtrip_range ... ok
+test approx_div_poly_length ... ok
+test ediv_bound_is_d_squared ... ok
+test even_q_params_accepted ... ok
+test lemma10_style_noise_on_random_poly ... ok
+test modulus_switch_dq_to_q ... ok
+test modulus_switch_identity_when_same ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_flow.rs (target/preprocessing-benchmark/debug/deps/native_flow-7ff06f5cd03ecc47)
+
+running 8 tests
+test native_paper_degree_roundtrip ... ignored, degree-2048 cryptographic validation; run explicitly in release
+test decomposition_reconstructs_with_documented_rounding_error ... ok
+test compile_fft_handles_arbitrary_odd_and_repeated_exponents ... ok
+test crt_matches_schoolbook_signed_and_boundary_inputs ... ok
+test compact_matrix_matches_wide_oracle_at_all_storage_and_modulus_boundaries ... ok
+test cached_public_lifts_match_schoolbook_and_generic_at_capacity_boundaries ... ok
+test public_dot_matches_independent_products_and_checks_aggregate_capacity ... ok
+test native_encryption_to_decryption_both_samplers_and_limb_counts ... ok
+
+test result: ok. 7 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/pack_equivalence.rs (target/preprocessing-benchmark/debug/deps/pack_equivalence-322e6a786b34b969)
+
+running 4 tests
+test degree_two_has_only_the_final_h_switch ... ok
+test reinspiring_matches_pack_b_tiny_naive ... ok
+test compile_naive_and_fast_agree ... ok
+test reinspiring_matches_pack_b_tiny_fast ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/production_params_equivalence.rs (target/preprocessing-benchmark/debug/deps/production_params_equivalence-8af910c585594c60)
+
+running 1 test
+test reinspiring_matches_pack_b_d16_56bit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests inspiring
+
+running 1 test
+test inspiring/src/lib.rs - (line 7) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests ipir_sp
+
+running 1 test
+test ipir-sp/src/client.rs - client::IPIRClient::new (line 246) - compile fail ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests reinspiring
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

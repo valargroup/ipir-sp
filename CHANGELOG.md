@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Add the `reinspiring` crate with an exact odd-modulus packing adapter and an
+  experimental native power-of-two implementation, portable SIMD dispatch,
+  bounded preprocessing concurrency, and request-local packing preparation.
+- Add the opt-in `native-reinspiring` IPIR integration. Existing protocol
+  profiles and the default InspiRING backend are unchanged. Native security
+  and correlated-error certification gates are documented in
+  `reinspiring/SECURITY.md`; merging this code does not approve a production
+  cryptographic profile.
+- Raise the `ipir-sp` minimum Rust version to 1.89 because its packing adapter
+  depends on `reinspiring`, which uses stable AVX-512 intrinsics.
+- For the next crates.io release, publish `reinspiring` before `ipir-sp`;
+  `reinspiring` depends on the existing `inspiring` 0.1.0-rc.1 release.
+
 ## 0.1.0-rc.3 — 2026-09-24
 
 Third release candidate for `ipir-sp`. It uses `simplepir-kernel`

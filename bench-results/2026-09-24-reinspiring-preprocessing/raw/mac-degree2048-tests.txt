@@ -1,0 +1,9 @@
+   Compiling reinspiring v0.1.0 (/Users/roman/projects/ipir-sp-reinspiring/reinspiring)
+    Finished `release` profile [optimized] target(s) in 3.00s
+     Running tests/native_flow.rs (target/release/deps/native_flow-3278de9810c22279)
+
+running 1 test
+test native_paper_degree_roundtrip ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 3.38s
+
