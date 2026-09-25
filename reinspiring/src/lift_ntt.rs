@@ -27,11 +27,11 @@ pub struct LiftContext {
 /// Offline transforms of a public left operand. The prime count is selected
 /// from its public coefficient bound, never from a client secret.
 pub struct PreparedLiftOperand {
-    d: usize,
-    q: u64,
+    pub(crate) d: usize,
+    pub(crate) q: u64,
     // limb, prime, NTT coefficient; immutable and independent of request data.
-    transforms: Vec<Vec<Vec<u64>>>,
-    sum_fits_two: bool,
+    pub(crate) transforms: Vec<Vec<Vec<u64>>>,
+    pub(crate) sum_fits_two: bool,
 }
 
 /// Request-local NTT transforms of uploaded (public) key bodies. Reusable

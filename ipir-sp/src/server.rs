@@ -305,6 +305,24 @@ where
         Ok(out)
     }
 
+    /// Evaluate an experimental power-of-two modulus without using NTT parameters.
+    pub fn try_multiply_power_of_two(
+        &self,
+        q: u64,
+        query: &[u64],
+    ) -> Result<Vec<u64>, KernelError> {
+        let mut out = vec![0; self.db_cols()];
+        self.kernel.try_multiply_power_of_two(
+            q,
+            &self.db,
+            self.db_rows_padded(),
+            self.db_cols(),
+            query,
+            &mut out,
+        )?;
+        Ok(out)
+    }
+
     /// Generate YPIR's `hint_0` from supplied offline query polynomials.
     ///
     /// This is the scalar, single-CRT analogue of YPIR's

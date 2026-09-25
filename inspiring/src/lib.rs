@@ -74,6 +74,7 @@ pub mod key_switching;
 pub mod lwe;
 pub mod pack;
 pub mod params;
+pub mod prepared;
 pub mod preprocess;
 
 pub use error::InspiringError;

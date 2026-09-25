@@ -22,6 +22,7 @@ pub mod native_kernel;
 pub mod native_matrix;
 pub mod pack;
 pub mod params;
+pub mod prepared_native;
 pub mod preprocess;
 
 pub use error::ReinspiringError;

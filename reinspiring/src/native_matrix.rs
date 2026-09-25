@@ -4,18 +4,21 @@ use rayon::prelude::*;
 
 const PACKED_TILE_ROWS: usize = 8;
 
-enum Words {
-    Narrow(Vec<i32>),
-    Packed { bits: usize, data: Vec<u8> },
-    Wide(Vec<i64>),
+pub(crate) enum Words {
+    Narrow(crate::prepared_native::Storage<i32>),
+    Packed {
+        bits: usize,
+        data: crate::prepared_native::Storage<u8>,
+    },
+    Wide(crate::prepared_native::Storage<i64>),
 }
 
 /// Validated row-major matrix with private dimensions and canonical storage.
 pub struct NativeMatrix {
-    rows: usize,
-    cols: usize,
-    q: u64,
-    words: Words,
+    pub(crate) rows: usize,
+    pub(crate) cols: usize,
+    pub(crate) q: u64,
+    pub(crate) words: Words,
 }
 impl NativeMatrix {
     /// Convert a compiled matrix, choosing native signed words by its actual bound.
@@ -96,7 +99,10 @@ impl NativeMatrix {
                         }
                     }
                 });
-            Words::Packed { bits, data: out }
+            Words::Packed {
+                bits,
+                data: out.into(),
+            }
         } else if narrow {
             let mut out = vec![0i32; count];
             out.par_chunks_mut(cols).enumerate().for_each(|(r, row)| {
@@ -111,7 +117,7 @@ impl NativeMatrix {
                     start += block.cols;
                 }
             });
-            Words::Narrow(out)
+            Words::Narrow(out.into())
         } else {
             let mut out = vec![0i64; count];
             out.par_chunks_mut(cols).enumerate().for_each(|(r, row)| {
@@ -126,7 +132,7 @@ impl NativeMatrix {
                     start += block.cols;
                 }
             });
-            Words::Wide(out)
+            Words::Wide(out.into())
         };
         Ok(Self {
             rows,

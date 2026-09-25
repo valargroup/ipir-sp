@@ -1,6 +1,6 @@
 [package]
 name = "simplepir-kernel"
-version = "0.1.0-rc.2"
+version = "0.1.0-rc.3"
 edition = "2021"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
@@ -8,7 +8,7 @@ description = "Backend-agnostic SimplePIR first-dimension kernels."
 repository = "https://github.com/valargroup/ipir-sp"
 
 [dependencies]
-inspiring = { path = "../inspiring", version = "=0.1.0-rc.1" }
+inspiring = { path = "../inspiring", version = "=0.1.0-rc.2" }
 rayon = "1.10"
 spiral-rs = { workspace = true }
 
