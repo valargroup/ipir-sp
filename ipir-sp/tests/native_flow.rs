@@ -349,7 +349,13 @@ fn rounded_public_masks_preserve_bytes_and_reject_mismatches() {
     for bits in 27..=32 {
         let pack = NativeParams::new(8, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
         let base = NativeProfile::new(pack, 16, 24).unwrap();
-        assert!(base.clone().with_published_mask_bits(bits).is_err());
+        // One-mask publication accepts lossless 54 and rounded 28..=32 only.
+        assert_eq!(
+            base.clone().with_published_mask_bits(bits).is_ok(),
+            bits >= 28
+        );
+        assert!(base.clone().with_published_mask_bits(54).is_ok());
+        assert!(base.clone().with_published_mask_bits(27).is_err());
         let p = base
             .with_two_mask_output()
             .unwrap()

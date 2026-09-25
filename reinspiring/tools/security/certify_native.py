@@ -105,10 +105,27 @@ def evaluate(report):
     validate_native_sampler(report)
     if report.get('format') in ('native-noise-two-mask-v1','native-noise-two-mask-rounded-v1'):
         return evaluate_two_mask(report)
-    if report['format'] != 'native-noise-v1':
+    rounded = report['format'] == 'native-noise-rounded-v1'
+    if report['format'] != 'native-noise-v1' and not rounded:
         raise ValueError('unknown report format')
     d, qb, pb = (int(report[k]) for k in ('d', 'q_bits', 'p_bits'))
     cols = int(report['cols'])
+    mask_bits = int(report.get('published_mask_bits', 64))
+    if rounded:
+        # One-mask rounded publication: 54 is lossless bit-packing, 28..32 is
+        # modulus switching. The block weights must equal the selected screen.
+        if mask_bits != 54 and mask_bits not in range(28, 33):
+            raise ValueError('invalid one-mask public precision')
+        if report.get('published_bytes') != 36 + (cols*mask_bits+7)//8:
+            raise ValueError('public-mask byte count mismatch')
+        for block in report['blocks']:
+            screens = block.get('public_mask_screens', [])
+            if sorted(v['bits'] for v in screens) != list(range(24, 33)):
+                raise ValueError('incomplete one-mask precision screens')
+            if mask_bits != 54 and next(v['weights'] for v in screens if v['bits'] == mask_bits) != block['weights']:
+                raise ValueError('rounded mask weights/precision mismatch')
+    elif mask_bits != 64:
+        raise ValueError('legacy report with nonlegacy mask precision')
     if (d,qb,pb) != (2048,54,16) or cols <= 0 or cols % d or len(report['blocks']) != cols//d:
         raise ValueError('unsupported profile or incomplete block coverage')
     if report['query_bits'] != 49 or report['response_bits'] != 22:
@@ -144,9 +161,12 @@ def evaluate(report):
     # Other precisions change setup identity and therefore the actual mask trace.
     # These sweep results are counterfactual screening; rerun native_noise at the
     # selected precision before calling it a certificate for that profile.
-    return {'format':'native-certificate-v1','setup_id':report['setup_id'],
+    actual = dict(next(v for v in compression if v['kh_bits']==report['kh_bits']))
+    if rounded:
+        actual.update(published_mask_bits=mask_bits, published_bytes=report['published_bytes'])
+    return {'format':'native-certificate-rounded-v1' if rounded else 'native-certificate-v1','setup_id':report['setup_id'],
             'database_sha256':report['database_sha256'],'sampler_sha256':validate_native_sampler(report),'actual_kh_bits':report['kh_bits'],
-            'actual_profile':next(v for v in compression if v['kh_bits']==report['kh_bits']),
+            'actual_profile':actual,
             'compression_screen':compression,'one_limb_screen':one_limb,
             'smallest_screened_bits_78':next((v['kh_bits'] for v in compression if v['meets_78']),None),
             'smallest_screened_bits_128':next((v['kh_bits'] for v in compression if v['meets_128']),None)}
@@ -155,7 +175,8 @@ def evaluate(report):
 def evaluate_two_mask(report):
     rounded = report['format'] == 'native-noise-two-mask-rounded-v1'
     mask_bits = report.get('published_mask_bits',64)
-    if (rounded and mask_bits not in range(27,33)) or (not rounded and mask_bits!=64):
+    # 54 is lossless bit-packing: same weights as exact publication.
+    if (rounded and mask_bits != 54 and mask_bits not in range(27,33)) or (not rounded and mask_bits!=64):
         raise ValueError('invalid public-mask precision or format')
     d, qb, pb = (int(report[k]) for k in ('d', 'q_bits', 'p_bits'))
     cols, rows = int(report['cols']), int(report['rows'])
@@ -175,7 +196,7 @@ def evaluate_two_mask(report):
             raise ValueError('invalid two-mask block')
         if rounded:
             screens=block.get('public_mask_screens',[])
-            if sorted(v['bits'] for v in screens)!=list(range(27,33)) or next(v['weights'] for v in screens if v['bits']==mask_bits)!=block['weights']:
+            if sorted(v['bits'] for v in screens)!=list(range(27,33)) or (mask_bits!=54 and next(v['weights'] for v in screens if v['bits']==mask_bits)!=block['weights']):
                 raise ValueError('rounded mask weights/precision mismatch')
         deterministic = support*d*d + query_l1*16 + (1 << 31)
         max_deterministic = max(max_deterministic, deterministic)

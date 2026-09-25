@@ -114,6 +114,12 @@ screen unequal gadgets and per-limb wire precisions. Their outputs are research
 screens, not accepted runtime profiles or production certificates. See
 [upload investigation](../bench-results/2026-09-25-upload-search/README.md).
 
+The same rounded RNP3 encoding also applies to the existing one-mask route:
+`with_published_mask_bits(54)` bit-packs the single mask losslessly (221,220 B
+for the full-size fixture) and `28..=32` modulus-switches it (114,724 B at 28
+bits, certified at 2^-161 on the recorded snapshot). Request and response bytes
+are unchanged. See [one-mask evidence](../bench-results/2026-09-25-one-mask-rounded/README.md).
+
 For the experimental route with no additional snapshot download, select
 `with_two_mask_output()?.with_published_mask_bits(29)?` on `NativeProfile`.
 The recorded benchmark certifies this precision, but each application snapshot

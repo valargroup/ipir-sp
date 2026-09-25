@@ -199,7 +199,9 @@ online client generation. Legacy decoding remains an independent reference.
 ## Rounded two-mask publication (experimental)
 
 `NativeProfile::with_published_mask_bits(t)` selects 27..=32 bits for q=2^54
-and two-mask mode; 64 restores legacy exact publication. Nonlegacy precision
+and two-mask mode, or 28..=32 bits in one-mask mode; 54 selects lossless
+bit-packing in either mode and 64 restores legacy exact publication. In one-mask
+mode RNP3 carries only the first-mask coefficients. Nonlegacy precision
 is included in setup derivation under `/rounded-public-masks-v1/`. Request and
 response layouts retain RNQ3/RNR2, with the new setup ID providing profile binding.
 

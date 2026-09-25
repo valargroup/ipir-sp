@@ -175,6 +175,7 @@ fn envelope(kg: &PackingMatrix, secret: &PackingMatrix, kh: &[Vec<u64>]) -> Weig
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn analyze(
     kg: &PackingMatrix,
     mut residues: Vec<Vec<u64>>,
@@ -183,6 +184,7 @@ pub(crate) fn analyze(
     last_digits: &[Vec<u64>],
     bits: u32,
     dropped: u32,
+    published_mask: &[u64],
 ) -> Result<NativeNoiseAnalysis, ReinspiringError> {
     let d = kg.rows;
     let q = kg.q;
@@ -205,6 +207,22 @@ pub(crate) fn analyze(
     let secret = compile_fast(&residues, &exps, q)?;
     let weights = envelope(kg, &secret, last_digits);
     let kh_l1 = WeightNorms::measure(last_digits.iter().flatten().map(|&x| centered(x, q))).l1;
+    // One-mask public transport screens: rounding the single published mask
+    // adds (rounded(a) - a) * s under exponent 1, on the same secret variables.
+    let mut public_mask_screens = Vec::new();
+    for b in 24..=32.min(q.trailing_zeros()) {
+        let step = 1u64 << (q.trailing_zeros() - b);
+        let delta: Vec<u64> = published_mask
+            .iter()
+            .map(|&x| (((x + step / 2) / step * step) & (q - 1)).wrapping_sub(x) & (q - 1))
+            .collect();
+        let correction = compile_fast(&[delta], &[1], q)?;
+        let mut combined = secret.clone();
+        for (s, &e) in combined.data.iter_mut().zip(&correction.data) {
+            *s = s.wrapping_add(e) & (q - 1);
+        }
+        public_mask_screens.push((b, envelope(kg, &combined, last_digits)));
+    }
     let mut one_limb = Vec::new();
     let mid = q.trailing_zeros() / 2;
     for b in mid.saturating_sub(2).max(1)..=(mid + 2).min(q.trailing_zeros() - 1) {
@@ -232,7 +250,7 @@ pub(crate) fn analyze(
         kg_limbs,
         collapse_secret,
         final_mask: last_mask.to_vec(),
-        public_mask_screens: Vec::new(),
+        public_mask_screens,
     })
 }
 

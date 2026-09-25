@@ -76,17 +76,22 @@ impl NativeProfile {
         if self.kh_bits != self.pack.q().trailing_zeros() as usize {
             return Err(err("two-mask mode has no K_h precision"));
         }
+        if !matches!(self.published_mask_bits, 64 | 54 | 27..=32) {
+            return Err(err("two-mask mode requires 27..=32 or lossless mask bits"));
+        }
         self.two_mask = true;
         Ok(self)
     }
     /// Experimental two-mask transport at 27..=32 bits per coefficient.
     /// 64 selects the legacy exact u64 encoding. Requires a snapshot certificate.
     pub fn with_published_mask_bits(mut self, bits: usize) -> Result<Self, ReinspiringError> {
-        if bits != 64
-            && (!self.two_mask || self.pack.q() != 1u64 << 54 || !(27..=32).contains(&bits))
-        {
+        // 54 is lossless bit-packing. Lower values modulus-switch public data;
+        // the floors are the smallest precisions certified on the recorded
+        // full-size snapshot (28 one-mask, 27 two-mask screen). Both need q = 2^54.
+        let range = if self.two_mask { 27..=32 } else { 28..=32 };
+        if bits != 64 && (self.pack.q() != 1u64 << 54 || (bits != 54 && !range.contains(&bits))) {
             return Err(err(
-                "rounded public masks require native q54 two-mask mode and 27..=32 bits",
+                "rounded public masks require native q54 and 54 or 28..=32 (27..=32 two-mask) bits",
             ));
         }
         self.published_mask_bits = bits;
@@ -668,7 +673,8 @@ impl NativeServer {
                         } else {
                             NativePreprocessed::build_analyzed(&setup.packing, &masks)?
                         };
-                        if p.published_mask_bits != 64 {
+                        // 54 is lossless: the analysis weights already apply.
+                        if p.published_mask_bits != 64 && p.published_mask_bits != 54 {
                             packing.weights = packing
                                 .public_mask_screens
                                 .iter()

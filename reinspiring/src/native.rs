@@ -946,6 +946,7 @@ impl NativePreprocessed {
                     last,
                     p.bits,
                     p.dropped,
+                    &a,
                 )?
             } else {
                 crate::noise::analyze_two_mask(
