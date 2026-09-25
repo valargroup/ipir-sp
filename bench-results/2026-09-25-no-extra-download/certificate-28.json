@@ -1,0 +1,15 @@
+{
+  "format": "native-certificate-two-mask-rounded-v1",
+  "setup_id": "9b0b540e88a6d587310c152798593c787ee7b368ce1592792057b8cfc8529e6c",
+  "database_sha256": "162c0bdf663538a868c826e60be7b0ed9ecb96efe0db95e0378ae7810ad783ee",
+  "actual_profile": {
+    "key_bytes": 27648,
+    "certified_failure_bits": 82,
+    "meets_78": true,
+    "meets_128": false,
+    "max_deterministic_error": "17660566160",
+    "published_mask_bits": 28,
+    "published_bytes": 229412,
+    "no_extra_download": true
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "29": {
+    "environment": {
+      "mask_bits": 29,
+      "exit_code": 0,
+      "compiler_overlap_samples": 12,
+      "polls": 39,
+      "initial_compiler_quiet": true
+    },
+    "setups": [
+      {
+        "coeff_bytes": 538181632,
+        "decode_coeff_bytes": 524288,
+        "kind": "setup",
+        "mask_bits": 64,
+        "offline_s": 13.717703417,
+        "prepare_ms": 2.235917,
+        "published_bytes": 262180,
+        "two_mask": false
+      },
+      {
+        "coeff_bytes": 537395200,
+        "decode_coeff_bytes": 1048576,
+        "kind": "setup",
+        "mask_bits": 29,
+        "offline_s": 15.904001208,
+        "prepare_ms": 3.603417,
+        "published_bytes": 237604,
+        "two_mask": true
+      }
+    ],
+    "baseline": {
+      "samples": 30,
+      "median_ms": {
+        "client_ms": 23.354478999999998,
+        "server_ms": 31.216103500000003,
+        "decode_ms": 0.22283350000000002,
+        "packing_ms": 4.468333
+      },
+      "mean_server_ms": 32.22892486666667,
+      "max_phase_error": 14354664781,
+      "upload_bytes": 230948,
+      "response_bytes": 90180
+    },
+    "two_mask": {
+      "samples": 30,
+      "median_ms": {
+        "client_ms": 21.5950415,
+        "server_ms": 30.897708,
+        "decode_ms": 0.226229,
+        "packing_ms": 3.707896
+      },
+      "mean_server_ms": 33.381668033333334,
+      "max_phase_error": 23957864448,
+      "upload_bytes": 203300,
+      "response_bytes": 90180
+    },
+    "ratios": {
+      "client_generation": 0.9246638085996267,
+      "client_decode": 1.0152378345266757,
+      "server_throughput": 0.9654677781375217
+    }
+  },
+  "32": {
+    "environment": {
+      "mask_bits": 32,
+      "exit_code": 0,
+      "compiler_overlap_samples": 17,
+      "polls": 42,
+      "initial_compiler_quiet": true
+    },
+    "setups": [
+      {
+        "coeff_bytes": 538181632,
+        "decode_coeff_bytes": 524288,
+        "kind": "setup",
+        "mask_bits": 64,
+        "offline_s": 15.561193416,
+        "prepare_ms": 2.143917,
+        "published_bytes": 262180,
+        "two_mask": false
+      },
+      {
+        "coeff_bytes": 537395200,
+        "decode_coeff_bytes": 1048576,
+        "kind": "setup",
+        "mask_bits": 32,
+        "offline_s": 17.215282542,
+        "prepare_ms": 4.0575,
+        "published_bytes": 262180,
+        "two_mask": true
+      }
+    ],
+    "baseline": {
+      "samples": 30,
+      "median_ms": {
+        "client_ms": 24.6945415,
+        "server_ms": 34.460437,
+        "decode_ms": 0.238708,
+        "packing_ms": 4.934396
+      },
+      "mean_server_ms": 36.42665,
+      "max_phase_error": 14354664781,
+      "upload_bytes": 230948,
+      "response_bytes": 90180
+    },
+    "two_mask": {
+      "samples": 30,
+      "median_ms": {
+        "client_ms": 23.1783755,
+        "server_ms": 34.194271,
+        "decode_ms": 0.2368755,
+        "packing_ms": 4.2811665
+      },
+      "mean_server_ms": 34.354069433333336,
+      "max_phase_error": 15665725440,
+      "upload_bytes": 203300,
+      "response_bytes": 90180
+    },
+    "ratios": {
+      "client_generation": 0.9386031929363824,
+      "client_decode": 0.9923232568661293,
+      "server_throughput": 1.0603299871268137
+    }
+  }
+}

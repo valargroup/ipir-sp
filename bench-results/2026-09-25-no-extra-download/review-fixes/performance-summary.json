@@ -1,0 +1,58 @@
+{
+  "32": {
+    "baseline": {
+      "samples": 30,
+      "median_ms": {
+        "client_ms": 23.934312000000002,
+        "server_ms": 31.9223335,
+        "decode_ms": 0.23193750000000002
+      },
+      "mean_server_ms": 32.7581611,
+      "max_phase_error": 14354664781
+    },
+    "two_mask": {
+      "samples": 30,
+      "median_ms": {
+        "client_ms": 22.5502085,
+        "server_ms": 30.4810005,
+        "decode_ms": 0.234271
+      },
+      "mean_server_ms": 31.804337633333333,
+      "max_phase_error": 15665725440
+    },
+    "ratios": {
+      "generation": 0.9421707421546104,
+      "decode": 1.010060900026947,
+      "throughput": 1.0299903578456227
+    },
+    "gate": "unverified: uncontrolled shared host; smoke test only"
+  },
+  "29": {
+    "baseline": {
+      "samples": 30,
+      "median_ms": {
+        "client_ms": 41.657729,
+        "server_ms": 76.1758125,
+        "decode_ms": 0.3788125
+      },
+      "mean_server_ms": 98.16707633333334,
+      "max_phase_error": 14354664781
+    },
+    "two_mask": {
+      "samples": 30,
+      "median_ms": {
+        "client_ms": 42.654895999999994,
+        "server_ms": 67.5090415,
+        "decode_ms": 0.364417
+      },
+      "mean_server_ms": 92.12193343333334,
+      "max_phase_error": 23957864448
+    },
+    "ratios": {
+      "generation": 1.0239371426128387,
+      "decode": 0.961998350107243,
+      "throughput": 1.0656211031911824
+    },
+    "gate": "unverified: uncontrolled shared host; smoke test only"
+  }
+}

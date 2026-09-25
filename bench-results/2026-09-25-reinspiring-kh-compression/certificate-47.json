@@ -1,0 +1,180 @@
+{
+  "format": "native-certificate-v1",
+  "setup_id": "3fef922f351f995d665f08d14b55bdd69784566410673c8e6a604fb7c812162d",
+  "database_sha256": "162c0bdf663538a868c826e60be7b0ed9ecb96efe0db95e0378ae7810ad783ee",
+  "actual_kh_bits": 47,
+  "actual_profile": {
+    "kh_bits": 47,
+    "key_bytes": 51712,
+    "certified_failure_bits": 260,
+    "meets_78": true,
+    "meets_128": true,
+    "max_deterministic_error": "52668506160"
+  },
+  "compression_screen": [
+    {
+      "kh_bits": 40,
+      "key_bytes": 48128,
+      "certified_failure_bits": null,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "4501199325616"
+    },
+    {
+      "kh_bits": 41,
+      "key_bytes": 48640,
+      "certified_failure_bits": null,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "2259420015024"
+    },
+    {
+      "kh_bits": 42,
+      "key_bytes": 49152,
+      "certified_failure_bits": null,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "1138530359728"
+    },
+    {
+      "kh_bits": 43,
+      "key_bytes": 49664,
+      "certified_failure_bits": null,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "578085532080"
+    },
+    {
+      "kh_bits": 44,
+      "key_bytes": 50176,
+      "certified_failure_bits": null,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "297863118256"
+    },
+    {
+      "kh_bits": 45,
+      "key_bytes": 50688,
+      "certified_failure_bits": null,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "157751911344"
+    },
+    {
+      "kh_bits": 46,
+      "key_bytes": 51200,
+      "certified_failure_bits": 108,
+      "meets_78": true,
+      "meets_128": false,
+      "max_deterministic_error": "87696307888"
+    },
+    {
+      "kh_bits": 47,
+      "key_bytes": 51712,
+      "certified_failure_bits": 260,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "52668506160"
+    },
+    {
+      "kh_bits": 48,
+      "key_bytes": 52224,
+      "certified_failure_bits": 336,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "35154605296"
+    },
+    {
+      "kh_bits": 49,
+      "key_bytes": 52736,
+      "certified_failure_bits": 373,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "26397654864"
+    },
+    {
+      "kh_bits": 50,
+      "key_bytes": 53248,
+      "certified_failure_bits": 392,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "22019179648"
+    },
+    {
+      "kh_bits": 51,
+      "key_bytes": 53760,
+      "certified_failure_bits": 402,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "19831211540"
+    },
+    {
+      "kh_bits": 52,
+      "key_bytes": 54272,
+      "certified_failure_bits": 407,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "18745888850"
+    },
+    {
+      "kh_bits": 53,
+      "key_bytes": 54784,
+      "certified_failure_bits": 409,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "18203227505"
+    },
+    {
+      "kh_bits": 54,
+      "key_bytes": 55296,
+      "certified_failure_bits": 411,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "17660566160"
+    }
+  ],
+  "one_limb_screen": [
+    {
+      "digit_bits": 25,
+      "discarded_bits": 29,
+      "certified_failure_bits": 0,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "17660566160"
+    },
+    {
+      "digit_bits": 26,
+      "discarded_bits": 28,
+      "certified_failure_bits": 0,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "17660566160"
+    },
+    {
+      "digit_bits": 27,
+      "discarded_bits": 27,
+      "certified_failure_bits": 18,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "17660566160"
+    },
+    {
+      "digit_bits": 28,
+      "discarded_bits": 26,
+      "certified_failure_bits": 0,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "17660566160"
+    },
+    {
+      "digit_bits": 29,
+      "discarded_bits": 25,
+      "certified_failure_bits": 0,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "17660566160"
+    }
+  ],
+  "smallest_screened_bits_78": 46,
+  "smallest_screened_bits_128": 47
+}

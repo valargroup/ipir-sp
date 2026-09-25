@@ -128,9 +128,26 @@ min(log2 p+6, log2 q). Keys use full log2 q bits; published c1 uses full u64 wor
 All bit packing reuses IPIR-SP's existing contiguous encoder, and parsers reject
 wrong lengths and noncanonical padding before accepting payloads.
 
+An explicit experimental `NativeProfile::with_kh_bits(t)` option retains full
+precision K_g and rounds K_h bodies to t bits before transmission. It uses
+nearest rounding (ties upward), modular wraparound and left-shift reconstruction.
+Compressed precisions are 40 through log2(q)-1; full precision preserves the
+original profile and encoding. The option implies no correctness or production
+approval and changes neither gadget nor sampler. Ciphertext precision is
+distinct from gadget digit width.
+
 - RNQ1: 4-byte version, 32-byte setup ID, fixed-length kg/kh bodies, query words.
+- RNQ2: 4-byte version, 32-byte precision-bound setup ID, separately bit-packed
+  full-precision kg, t-bit kh, then query words. Each segment has canonical zero
+  padding. Precision is locally configured, never parsed from the request.
 - RNR1: 4-byte version, 32-byte setup ID, SHA-256 of the request bytes, body words.
 - RNP1: 4-byte version, 32-byte setup ID, column-count full-precision c1 words.
+- RNQ3: distinct two-mask setup ID, full-precision K_g body only, then query words.
+- RNR2: two-mask response body with the same coefficient count as RNR1.
+- RNP2: two full-precision public masks per output block. The client decodes
+  each body under `s` and `τ_-1(s)`.
+- RNMAP002: two-mask prepared artifact; it stores both masks and no leftover
+  K_h transforms.
 
 Dimensions and profile are locally known, not read from attacker-controlled
 length fields. Setup/request digests prevent accidental mix-ups and stale
@@ -165,3 +182,51 @@ must be labeled separately. Full-paper PIR throughput is not IPIR-SP throughput.
 
 See SECURITY.md for the threat model and unclosed production approval gates,
 and the benchmark report for concrete measurements and reproducibility records.
+
+## Prepared decoding
+
+Native prepared decoding does not change any wire encoding or ciphertext.
+Cache each published mask under two auxiliary NTT primes after proving capacity
+for the entire integer sum with the public finite sampler support. Transform the
+fresh secret once; `tau_-1` is reversal of its bit-reversed odd-root evaluation
+array. For each output block, multiply and sum the one or two mask terms before
+inverse NTT and signed CRT, then reduce modulo q. Request-local products may be
+computed before the response arrives; they are secret state, never public cache.
+Snapshot preparation, request preparation, and response decoding are distinct
+costs and must be reported separately, with request preparation included in
+online client generation. Legacy decoding remains an independent reference.
+
+## Rounded two-mask publication (experimental)
+
+`NativeProfile::with_published_mask_bits(t)` selects 27..=32 bits for q=2^54
+and two-mask mode; 64 restores legacy exact publication. Nonlegacy precision
+is included in setup derivation under `/rounded-public-masks-v1/`. Request and
+response layouts retain RNQ3/RNR2, with the new setup ID providing profile binding.
+
+RNP3 is `magic[4] || setup_id[32] || packed_mask_words`. The words contain all
+first-mask coefficients followed by all second-mask coefficients, in block order,
+using the existing contiguous little-endian bit codec at the setup's precision.
+Unused high bits must be zero. Precision and counts come from the local setup;
+there are no attacker-controlled length fields. Public masks round to nearest,
+ties upward, modulo q, and reconstruct by shifting left by 54-t. Both in-memory
+server publication and parsed publication contain the same reconstructed masks.
+Legacy RNP1/RNP2 remain unchanged. Canonical lengths and setup/mode/precision
+mismatches are rejected before use. The server's compiled packing uses the
+original public masks; only client publication/decryption uses the rounded ones.
+
+### Frozen native sampler and scratch lifecycle
+
+The native Gaussian profile uses the 131 integer thresholds in
+`src/native_gaussian_cdf.txt`, indexed from -65 through 65. Sampling delegates
+to the pinned Spiral inclusive fixed scan, including its zero fallback. The
+unused variable-time weighted sampler is not used by the native implementation.
+This fixes the distribution across builds and platforms without changing the
+existing fixture's values or native profile encoding. A different table requires
+a different profile encoding. Reports export the table's SHA-256 over little-endian
+u64 thresholds; acceptance verifies all output multiplicities against that table.
+
+Prepared decoding guards raw/NTT scratch and residue buffers with erasure on
+scope exit. Its inverse NTT operates in the guarded one-prime allocation,
+avoiding Spiral's thread-local scratch. Request assembly preallocates the final
+state and erases each intermediate product after copying; errors erase partial
+state. This contract concerns heap allocations owned by this path.

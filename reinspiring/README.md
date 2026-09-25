@@ -20,6 +20,23 @@ integration permits Gaussian secrets only and requires `native-reinspiring`.
 It does not replace any existing production profile or the default backend.
 See [SECURITY.md](SECURITY.md) for assumptions, bounds and release gates.
 
+Experimental final-key transport compression is available through
+`NativeProfile::with_kh_bits(t)` in IPIR-SP. It retains the existing gadget and
+full-precision K_g. For the recorded full-size p16 benchmark snapshot, 46-bit
+K_h meets the historical 2^-78 research target but fails the current 2^-128
+acceptance target; 47-bit K_h meets that current target. These are snapshot-specific
+results, not production approval. See the [measurement report](../bench-results/2026-09-25-reinspiring-kh-compression/README.md)
+and [certificate argument](tools/security/NATIVE_CERTIFICATE.md).
+
+An opt-in IPIR-SP native two-mask mode stops after the two `K_g` collapse
+chains. It uploads only `K_g`, publishes both pre-final masks for each response
+block, and decrypts the single response body under `s` and `τ_-1(s)`. Use
+`NativeProfile::with_two_mask_output()`; its `RNQ3`/`RNR2`/`RNP2` wire formats
+and `RNMAP002` prepared artifact are mode-specific. It is experimental and is
+not a standard one-mask RLWE ciphertext. `native_noise --two-mask` exports its
+snapshot-specific noise weights for `certify_native.py`; `native_e2e` selects
+the mode with a final `kh_bits` argument of `0`.
+
 The native path implements the ring FFT compiler, the integer-lift transform,
 public-mask key-switch trace, compact signed matrix storage, scalar/AVX2/AVX-512
 dot products, and an exact NTT/CRT remainder. Public leftover transforms are
@@ -80,3 +97,39 @@ The scope is ring packing and its IPIR-SP integration, not the full ReinsPIRe,
 ReinsPIRe+ or vReinsPIRe PIR constructions.
 
 MIT OR Apache-2.0.
+
+### Prepared client decoding
+
+The native integration exposes `NativePublished::prepare(setup)` to cache public
+mask transforms and `NativeRequest::prepare_decode(&prepared)` to compute fresh
+request-local mask products. Call request preparation before sending the query;
+include its cost in client generation. `decode_prepared` then validates response
+bindings and decodes with those products. It also works without request
+preparation, computing products on demand. Both one-mask and two-mask modes use
+the same path. Cached public transforms belong to a snapshot; secret-dependent
+products belong to one request and are zeroized on drop.
+
+The offline `native_gadget_search` example and `tools/security/search_upload.py`
+screen unequal gadgets and per-limb wire precisions. Their outputs are research
+screens, not accepted runtime profiles or production certificates. See
+[upload investigation](../bench-results/2026-09-25-upload-search/README.md).
+
+For the experimental route with no additional snapshot download, select
+`with_two_mask_output()?.with_published_mask_bits(29)?` on `NativeProfile`.
+The recorded benchmark certifies this precision, but each application snapshot
+requires its own certificate before use. At 29 bits, published masks are smaller
+than the current single-mask u64 encoding, and key upload is halved. See
+[validation and exact byte counts](../bench-results/2026-09-25-no-extra-download/README.md).
+
+### Native review fixes (2026-09-25)
+
+Prepared decoding now erases intermediate secret matrices and product vectors,
+including error/unwind paths, and avoids the backend's unwiped thread-local
+inverse-transform scratch. Native Gaussian secret/error sampling now uses a
+frozen integer CDF identical to the recorded fixtures; setup and wire encodings
+are unchanged. Certificates check the exact distribution and include its digest.
+Future sampler changes require a new profile identity and new certificates.
+The certificate CLI defaults to 128 failure bits; pass `--require-bits 78` only
+for an explicitly intended historical research check. The saved 28-bit route
+now fails the default command. Runtime snapshot admission and independent
+native KDM approval remain separate production requirements.

@@ -1,0 +1,142 @@
+{
+  "54": {
+    "setup": {
+      "backend": "native",
+      "coeff_bytes": 538181632,
+      "cols": 32768,
+      "concurrency": 1,
+      "ell": 2,
+      "kh_bits": 54,
+      "kind": "setup",
+      "offline_s": 17.914140584,
+      "pbits": 16,
+      "published_bytes": 262180,
+      "rows": 28672,
+      "threads": 8
+    },
+    "samples": 30,
+    "all_correct": true,
+    "max_phase_error": 15957899846,
+    "upload_bytes": 230948,
+    "download_bytes": 90180,
+    "median_ms": {
+      "client_ms": 26.287938,
+      "server_ms": 38.499,
+      "packing_ms": 5.348229,
+      "decode_ms": 16.725020999999998
+    },
+    "certificate": {
+      "kh_bits": 54,
+      "key_bytes": 55296,
+      "certified_failure_bits": 405,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "17660566160"
+    }
+  },
+  "48": {
+    "setup": {
+      "backend": "native",
+      "coeff_bytes": 538181632,
+      "cols": 32768,
+      "concurrency": 1,
+      "ell": 2,
+      "kh_bits": 48,
+      "kind": "setup",
+      "offline_s": 22.24898875,
+      "pbits": 16,
+      "published_bytes": 262180,
+      "rows": 28672,
+      "threads": 8
+    },
+    "samples": 30,
+    "all_correct": true,
+    "max_phase_error": 15025229622,
+    "upload_bytes": 227876,
+    "download_bytes": 90180,
+    "median_ms": {
+      "client_ms": 22.1812915,
+      "server_ms": 31.4952915,
+      "packing_ms": 4.5281460000000004,
+      "decode_ms": 14.039521
+    },
+    "certificate": {
+      "kh_bits": 48,
+      "key_bytes": 52224,
+      "certified_failure_bits": 345,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "35081641440"
+    }
+  },
+  "47": {
+    "setup": {
+      "backend": "native",
+      "coeff_bytes": 538181632,
+      "cols": 32768,
+      "concurrency": 1,
+      "ell": 2,
+      "kh_bits": 47,
+      "kind": "setup",
+      "offline_s": 16.605674333,
+      "pbits": 16,
+      "published_bytes": 262180,
+      "rows": 28672,
+      "threads": 8
+    },
+    "samples": 30,
+    "all_correct": true,
+    "max_phase_error": 14016809915,
+    "upload_bytes": 227364,
+    "download_bytes": 90180,
+    "median_ms": {
+      "client_ms": 22.042854000000002,
+      "server_ms": 30.684521,
+      "packing_ms": 4.311187500000001,
+      "decode_ms": 14.087938000000001
+    },
+    "certificate": {
+      "kh_bits": 47,
+      "key_bytes": 51712,
+      "certified_failure_bits": 260,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "52668506160"
+    }
+  },
+  "46": {
+    "setup": {
+      "backend": "native",
+      "coeff_bytes": 538181632,
+      "cols": 32768,
+      "concurrency": 1,
+      "ell": 2,
+      "kh_bits": 46,
+      "kind": "setup",
+      "offline_s": 17.439382541,
+      "pbits": 16,
+      "published_bytes": 262180,
+      "rows": 28672,
+      "threads": 8
+    },
+    "samples": 30,
+    "all_correct": true,
+    "max_phase_error": 15903743898,
+    "upload_bytes": 226852,
+    "download_bytes": 90180,
+    "median_ms": {
+      "client_ms": 31.998312499999997,
+      "server_ms": 47.640833,
+      "packing_ms": 6.6907084999999995,
+      "decode_ms": 20.302750000000003
+    },
+    "certificate": {
+      "kh_bits": 46,
+      "key_bytes": 51200,
+      "certified_failure_bits": 112,
+      "meets_78": true,
+      "meets_128": false,
+      "max_deterministic_error": "87291043520"
+    }
+  }
+}

@@ -25,7 +25,11 @@ primes. Cached public operands may use two only when their product exceeds
 Prime selection depends only on public preprocessing, never on a client secret. CRT reconstruction and
 coefficient conversions have not received a constant-time machine-code audit;
 local timing/cache adversaries are excluded from the current claim. The Gaussian
-sampler uses the dependency's fixed CDF scan, not its variable-time fast sampler.
+sampler uses the dependency's fixed CDF scan with the frozen integer table in
+`src/native_gaussian_cdf.txt`, not its variable-time fast sampler. Native secret
+and error draws share that table. The certificate checker verifies its exact
+multiplicities and records its SHA-256; floating-point table generation no longer
+affects native sampling. Changing the table requires a new profile identity.
 Ternary rejection sampling is confined to the explicitly labeled research profile.
 
 ## Noise accounting
@@ -61,6 +65,22 @@ response-body rounding is <=q/2^(response_bits+1). p divides q in native profile
 so there is no q mod p encoding residual. Tests report centered distance from the
 known encoded row and compare decoded rows exactly. Historical InspiRING snapshot
 certificates do not cover these native schedules.
+
+An opt-in public-weight analysis and exact-rational finite-sampler certificate
+now cover the recorded p16 benchmark snapshots, including reduced-precision
+K_h transport. See [the argument and reproduction instructions](tools/security/NATIVE_CERTIFICATE.md)
+and [retained results](../bench-results/2026-09-25-reinspiring-kh-compression/README.md).
+These conditional calculations are not an independent cryptographic review or
+a certificate for another application snapshot. They do not approve the native
+KDM composition for production.
+
+The opt-in two-mask mode uses only K_g and retains the pre-final masks under
+`s` and `τ_-1(s)`. The client adds both mask products before decoding. Its
+noise exporter omits the final K_h error and residue and binds the mode into a
+distinct setup identifier. The certificate checker accepts a separate
+`native-noise-two-mask-v1` report. This mode still requires an independent
+native KDM/RLWE review and a certificate for each served snapshot; the
+recorded one-mask certificates do not transfer to it.
 
 ## Concrete lattice diagnostics
 
@@ -136,3 +156,66 @@ request or block identity. A distributed dispatcher must enforce those bindings;
 it must not treat a matching setup ID as a matching request. The integrated
 server keeps these objects local to a single validated request and preserves
 its existing request-hash response binding.
+
+## Prepared client decoding and upload search
+
+The prepared decoder changes only exact client arithmetic. It caches public mask
+transforms and computes `a*s + a_other*tau_-1(s)` as one integer sum before CRT.
+For Gaussian secrets the public support is read from the same sampler's
+`max_val`; ternary uses 1. Prime selection depends on that support and public
+masks, not observed secret coefficients. Two primes are used only when their
+product strictly exceeds twice `d * support * sum(max_abs(mask))`. The decoder
+rejects insufficient capacity. The conjugate transform reverses Spiral's
+bit-reversed evaluation array; tests compare it with coefficient-domain
+conjugation through degree 2048 and at support/modulus boundaries.
+
+Request preparation computes these products before receipt of the response.
+They remain secret-dependent, request-local state and are zeroized on drop;
+retained secret transforms and temporary matrix/vector allocations are also
+zeroized. Borrowed matrix guards cover return and unwinding; inverse transforms
+run in guarded storage rather than copying into the dependency's thread-local
+scratch. Per-block products are erased after copying into the final protected
+state, which also erases partial results on error. This is heap-buffer hygiene,
+not a claim to erase CPU registers, stack spills, or operating-system copies.
+These products must never be published or
+reused with another request. The integrated API validates setup/profile and
+response/request bindings, and binds cached products to a digest of the actual
+published masks. This digest is a consistency check, not authentication.
+All request preparation is online client work, charged to generation in the
+comparison benchmark. The one-mask comparator gets the same optimizations.
+The existing exclusion of local timing/cache attackers still applies.
+
+The gadget search is counterfactual and does not enable new runtime gadgets.
+It uses per-limb K_g row-norm envelopes and the combined collapse-secret matrix.
+For a candidate final gadget, the secret family is combined using triangle
+inequalities (including an upward integer square-root bound on the L2 cross
+term), never by assuming independent reuse of the secret. Transport residuals
+are budgeted deterministically. Failure on the first block under this bound
+rejects certification by this screen; it is not a lower bound on actual failure
+probability. Passing a screen would still require all blocks, regeneration for
+an executable bound setup, and independent review.
+
+Omitting K_h releases a subset of the original uploaded key material. For a
+passive server, the extra published masks are public preprocessing and the
+response is computed from its existing view. Under the same public-mask
+experiment, a distinguisher for this view can be applied to the original view
+with K_h discarded. Therefore the original full-key generic lattice diagnostics
+are conservative for this omission; no improved security-bit claim is made.
+Likewise deterministic rounding of an existing upload is public postprocessing.
+Neither observation resolves the native profile's underlying KDM assumptions,
+nor justifies unrelated gadget changes. Production review gates remain in force.
+
+## Rounded public-mask validation
+
+The RNP3 two-mask publication rounds public preprocessing, not secret key material.
+It introduces no new secrecy assumption beyond the underlying passive-server
+native profile: the server can already compute these masks from its view. It
+does introduce decoding error. The certificate exporter combines both public
+rounding-error operators with the existing matrix on the same original secret
+coefficients. It does not assume independence between those terms. See the
+[certificate argument](tools/security/NATIVE_CERTIFICATE.md) and
+[no-extra-download evidence](../bench-results/2026-09-25-no-extra-download/README.md).
+The native production review and per-snapshot correctness requirements continue
+to apply; the rounded transport is opt-in and does not enforce a certificate at
+runtime. Decode-state mask digests bind the actual encoded public masks as well
+as the profile, preventing reuse of products prepared from different masks.

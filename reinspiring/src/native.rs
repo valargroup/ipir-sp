@@ -3,6 +3,7 @@
 //! This is an experimental cryptographic profile: Gaussian and ternary secret
 //! configurations are distinct. Neither inherits the security claims of the
 //! odd-modulus InspiRING profile. Ciphertext convention is b + a*s = Delta*m+e.
+use crate::native_gaussian::gaussian;
 use crate::{
     compile::{collapse_kg_exponents, compile_fast, tau_coeffs},
     error::ReinspiringError,
@@ -16,7 +17,6 @@ use rand_chacha::{
 };
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
-use spiral_rs::discrete_gaussian::DiscreteGaussian;
 use std::time::{Duration, Instant};
 
 /// Separate sampler identifiers; these are cryptographic profile properties.
@@ -193,6 +193,117 @@ impl NativeSetup {
     }
 }
 
+/// Public transforms for decoding a snapshot under one or two masks.
+/// Preparation is independent of request secrets. Retain per snapshot.
+pub struct NativeDecoder {
+    params: NativeParams,
+    lift: LiftContext,
+    masks: Vec<PreparedLiftOperand>,
+    two_mask: bool,
+}
+impl NativeDecoder {
+    /// Prepare canonical public masks. The second family must have identical shape.
+    pub fn new(
+        params: &NativeParams,
+        masks: &[Vec<u64>],
+        others: Option<&[Vec<u64>]>,
+    ) -> Result<Self, ReinspiringError> {
+        if masks.is_empty() || others.is_some_and(|x| x.len() != masks.len()) {
+            return Err(invalid("decoder mask shape mismatch"));
+        }
+        let support = match params.sampler {
+            SecretDistribution::Gaussian => gaussian().max_val() as u64,
+            SecretDistribution::TernaryResearch => 1,
+        };
+        let lift = LiftContext::new(params.d, params.q)?;
+        let prepared = masks
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let mut pair = vec![a.clone()];
+                if let Some(other) = others {
+                    pair.push(other[i].clone());
+                }
+                lift.prepare_decode_masks(&pair, support)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self {
+            params: params.clone(),
+            lift,
+            masks: prepared,
+            two_mask: others.is_some(),
+        })
+    }
+    /// Retained coefficient bytes, excluding context tables and allocator overhead.
+    pub fn coefficient_bytes(&self) -> usize {
+        self.masks
+            .iter()
+            .map(PreparedLiftOperand::storage_bytes)
+            .sum()
+    }
+    /// Compute response-independent mask products for a fresh request.
+    /// Charge this work to client request generation when benchmarking.
+    pub fn prepare_request(
+        &self,
+        secret: &NativeSecret,
+    ) -> Result<NativeDecodingState, ReinspiringError> {
+        if secret.params != self.params {
+            return Err(invalid("decoder secret profile mismatch"));
+        }
+        let right = self
+            .lift
+            .prepare_decode_secret(&secret.coeffs, self.two_mask)?;
+        let mut state = NativeDecodingState {
+            params: self.params.clone(),
+            products: Vec::with_capacity(self.masks.len() * self.params.d),
+        };
+        for mask in &self.masks {
+            let product = zeroize::Zeroizing::new(self.lift.sum_cached(mask, &right)?);
+            state.products.extend_from_slice(&product);
+        }
+        Ok(state)
+    }
+
+    /// Decode all bodies, transforming the fresh secret once for the entire response.
+    pub fn decrypt(
+        &self,
+        secret: &NativeSecret,
+        bodies: &[u64],
+    ) -> Result<Vec<u64>, ReinspiringError> {
+        self.prepare_request(secret)?.decrypt(bodies)
+    }
+}
+
+/// Request-local secret-dependent mask products, erased on drop.
+/// Must only be used with responses for the request and public masks that created it.
+pub struct NativeDecodingState {
+    params: NativeParams,
+    products: Vec<u64>,
+}
+impl Drop for NativeDecodingState {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.products.zeroize();
+    }
+}
+impl NativeDecodingState {
+    /// Decode canonical bodies with the precomputed request-local mask products.
+    pub fn decrypt(&self, bodies: &[u64]) -> Result<Vec<u64>, ReinspiringError> {
+        if bodies.len() != self.products.len() || bodies.iter().any(|&x| x >= self.params.q) {
+            return Err(invalid("decoder body shape or range mismatch"));
+        }
+        let delta = self.params.q / self.params.p;
+        Ok(self
+            .products
+            .iter()
+            .zip(bodies)
+            .map(|(&x, &y)| {
+                ((((x + y) & (self.params.q - 1)) + delta / 2) / delta) & (self.params.p - 1)
+            })
+            .collect())
+    }
+}
+
 /// Secret coefficients have no Debug/Clone or serialization implementation.
 pub struct NativeSecret {
     params: NativeParams,
@@ -207,7 +318,7 @@ impl Drop for NativeSecret {
 impl NativeSecret {
     /// Sample a fresh secret from a cryptographic RNG; caller must seed it securely.
     pub fn sample(params: &NativeParams, rng: &mut ChaCha20Rng) -> Self {
-        let dg = DiscreteGaussian::init(6.4 * std::f64::consts::TAU.sqrt());
+        let dg = gaussian();
         let coeffs = (0..params.d)
             .map(|_| match params.sampler {
                 SecretDistribution::Gaussian => dg.sample(params.q, rng),
@@ -245,7 +356,7 @@ impl NativeSecret {
             .zip(&self.coeffs)
             .fold(0u64, |s, (&a, &b)| s.wrapping_add(a.wrapping_mul(b)))
             & (q - 1);
-        let e = DiscreteGaussian::init(6.4 * std::f64::consts::TAU.sqrt()).sample(q, rng);
+        let e = gaussian().sample(q, rng);
         Ok((m
             .wrapping_mul(q / self.params.p)
             .wrapping_add(e)
@@ -264,7 +375,7 @@ impl NativeSecret {
             return Err(invalid("selection out of range"));
         }
         let lift = LiftContext::new(p.d, p.q)?;
-        let dg = DiscreteGaussian::init(6.4 * std::f64::consts::TAU.sqrt());
+        let dg = gaussian();
         let mut out = Vec::with_capacity(polys.len() * p.d);
         for (block, poly) in polys.iter().enumerate() {
             validate_poly(poly, p)?;
@@ -285,6 +396,53 @@ impl NativeSecret {
             .into_iter()
             .map(|x| ((x + delta / 2) / delta) & (self.params.p - 1))
             .collect())
+    }
+    /// Decode a pre-final ciphertext under s and tau_-1(s).
+    pub fn decrypt_two_mask(
+        &self,
+        ct: &NativeTwoMaskCiphertext,
+    ) -> Result<Vec<u64>, ReinspiringError> {
+        let phase = self.phase_two_mask(ct)?;
+        let delta = self.params.q / self.params.p;
+        Ok(phase
+            .into_iter()
+            .map(|x| ((x + delta / 2) / delta) & (self.params.p - 1))
+            .collect())
+    }
+    fn phase_two_mask(&self, ct: &NativeTwoMaskCiphertext) -> Result<Vec<u64>, ReinspiringError> {
+        if ct.params != self.params {
+            return Err(invalid("ciphertext profile mismatch"));
+        }
+        let lift = LiftContext::new(self.params.d, self.params.q)?;
+        let first = lift.multiply(&ct.a, &self.coeffs)?;
+        let conjugate = tau_coeffs(&self.coeffs, 2 * self.params.d as u64 - 1, self.params.q);
+        let second = lift.multiply(&ct.a_other, &conjugate)?;
+        Ok((0..self.params.d)
+            .map(|i| (ct.b[i] + first[i] + second[i]) & (self.params.q - 1))
+            .collect())
+    }
+    /// Maximum centered pre-final phase error.
+    pub fn phase_error_two_mask(
+        &self,
+        ct: &NativeTwoMaskCiphertext,
+        expected: &[u64],
+    ) -> Result<u64, ReinspiringError> {
+        if expected.len() != self.params.d || expected.iter().any(|&m| m >= self.params.p) {
+            return Err(invalid("invalid expected plaintext"));
+        }
+        Ok(self
+            .phase_two_mask(ct)?
+            .iter()
+            .zip(expected)
+            .map(|(&x, &m)| {
+                centered(
+                    x.wrapping_sub(m * (self.params.q / self.params.p)) & (self.params.q - 1),
+                    self.params.q,
+                )
+                .unsigned_abs() as u64
+            })
+            .max()
+            .unwrap_or(0))
     }
     fn phase(&self, ct: &NativeCiphertext) -> Result<Vec<u64>, ReinspiringError> {
         if ct.params != self.params {
@@ -335,12 +493,20 @@ impl NativeKeys {
         secret: &NativeSecret,
         rng: &mut ChaCha20Rng,
     ) -> Result<Self, ReinspiringError> {
+        Self::generate_internal(setup, secret, rng, false)
+    }
+    fn generate_internal(
+        setup: &NativeSetup,
+        secret: &NativeSecret,
+        rng: &mut ChaCha20Rng,
+        one_key: bool,
+    ) -> Result<Self, ReinspiringError> {
         let p = &setup.params;
         if secret.params != *p {
             return Err(invalid("key profile mismatch"));
         }
         let lift = LiftContext::new(p.d, p.q)?;
-        let dg = DiscreteGaussian::init(6.4 * std::f64::consts::TAU.sqrt());
+        let dg = gaussian();
         let mut bodies = |mask: &[Vec<u64>], g: u64| -> Result<Vec<Vec<u64>>, ReinspiringError> {
             let from = tau_coeffs(&secret.coeffs, g, p.q);
             mask.iter()
@@ -362,7 +528,35 @@ impl NativeKeys {
         Ok(Self {
             id: setup.id,
             kg: bodies(&setup.w, 5 % (2 * p.d as u64))?,
-            kh: bodies(&setup.v, 2 * p.d as u64 - 1)?,
+            kh: if one_key {
+                Vec::new()
+            } else {
+                bodies(&setup.v, 2 * p.d as u64 - 1)?
+            },
+        })
+    }
+    /// Generate only the key used by both collapse chains.
+    pub fn generate_one_key(
+        setup: &NativeSetup,
+        secret: &NativeSecret,
+        rng: &mut ChaCha20Rng,
+    ) -> Result<Self, ReinspiringError> {
+        Self::generate_internal(setup, secret, rng, true)
+    }
+    /// Canonical K_g body words.
+    pub fn kg_words(&self) -> Vec<u64> {
+        self.kg.iter().flatten().copied().collect()
+    }
+    /// Parse one canonical K_g body without K_h.
+    pub fn from_kg_words(setup: &NativeSetup, words: &[u64]) -> Result<Self, ReinspiringError> {
+        let p = &setup.params;
+        if words.len() != p.ell * p.d || words.iter().any(|&x| x >= p.q) {
+            return Err(invalid("malformed native K_g"));
+        }
+        Ok(Self {
+            id: setup.id,
+            kg: words.chunks_exact(p.d).map(|x| x.to_vec()).collect(),
+            kh: Vec::new(),
         })
     }
     /// Canonical body words, in kg then kh limb order.
@@ -411,13 +605,45 @@ impl NativeCiphertext {
     }
 }
 
+/// One body with two public masks under s and tau_-1(s).
+pub struct NativeTwoMaskCiphertext {
+    params: NativeParams,
+    a: Vec<u64>,
+    a_other: Vec<u64>,
+    b: Vec<u64>,
+}
+impl NativeTwoMaskCiphertext {
+    /// Return both public masks and the response body.
+    pub fn rows(&self) -> (&[u64], &[u64], &[u64]) {
+        (&self.a, &self.a_other, &self.b)
+    }
+    /// Construct a bounded two-mask ciphertext under an explicit profile.
+    pub fn from_rows(
+        params: &NativeParams,
+        a: Vec<u64>,
+        a_other: Vec<u64>,
+        b: Vec<u64>,
+    ) -> Result<Self, ReinspiringError> {
+        validate_poly(&a, params)?;
+        validate_poly(&a_other, params)?;
+        validate_poly(&b, params)?;
+        Ok(Self {
+            params: params.clone(),
+            a,
+            a_other,
+            b,
+        })
+    }
+}
+
 /// Immutable public preprocessing. Online data cannot alter its mask trace.
 pub struct NativePreprocessed {
     pub(crate) params: NativeParams,
     pub(crate) id: [u8; 32],
     pub(crate) a: Vec<u64>,
+    pub(crate) a_other: Option<Vec<u64>>,
     pub(crate) h: NativeMatrix,
-    pub(crate) leftover: PreparedLiftOperand,
+    pub(crate) leftover: Option<PreparedLiftOperand>,
     pub(crate) lift: LiftContext,
 }
 
@@ -440,7 +666,7 @@ pub struct NativeBuildTiming {
 pub struct PreparedNativeKeys {
     id: [u8; 32],
     y: Vec<u64>,
-    kh: PreparedLiftRight,
+    kh: Option<PreparedLiftRight>,
 }
 
 /// Packing work that can finish before the database scan. The borrowed block
@@ -453,26 +679,58 @@ pub struct PendingNativePack<'a> {
 impl PendingNativePack<'_> {
     /// Add the matching scan result and return the final ciphertext.
     pub fn finish(mut self, b: &[u64]) -> Result<NativeCiphertext, ReinspiringError> {
+        if self.pre.a_other.is_some() {
+            return Err(invalid("two-mask preprocessing requires finish_two_mask"));
+        }
         validate_poly(b, &self.pre.params)?;
         for (dst, &x) in self.body.iter_mut().zip(b) {
             *dst = (*dst + x) & (self.pre.params.q - 1);
         }
         NativeCiphertext::from_rows(&self.pre.params, self.pre.a.clone(), self.body)
     }
+    /// Add the scan body and retain both pre-final masks.
+    pub fn finish_two_mask(
+        mut self,
+        b: &[u64],
+    ) -> Result<NativeTwoMaskCiphertext, ReinspiringError> {
+        validate_poly(b, &self.pre.params)?;
+        let other = self
+            .pre
+            .a_other
+            .as_ref()
+            .ok_or_else(|| invalid("one-mask preprocessing"))?;
+        for (dst, &x) in self.body.iter_mut().zip(b) {
+            *dst = (*dst + x) & (self.pre.params.q - 1);
+        }
+        NativeTwoMaskCiphertext::from_rows(
+            &self.pre.params,
+            self.pre.a.clone(),
+            other.clone(),
+            self.body,
+        )
+    }
 }
 impl NativePreprocessed {
     /// Prepare uploaded key bodies once for all blocks from this setup.
     pub fn prepare_keys(&self, keys: &NativeKeys) -> Result<PreparedNativeKeys, ReinspiringError> {
-        if keys.id != self.id {
+        if keys.id != self.id
+            || keys.kg.len() != self.params.ell
+            || (self.a_other.is_some() && !keys.kh.is_empty())
+            || (self.a_other.is_none() && keys.kh.len() != self.params.ell)
+        {
             return Err(invalid("packing setup mismatch"));
         }
         Ok(PreparedNativeKeys {
             id: keys.id,
             y: keys.kg.iter().flatten().copied().collect(),
-            kh: self.lift.prepare_bounded_right(
-                &keys.kh,
-                (1u64 << (self.params.bits - 1)).min(self.params.q / 2),
-            )?,
+            kh: if self.a_other.is_some() {
+                None
+            } else {
+                Some(self.lift.prepare_bounded_right(
+                    &keys.kh,
+                    (1u64 << (self.params.bits - 1)).min(self.params.q / 2),
+                )?)
+            },
         })
     }
 
@@ -485,15 +743,32 @@ impl NativePreprocessed {
             return Err(invalid("prepared packing setup mismatch"));
         }
         let mut body = self.h.multiply(&keys.y)?;
-        let leftover = self.lift.sum_cached(&self.leftover, &keys.kh)?;
-        for (dst, x) in body.iter_mut().zip(leftover) {
-            *dst = (*dst + x) & (self.params.q - 1);
+        if let (Some(leftover), Some(kh)) = (&self.leftover, &keys.kh) {
+            let product = self.lift.sum_cached(leftover, kh)?;
+            for (dst, x) in body.iter_mut().zip(product) {
+                *dst = (*dst + x) & (self.params.q - 1);
+            }
         }
         Ok(PendingNativePack { pre: self, body })
     }
     /// Compile a d-by-d LWE mask matrix using D.2 aggregation and D.1 rounding.
     pub fn build(setup: &NativeSetup, masks: &[Vec<u64>]) -> Result<Self, ReinspiringError> {
         Self::build_timed(setup, masks).map(|(pre, _)| pre)
+    }
+    /// Compile public masks through the two independent K_g collapse chains.
+    pub fn build_two_mask(
+        setup: &NativeSetup,
+        masks: &[Vec<u64>],
+    ) -> Result<Self, ReinspiringError> {
+        Self::build_internal(setup, masks, false, true, None).map(|(pre, _, _)| pre)
+    }
+    /// Compile the two-mask mode and collect its original-sample noise weights.
+    pub fn build_two_mask_analyzed(
+        setup: &NativeSetup,
+        masks: &[Vec<u64>],
+    ) -> Result<(Self, crate::noise::NativeNoiseAnalysis), ReinspiringError> {
+        Self::build_internal(setup, masks, true, true, None)
+            .map(|(pre, _, analysis)| (pre, analysis.unwrap()))
     }
     /// Build ordered independent packing blocks with bounded scratch concurrency.
     /// The caller retains the input masks; at most `concurrent_blocks` builds
@@ -519,6 +794,43 @@ impl NativePreprocessed {
         setup: &NativeSetup,
         masks: &[Vec<u64>],
     ) -> Result<(Self, NativeBuildTiming), ReinspiringError> {
+        Self::build_internal(setup, masks, false, false, None).map(|(pre, timing, _)| (pre, timing))
+    }
+    /// Compile with public noise accounting, including one-limb counterfactuals.
+    /// This costs additional offline work and does not certify correctness itself.
+    pub fn build_analyzed(
+        setup: &NativeSetup,
+        masks: &[Vec<u64>],
+    ) -> Result<(Self, crate::noise::NativeNoiseAnalysis), ReinspiringError> {
+        Self::build_internal(setup, masks, true, false, None)
+            .map(|(pre, _, analysis)| (pre, analysis.unwrap()))
+    }
+    /// Counterfactual analysis only: recompile K_g using two unequal widths.
+    /// No executable preprocessing or key format escapes this research entry point.
+    pub fn screen_gadget(
+        setup: &NativeSetup,
+        masks: &[Vec<u64>],
+        widths: [u32; 2],
+    ) -> Result<crate::noise::NativeNoiseAnalysis, ReinspiringError> {
+        if setup.params.ell != 2 || widths.iter().any(|&x| !(16..=22).contains(&x)) {
+            return Err(invalid("unsupported research collapse gadget"));
+        }
+        Self::build_internal(setup, masks, true, false, Some(widths)).map(|(_, _, a)| a.unwrap())
+    }
+    fn build_internal(
+        setup: &NativeSetup,
+        masks: &[Vec<u64>],
+        analyze: bool,
+        two_mask: bool,
+        research_widths: Option<[u32; 2]>,
+    ) -> Result<
+        (
+            Self,
+            NativeBuildTiming,
+            Option<crate::noise::NativeNoiseAnalysis>,
+        ),
+        ReinspiringError,
+    > {
         let total_start = Instant::now();
         let p = &setup.params;
         let d = p.d;
@@ -548,14 +860,30 @@ impl NativePreprocessed {
             g = g * 5 % (2 * d);
         }
         let exponents = collapse_kg_exponents(d);
-        let public_w = lift.prepare_public_dot(&setup.w, (1u64 << (p.bits - 1)).min(q / 2))?;
-        let public_v = lift.prepare_public_dot(&setup.v, (1u64 << (p.bits - 1)).min(q / 2))?;
-        let trace_half = |half: &mut [Vec<u64>],
-                          exps: &[u64]|
-         -> Result<Vec<Vec<Vec<u64>>>, ReinspiringError> {
+        let widest = research_widths.map_or(p.bits, |w| *w.iter().max().unwrap());
+        let public_w = lift.prepare_public_dot(&setup.w, (1u64 << (widest - 1)).min(q / 2))?;
+        let public_v = if two_mask {
+            None
+        } else {
+            Some(lift.prepare_public_dot(&setup.v, (1u64 << (p.bits - 1)).min(q / 2))?)
+        };
+        let trace_half = |half: &mut [Vec<u64>], exps: &[u64]| -> Result<_, ReinspiringError> {
             let mut digits = Vec::with_capacity(half.len() - 1);
+            let mut residues = Vec::new();
             for (step, idx) in (1..half.len()).rev().enumerate() {
-                let ds = decompose(&half[idx], p)?;
+                let ds = if let Some(widths) = research_widths {
+                    let (ds, residue) = crate::noise::mixed_digits(&half[idx], &widths, q)?;
+                    residues.push(residue);
+                    ds
+                } else {
+                    let ds = decompose(&half[idx], p)?;
+                    if analyze {
+                        residues.push(crate::noise::residual(
+                            &half[idx], &ds, p.bits, p.dropped, q,
+                        ));
+                    }
+                    ds
+                };
                 // ds * tau(w) = tau(tau^-1(ds) * w). Only the public
                 // digits change per step; w's auxiliary transforms are reused.
                 let inverse =
@@ -567,7 +895,7 @@ impl NativePreprocessed {
                 }
                 digits.push(ds);
             }
-            Ok(digits)
+            Ok((digits, residues))
         };
         // The two collapse chains are independent until the final K_h step.
         let (left, right) = slots.split_at_mut(d / 2);
@@ -575,15 +903,25 @@ impl NativePreprocessed {
             || trace_half(left, &exponents[..d / 2 - 1]),
             || trace_half(right, &exponents[d / 2 - 1..]),
         );
-        let mut digits = left_digits?;
-        digits.extend(right_digits?);
-        let last = decompose(&slots[d / 2], p)?;
-        let update = lift.public_dot(&public_v, &last)?;
-        let a = slots[0]
-            .iter()
-            .zip(update)
-            .map(|(&a, x)| (a + x) & (q - 1))
-            .collect();
+        let (mut digits, mut residues) = left_digits?;
+        let (right_digits, right_residues) = right_digits?;
+        digits.extend(right_digits);
+        residues.extend(right_residues);
+        let last = if two_mask {
+            None
+        } else {
+            Some(decompose(&slots[d / 2], p)?)
+        };
+        let a = if let Some(last) = &last {
+            let update = lift.public_dot(public_v.as_ref().unwrap(), last)?;
+            slots[0]
+                .iter()
+                .zip(update)
+                .map(|(&a, x)| (a + x) & (q - 1))
+                .collect()
+        } else {
+            slots[0].clone()
+        };
         let trace = trace_start.elapsed();
         let compilation_start = Instant::now();
         let blocks: Result<Vec<_>, _> = (0..p.ell)
@@ -598,12 +936,43 @@ impl NativePreprocessed {
             })
             .collect();
         let h = NativeMatrix::from_blocks(blocks?)?;
+        let analysis = if analyze {
+            Some(if let Some(last) = &last {
+                crate::noise::analyze(
+                    &h.to_compiled(),
+                    residues,
+                    &exponents,
+                    &slots[d / 2],
+                    last,
+                    p.bits,
+                    p.dropped,
+                )?
+            } else {
+                crate::noise::analyze_two_mask(
+                    &h.to_compiled(),
+                    residues,
+                    &exponents,
+                    [&slots[0], &slots[d / 2]],
+                )?
+            })
+        } else {
+            None
+        };
         let pre = Self {
             params: p.clone(),
             id: setup.id,
             a,
+            a_other: if two_mask {
+                Some(slots[d / 2].clone())
+            } else {
+                None
+            },
             h,
-            leftover: lift.prepare_public(&last)?,
+            leftover: if let Some(last) = &last {
+                Some(lift.prepare_public(last)?)
+            } else {
+                None
+            },
             lift,
         };
         Ok((
@@ -614,21 +983,51 @@ impl NativePreprocessed {
                 compilation: compilation_start.elapsed(),
                 total: total_start.elapsed(),
             },
+            analysis,
         ))
     }
     /// Pack d bodies with validated uploaded keys. All arithmetic is deterministic.
     pub fn pack(&self, b: &[u64], keys: &NativeKeys) -> Result<NativeCiphertext, ReinspiringError> {
+        if self.a_other.is_some() {
+            return Err(invalid("two-mask preprocessing requires pack_two_mask"));
+        }
         validate_poly(b, &self.params)?;
-        if keys.id != self.id {
+        if keys.id != self.id
+            || keys.kg.len() != self.params.ell
+            || keys.kh.len() != self.params.ell
+        {
             return Err(invalid("packing setup mismatch"));
         }
         let y: Vec<_> = keys.kg.iter().flatten().copied().collect();
         let mut out = self.h.multiply(&y)?;
-        let leftover = self.lift.sum_prepared(&self.leftover, &keys.kh)?;
+        let leftover = self
+            .lift
+            .sum_prepared(self.leftover.as_ref().unwrap(), &keys.kh)?;
         for i in 0..self.params.d {
             out[i] = (out[i] + leftover[i] + b[i]) & (self.params.q - 1);
         }
         NativeCiphertext::from_rows(&self.params, self.a.clone(), out)
+    }
+    /// Pack with one K_g key, retaining the second public mask.
+    pub fn pack_two_mask(
+        &self,
+        b: &[u64],
+        keys: &NativeKeys,
+    ) -> Result<NativeTwoMaskCiphertext, ReinspiringError> {
+        validate_poly(b, &self.params)?;
+        if keys.id != self.id || keys.kg.len() != self.params.ell || !keys.kh.is_empty() {
+            return Err(invalid("packing key mode mismatch"));
+        }
+        let other = self
+            .a_other
+            .as_ref()
+            .ok_or_else(|| invalid("one-mask preprocessing"))?;
+        let y = keys.kg_words();
+        let mut out = self.h.multiply(&y)?;
+        for (dst, &x) in out.iter_mut().zip(b) {
+            *dst = (*dst + x) & (self.params.q - 1);
+        }
+        NativeTwoMaskCiphertext::from_rows(&self.params, self.a.clone(), other.clone(), out)
     }
     /// Read/XOR diagnostic for coefficient memory traffic; not a cryptographic checksum.
     pub fn matrix_read_checksum(&self) -> u64 {
@@ -636,7 +1035,7 @@ impl NativePreprocessed {
     }
     /// Matrix-only operation for benchmark attribution.
     pub fn matrix_product(&self, keys: &NativeKeys) -> Result<Vec<u64>, ReinspiringError> {
-        if keys.id != self.id {
+        if keys.id != self.id || keys.kg.len() != self.params.ell {
             return Err(invalid("packing setup mismatch"));
         }
         self.h
@@ -644,18 +1043,32 @@ impl NativePreprocessed {
     }
     /// Leftover-only operation for benchmark attribution.
     pub fn leftover_product(&self, keys: &NativeKeys) -> Result<Vec<u64>, ReinspiringError> {
-        if keys.id != self.id {
+        if keys.id != self.id || keys.kh.len() != self.params.ell {
             return Err(invalid("packing setup mismatch"));
         }
-        self.lift.sum_prepared(&self.leftover, &keys.kh)
+        self.lift.sum_prepared(
+            self.leftover
+                .as_ref()
+                .ok_or_else(|| invalid("no leftover in two-mask mode"))?,
+            &keys.kh,
+        )
     }
     /// Retained coefficient storage, excluding auxiliary NTT tables and headers.
     pub fn coefficient_bytes(&self) -> usize {
-        self.h.storage_bytes() + self.leftover.storage_bytes() + self.params.d * 8
+        self.h.storage_bytes()
+            + self
+                .leftover
+                .as_ref()
+                .map_or(0, PreparedLiftOperand::storage_bytes)
+            + self.params.d * 8 * (1 + usize::from(self.a_other.is_some()))
     }
     /// Published c1 row; independent of the client's secret and uploaded bodies.
     pub fn mask(&self) -> &[u64] {
         &self.a
+    }
+    /// Second public mask, available only in two-mask mode.
+    pub fn other_mask(&self) -> Option<&[u64]> {
+        self.a_other.as_deref()
     }
 }
 
@@ -856,8 +1269,59 @@ mod oracle_tests {
         }
     }
     #[test]
+    fn prepared_decode_matches_generic_at_support_boundaries() {
+        for d in [2, 8, 64, 2048] {
+            let p = NativeParams::new(d, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+            let secret = NativeSecret {
+                params: p.clone(),
+                coeffs: (0..d)
+                    .map(|i| if i % 2 == 0 { 65 } else { p.q - 65 })
+                    .collect(),
+            };
+            let a: Vec<_> = (0..d)
+                .map(|i| if i % 3 == 0 { p.q / 2 } else { p.q / 2 - 1 })
+                .collect();
+            let other = tau_coeffs(&a, 5, p.q);
+            let b = vec![p.q - 1; d];
+            for two in [false, true] {
+                let first = vec![a.clone()];
+                let others = vec![other.clone()];
+                let prepared =
+                    NativeDecoder::new(&p, &first, if two { Some(&others) } else { None }).unwrap();
+                let expected = if two {
+                    secret
+                        .decrypt_two_mask(
+                            &NativeTwoMaskCiphertext::from_rows(
+                                &p,
+                                a.clone(),
+                                other.clone(),
+                                b.clone(),
+                            )
+                            .unwrap(),
+                        )
+                        .unwrap()
+                } else {
+                    secret
+                        .decrypt(&NativeCiphertext::from_rows(&p, a.clone(), b.clone()).unwrap())
+                        .unwrap()
+                };
+                assert_eq!(prepared.decrypt(&secret, &b).unwrap(), expected);
+                assert_eq!(
+                    prepared
+                        .prepare_request(&secret)
+                        .unwrap()
+                        .decrypt(&b)
+                        .unwrap(),
+                    expected
+                );
+                assert!(prepared.decrypt(&secret, &b[..d - 1]).is_err());
+            }
+        }
+    }
+
+    #[test]
     fn python_integer_trace_matches_fft_compiled_pack() {
-        for ell in [2, 3] {
+        for (ell, wire_bits) in [(2, 54), (3, 54), (2, 48), (2, 46)] {
             let p = NativeParams::new(8, 54, 14, 19, ell, SecretDistribution::Gaussian).unwrap();
             let setup = NativeSetup::new(p.clone(), [8; 32]);
             let mut rng = ChaCha20Rng::seed_from_u64(91);
@@ -865,11 +1329,24 @@ mod oracle_tests {
                 .map(|_| (0..p.d).map(|_| rng.next_u64() & (p.q - 1)).collect())
                 .collect();
             let secret = NativeSecret::sample(&p, &mut rng);
-            let keys = NativeKeys::generate(&setup, &secret, &mut rng).unwrap();
+            let mut keys = NativeKeys::generate(&setup, &secret, &mut rng).unwrap();
+            if wire_bits < 54 {
+                let step = 1u64 << (54 - wire_bits);
+                for x in keys.kh.iter_mut().flatten() {
+                    *x = ((*x + step / 2) / step * step) & (p.q - 1);
+                }
+            }
             let b: Vec<_> = (0..p.d).map(|_| rng.next_u64() & (p.q - 1)).collect();
-            let pre = NativePreprocessed::build(&setup, &masks).unwrap();
+            let (pre, analysis) = NativePreprocessed::build_analyzed(&setup, &masks).unwrap();
             let ct = pre.pack(&b, &keys).unwrap();
-            let input = serde_json::json!({"d":p.d,"q":p.q,"bits":p.bits,"ell":p.ell,"dropped":p.dropped,"masks":masks,"w":setup.w,"v":setup.v,"kg":keys.kg,"kh":keys.kh,"b":b});
+            if ell == 2 {
+                let screen = NativePreprocessed::screen_gadget(&setup, &masks, [19, 19]).unwrap();
+                assert_eq!(screen.weights, analysis.weights);
+                assert_eq!(screen.kg_limbs, analysis.kg_limbs);
+                assert_eq!(screen.collapse_secret, analysis.collapse_secret);
+                assert_eq!(screen.final_mask, analysis.final_mask);
+            }
+            let input = serde_json::json!({"d":p.d,"q":p.q,"bits":p.bits,"ell":p.ell,"dropped":p.dropped,"masks":masks,"w":setup.w,"v":setup.v,"kg":keys.kg,"kh":keys.kh,"b":b,"include_weights":true});
             let mut child = Command::new("python3")
                 .arg(concat!(
                     env!("CARGO_MANIFEST_DIR"),
@@ -890,6 +1367,194 @@ mod oracle_tests {
             let got: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
             assert_eq!(got["a"], serde_json::json!(ct.a));
             assert_eq!(got["b"], serde_json::json!(ct.b));
+            // Check the noise identity against actual encryption algebra, not
+            // only another implementation of the public trace. The unaccounted
+            // remainder is exactly the D.1 integer-division term.
+            let lift = LiftContext::new(p.d, p.q).unwrap();
+            let errors = |masks: &[Vec<u64>], bodies: &[Vec<u64>], g| {
+                let from = tau_coeffs(&secret.coeffs, g, p.q);
+                masks
+                    .iter()
+                    .zip(bodies)
+                    .enumerate()
+                    .map(|(j, (mask, body))| {
+                        let ws = lift.multiply(mask, &secret.coeffs).unwrap();
+                        body.iter()
+                            .enumerate()
+                            .map(|(i, &x)| {
+                                x.wrapping_add(ws[i])
+                                    .wrapping_sub(from[i].wrapping_mul(p.factor(j)))
+                                    & (p.q - 1)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let eg: Vec<_> = errors(&setup.w, &keys.kg, 5)
+                .into_iter()
+                .flatten()
+                .collect();
+            let eh = errors(&setup.v, &keys.kh, 2 * p.d as u64 - 1);
+            let sw: Vec<Vec<u64>> = serde_json::from_value(got["secret_weights"].clone()).unwrap();
+            let gw: Vec<Vec<u64>> = serde_json::from_value(got["kg_weights"].clone()).unwrap();
+            let hd: Vec<Vec<i64>> = serde_json::from_value(got["final_digits"].clone()).unwrap();
+            let hd: Vec<Vec<u64>> = hd
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|&x| (x as i128).rem_euclid(p.q as i128) as u64)
+                        .collect()
+                })
+                .collect();
+            // Exact compression identity, including unequal per-limb precision.
+            let mut rounded = NativeKeys {
+                id: keys.id,
+                kg: keys.kg.clone(),
+                kh: keys.kh.clone(),
+            };
+            let mut eps_g = Vec::new();
+            let mut eps_h = Vec::new();
+            for (family, errors) in [(&mut rounded.kg, &mut eps_g), (&mut rounded.kh, &mut eps_h)] {
+                for (j, limb) in family.iter_mut().enumerate() {
+                    let step = 1u64 << (4 + j * 3);
+                    errors.push(
+                        limb.iter_mut()
+                            .map(|x| {
+                                let old = *x;
+                                *x = ((*x + step / 2) / step * step) & (p.q - 1);
+                                x.wrapping_sub(old) & (p.q - 1)
+                            })
+                            .collect::<Vec<_>>(),
+                    );
+                }
+            }
+            let compressed = pre.pack(&b, &rounded).unwrap();
+            let final_error = lift.sum(&hd, &eps_h).unwrap();
+            let flat: Vec<_> = eps_g.into_iter().flatten().collect();
+            for i in 0..p.d {
+                let compiled = gw[i]
+                    .iter()
+                    .zip(&flat)
+                    .fold(0u64, |sum, (&x, &y)| sum.wrapping_add(x.wrapping_mul(y)));
+                assert_eq!(
+                    compressed.b[i].wrapping_sub(ct.b[i]) & (p.q - 1),
+                    compiled.wrapping_add(final_error[i]) & (p.q - 1)
+                );
+            }
+            let kh_error = lift.sum(&hd, &eh).unwrap();
+            let dot = |a: &[u64], b: &[u64]| {
+                a.iter()
+                    .zip(b)
+                    .fold(0u64, |s, (&a, &b)| s.wrapping_add(a.wrapping_mul(b)))
+                    & (p.q - 1)
+            };
+            let phase = secret.phase(&ct).unwrap();
+            for i in 0..p.d {
+                let predicted = b[i]
+                    .wrapping_add(dot(&masks[i], &secret.coeffs))
+                    .wrapping_add(dot(&sw[i], &secret.coeffs))
+                    .wrapping_add(dot(&gw[i], &eg))
+                    .wrapping_add(kh_error[i]);
+                let remainder =
+                    centered(phase[i].wrapping_sub(predicted) & (p.q - 1), p.q).unsigned_abs();
+                assert!(remainder <= p.division_error_bound(65));
+            }
+            let norms =
+                |n: crate::noise::WeightNorms| serde_json::json!([n.l1, n.l2_squared, n.max]);
+            assert_eq!(got["noise"], norms(analysis.weights));
+            assert_eq!(got["kh_l1"], serde_json::json!(analysis.kh_l1));
+            for (i, candidate) in analysis.one_limb.iter().enumerate() {
+                assert_eq!(got["one_limb"][i]["bits"], candidate.bits);
+                assert_eq!(got["one_limb"][i]["weights"], norms(candidate.weights));
+            }
+        }
+    }
+    #[test]
+    fn python_integer_trace_matches_two_mask_pack_and_weights() {
+        let p = NativeParams::new(8, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+        let setup = NativeSetup::new(p.clone(), [81; 32]);
+        let mut rng = ChaCha20Rng::seed_from_u64(918);
+        let masks: Vec<Vec<_>> = (0..p.d)
+            .map(|_| (0..p.d).map(|_| rng.next_u64() & (p.q - 1)).collect())
+            .collect();
+        let secret = NativeSecret::sample(&p, &mut rng);
+        let keys = NativeKeys::generate_one_key(&setup, &secret, &mut rng).unwrap();
+        let b: Vec<_> = (0..p.d).map(|_| rng.next_u64() & (p.q - 1)).collect();
+        let (pre, analysis) = NativePreprocessed::build_two_mask_analyzed(&setup, &masks).unwrap();
+        let ct = pre.pack_two_mask(&b, &keys).unwrap();
+        let input = serde_json::json!({"d":p.d,"q":p.q,"bits":p.bits,"ell":p.ell,"dropped":p.dropped,"masks":masks,"w":setup.w,"kg":keys.kg,"b":b,"two_mask":true,"include_weights":true});
+        let mut child = Command::new("python3")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tools/python-oracle/native_reference.py"
+            ))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.to_string().as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success());
+        let got: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(got["a"], serde_json::json!(ct.a));
+        assert_eq!(got["a_other"], serde_json::json!(ct.a_other));
+        assert_eq!(got["b"], serde_json::json!(ct.b));
+        assert_eq!(got["noise"][0], serde_json::json!(analysis.weights.l1));
+        assert_eq!(
+            got["noise"][1],
+            serde_json::json!(analysis.weights.l2_squared)
+        );
+        assert_eq!(got["noise"][2], serde_json::json!(analysis.weights.max));
+        for (i, (bits, w)) in analysis.public_mask_screens.iter().enumerate() {
+            assert_eq!(got["public_mask_screens"][i]["bits"], *bits);
+            assert_eq!(
+                got["public_mask_screens"][i]["noise"],
+                serde_json::json!([w.l1, w.l2_squared, w.max])
+            );
+            let step = p.q >> bits;
+            let round = |mask: &[u64]| {
+                mask.iter()
+                    .map(|&x| ((x + step / 2) / step * step) & (p.q - 1))
+                    .collect::<Vec<_>>()
+            };
+            let rounded = NativeTwoMaskCiphertext::from_rows(
+                &p,
+                round(&ct.a),
+                round(&ct.a_other),
+                ct.b.clone(),
+            )
+            .unwrap();
+            let difference = |a: &[u64], b: &[u64]| {
+                a.iter()
+                    .zip(b)
+                    .map(|(&x, &y)| x.wrapping_sub(y) & (p.q - 1))
+                    .collect::<Vec<_>>()
+            };
+            let lift = LiftContext::new(p.d, p.q).unwrap();
+            let extra = lift
+                .sum(
+                    &[
+                        difference(&rounded.a, &ct.a),
+                        difference(&rounded.a_other, &ct.a_other),
+                    ],
+                    &[
+                        secret.coeffs.clone(),
+                        tau_coeffs(&secret.coeffs, (2 * p.d - 1) as u64, p.q),
+                    ],
+                )
+                .unwrap();
+            assert_eq!(
+                difference(
+                    &secret.phase_two_mask(&rounded).unwrap(),
+                    &secret.phase_two_mask(&ct).unwrap()
+                ),
+                extra
+            );
         }
     }
 }

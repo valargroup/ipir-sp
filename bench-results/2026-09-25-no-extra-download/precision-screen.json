@@ -1,0 +1,66 @@
+{
+  "scope": "counterfactual on 32-bit profile setup; regenerate selected profiles before acceptance",
+  "source_setup_id": "3c0a7c2a270ba72d6161d6e3f915584b6021c76094716fd19c197fc6f9aeb34f",
+  "screen": [
+    {
+      "key_bytes": 27648,
+      "certified_failure_bits": 12,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "17660566160",
+      "published_mask_bits": 27,
+      "published_bytes": 221220,
+      "no_extra_download": true
+    },
+    {
+      "key_bytes": 27648,
+      "certified_failure_bits": 82,
+      "meets_78": true,
+      "meets_128": false,
+      "max_deterministic_error": "17660566160",
+      "published_mask_bits": 28,
+      "published_bytes": 229412,
+      "no_extra_download": true
+    },
+    {
+      "key_bytes": 27648,
+      "certified_failure_bits": 229,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "17660566160",
+      "published_mask_bits": 29,
+      "published_bytes": 237604,
+      "no_extra_download": true
+    },
+    {
+      "key_bytes": 27648,
+      "certified_failure_bits": 340,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "17660566160",
+      "published_mask_bits": 30,
+      "published_bytes": 245796,
+      "no_extra_download": true
+    },
+    {
+      "key_bytes": 27648,
+      "certified_failure_bits": 368,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "17660566160",
+      "published_mask_bits": 31,
+      "published_bytes": 253988,
+      "no_extra_download": true
+    },
+    {
+      "key_bytes": 27648,
+      "certified_failure_bits": 375,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "17660566160",
+      "published_mask_bits": 32,
+      "published_bytes": 262180,
+      "no_extra_download": true
+    }
+  ]
+}
