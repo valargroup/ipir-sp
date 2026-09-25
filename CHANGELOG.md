@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0-rc.6 — 2026-09-25
+
+- Add the experimental native two-mask output mode (#24). It removes the final
+  `K_h` key switch, halving native packing-key upload (55,296 to 27,648 bytes
+  at d=2048, q=2^54, ell=2). Clients decode directly under both public masks.
+- Add rounded, bit-packed public-mask publication (`RNP3`) for both native modes
+  (#24, #25): 27..=32 bits for two-mask, 28..=32 bits for one-mask, or 54-bit
+  lossless packing. Precision is bound into the setup ID.
+- Add prepared native decoding, correlated-error exporters for rounded masks,
+  and the `certify_native.py` rounded-mask certificate checks.
+- `reinspiring` is now 0.1.2; `inspiring` and `simplepir-kernel` are unchanged.
+- Existing production profiles and the default InspiRING backend are unchanged.
+  Correctness certificates cover only the recorded fixtures; runtime snapshot
+  certification remains a production prerequisite.
+
 ## 0.1.0-rc.5 — 2026-09-25
 
 - Publish the distributed-serving APIs needed by wallet-pir: bounded prepared
