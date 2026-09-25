@@ -1,0 +1,6 @@
+{
+  "source_commit": "b308543",
+  "benchmark_harness": "harness/baseline_packing_stages.rs",
+  "verified_files": 437,
+  "all_blobs_match": true
+}

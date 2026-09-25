@@ -1,0 +1,33 @@
+[package]
+name = "reinspiring-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+reinspiring = { path = ".." }
+inspiring = { path = "../../inspiring" }
+libfuzzer-sys = "0.4"
+spiral-rs = { package = "valar-spiral-rs", version = "=0.5.3-rc.1" }
+ipir-sp = { path = "../../ipir-sp", features = ["native-reinspiring"] }
+rand_chacha = "0.3.1"
+
+[[bin]]
+name = "pack_no_panic"
+path = "fuzz_targets/pack_no_panic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "native_wire"
+path = "fuzz_targets/native_wire.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

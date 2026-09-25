@@ -1,0 +1,11 @@
+Using CPython 3.13.13
+Creating virtual environment at: reinspiring/tools/python-oracle/.venv
+   Building reinspiring-oracle @ file:///Users/roman/projects/ipir-sp-reinspiring/reinspiring/tools/python-oracle
+Downloading pygments (1.2MiB)
+Downloading ruff (9.4MiB)
+ Downloaded ruff
+ Downloaded pygments
+      Built reinspiring-oracle @ file:///Users/roman/projects/ipir-sp-reinspiring/reinspiring/tools/python-oracle
+Installed 9 packages in 61ms
+.....                                                                    [100%]
+5 passed in 0.01s

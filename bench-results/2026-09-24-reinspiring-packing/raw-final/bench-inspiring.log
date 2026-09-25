@@ -1,0 +1,3 @@
+   Compiling inspiring v0.1.0-rc.1 (/root/optimized/inspiring)
+    Finished `bench` profile [optimized] target(s) in 9.88s
+  Executable benches/pack.rs (target/release/deps/pack-029a0b7108949e75)

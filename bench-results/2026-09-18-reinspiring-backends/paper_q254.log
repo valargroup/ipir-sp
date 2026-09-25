@@ -1,0 +1,31 @@
+   Compiling clap_builder v4.6.0
+   Compiling regex-automata v0.4.14
+   Compiling reinspiring v0.1.0 (/workspace/reinspiring)
+   Compiling regex v1.12.3
+   Compiling clap v4.6.1
+   Compiling criterion v0.5.1
+    Finished `bench` profile [optimized] target(s) in 18.81s
+     Running benches/paper_q254.rs (target/release/deps/paper_q254-f8ebfbbecb2e1267)
+Gnuplot not found, using plotters backend
+paper params: d=2048, q=2^54, ell=2, z=2^19
+building H' via Compile (ℓ=2 limbs)…
+Compile done in 81.2s, H'_inf_bits≈29.0, shape 2048×4096
+Benchmarking paper_q254/h_prime_matvec/2048
+Benchmarking paper_q254/h_prime_matvec/2048: Warming up for 2.0000 s
+Benchmarking paper_q254/h_prime_matvec/2048: Collecting 20 samples in estimated 8.1061 s (7350 iterations)
+Benchmarking paper_q254/h_prime_matvec/2048: Analyzing
+paper_q254/h_prime_matvec/2048
+                        time:   [1.1050 ms 1.1169 ms 1.1320 ms]
+Found 4 outliers among 20 measurements (20.00%)
+  3 (15.00%) high mild
+  1 (5.00%) high severe
+Benchmarking paper_q254/leftover_schoolbook/2048
+Benchmarking paper_q254/leftover_schoolbook/2048: Warming up for 2.0000 s
+Benchmarking paper_q254/leftover_schoolbook/2048: Collecting 20 samples in estimated 8.8436 s (420 iterations)
+Benchmarking paper_q254/leftover_schoolbook/2048: Analyzing
+paper_q254/leftover_schoolbook/2048
+                        time:   [21.048 ms 21.076 ms 21.118 ms]
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high severe
+
+paper Table 5 target H'·y ≈ 1.2 ms (ℓ=2, z=2^19, q=2^54)

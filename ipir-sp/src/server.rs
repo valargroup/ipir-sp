@@ -994,7 +994,7 @@ mod tests {
             .expect("P16Q46 profile");
         let server = YServer::<u16>::from_profile(
             &p14,
-            std::iter::repeat(0).take(p14.ypir().db_rows * p14.ypir().db_cols),
+            std::iter::repeat_n(0, p14.ypir().db_rows * p14.ypir().db_cols),
             false,
             true,
         );

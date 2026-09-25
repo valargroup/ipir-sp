@@ -1,0 +1,1 @@
+info: component clippy is up to date

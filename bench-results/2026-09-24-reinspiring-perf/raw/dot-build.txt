@@ -1,0 +1,3 @@
+   Compiling reinspiring v0.1.0 (/root/after/reinspiring)
+   Compiling ipir-sp v0.1.0-rc.2 (/root/after/ipir-sp)
+    Finished `release` profile [optimized] target(s) in 5.59s

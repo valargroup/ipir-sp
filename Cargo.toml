@@ -1,5 +1,5 @@
 [workspace]
-members = ["inspiring", "ipir-sp", "nullifier-pir", "simplepir-kernel"]
+members = ["inspiring", "reinspiring", "ipir-sp", "nullifier-pir", "simplepir-kernel"]
 resolver = "2"
 
 [workspace.dependencies]

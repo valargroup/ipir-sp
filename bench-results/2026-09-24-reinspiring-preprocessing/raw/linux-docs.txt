@@ -1,0 +1,28 @@
+   Compiling serde_core v1.0.228
+   Compiling zerocopy v0.8.48
+   Compiling serde v1.0.228
+    Checking either v1.15.0
+    Checking rayon v1.12.0
+    Checking serde_json v1.0.149
+    Checking serde_urlencoded v0.7.1
+    Checking actix-router v0.5.4
+    Checking reqwest v0.12.28
+   Compiling actix-web-codegen v4.3.0
+    Checking ppv-lite86 v0.2.21
+    Checking rand_chacha v0.3.1
+    Checking rand_chacha v0.9.0
+    Checking rand v0.9.4
+    Checking rand v0.8.6
+    Checking actix-http v3.11.2
+    Checking valar-spiral-rs v0.5.3-rc.1
+    Checking inspiring v0.1.0-rc.1 (/root/optimized/inspiring)
+ Documenting inspiring v0.1.0-rc.1 (/root/optimized/inspiring)
+    Checking reinspiring v0.1.0 (/root/optimized/reinspiring)
+    Checking simplepir-kernel v0.1.0-rc.1 (/root/optimized/simplepir-kernel)
+ Documenting reinspiring v0.1.0 (/root/optimized/reinspiring)
+    Checking actix-web v4.11.0
+    Checking actix-cors v0.7.0
+ Documenting ipir-sp v0.1.0-rc.2 (/root/optimized/ipir-sp)
+    Checking ipir-sp v0.1.0-rc.2 (/root/optimized/ipir-sp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.09s
+   Generated /root/optimized/target/preprocessing-benchmark/doc/inspiring/index.html and 4 other files

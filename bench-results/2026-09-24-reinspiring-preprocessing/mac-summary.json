@@ -1,0 +1,36 @@
+{
+  "baseline": {
+    "offline_seconds": [
+      70.908668125,
+      78.087664334,
+      64.842750959
+    ],
+    "median_seconds": 70.908668125,
+    "peak_rss_bytes": [
+      2868494336,
+      2867904512,
+      2869297152
+    ],
+    "binary_sha256": "1d7a3de7ddc79331cf9bcc3d489ce3ee98a5157922258f5bc97236c4266f9852"
+  },
+  "optimized": {
+    "offline_seconds": [
+      14.887299209,
+      19.854260625,
+      20.849523375
+    ],
+    "median_seconds": 19.854260625,
+    "peak_rss_bytes": [
+      2970566656,
+      2977054720,
+      2970976256
+    ],
+    "binary_sha256": "12488f77aaadfd3d4f1d583d4ae30ccf268663cec139bba870a4c116576884ba"
+  },
+  "speedup": 3.571458512824877,
+  "host": "Apple M4 Max; 128 GiB RAM; eight Rayon workers",
+  "rustflags": "default release profile (no target-cpu override)",
+  "baseline_commit": "689bcebd5335eeb14b89032c20e60c379f244d40",
+  "optimized_source_patch_sha256": "cd603d50cd98ef63519285be0e1b2e2372994b3ecf145cb6d3bf003696bb9008",
+  "optimized_commit": "59a09f20ed153b6e16ff40953bbc1e6b188a0a07"
+}

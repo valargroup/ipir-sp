@@ -1,0 +1,24 @@
+{
+  "main_commit": "611a29284264d844bf4dba00de2874c5b762f8c2",
+  "native_scaling_and_p16_commit": "8719787",
+  "final_packing_and_p14_commit": "085d7184238f0beb45e012ff24c59f9c3d17be61",
+  "droplet_id": 603281659,
+  "region": "ams3",
+  "size": "g-8vcpu-32gb-intel",
+  "remote_artifacts_verified": 47,
+  "validation": {
+    "debug_passed": 199,
+    "linux_release_passed": 196,
+    "default_ignored": 2,
+    "degree2048_explicit": "passed",
+    "fuzz_final_executions": 67977,
+    "fuzz_final_seconds": 61,
+    "fmt": "passed",
+    "clippy_warnings_as_errors": "passed",
+    "rustdoc_warnings_as_errors": "passed"
+  },
+  "temporary_host_cleanup": {
+    "status": "deleted; absence verified in DigitalOcean droplet list",
+    "verified_at_utc": "2026-09-24T11:08:14.033842+00:00"
+  }
+}

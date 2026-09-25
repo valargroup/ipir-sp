@@ -1,0 +1,12 @@
+{
+  "source_commit": "6c1aabca59ca096a716db2015a78f51ca3efdaac",
+  "remote_artifacts_sha256_verified": 403,
+  "frozen_binary_and_patch_hashes_verified": 12,
+  "droplet": 603320067,
+  "droplet_deleted": true,
+  "absence_verified_utc": "2026-09-24T15:11:36.337231+00:00",
+  "source_ci_runs": [
+    "https://github.com/valargroup/ipir-sp/actions/runs/36017986172",
+    "https://github.com/valargroup/ipir-sp/actions/runs/36017991545"
+  ]
+}

@@ -163,7 +163,8 @@ outstanding responses or saved client seeds.
 ```
 .
 |-- inspiring/         # Algorithm 1 of InsPIRing.Pack, standalone crate
-|-- ipir-sp/           # IPIR+SP: YPIR's SimplePIR pipeline wired to inspiring::pack
+|-- reinspiring/       # Algorithm 2 of ReinspiRING (ePrint 2026/1934)
+|-- ipir-sp/           # IPIR+SP: YPIR's SimplePIR pipeline wired to inspiring / reinspiring
 |-- simplepir-kernel/  # Backend-agnostic first-dimension SimplePIR kernels
 |-- nullifier-pir/     # HTTP PIR server for 32-byte nullifier snapshots
 |-- bench-results/     # Dated benchmark reports + raw logs
@@ -187,6 +188,19 @@ implementation tracks Algorithm 1 line by line and is cross-checked against a
 Python reference oracle and the public Google reference implementation. See
 [`inspiring/SPEC.md`](inspiring/SPEC.md) for the full paper-to-code contract
 and [`inspiring/README.md`](inspiring/README.md) for the crate-level layout.
+
+### `reinspiring/` — ReinspiRING.Pack
+
+The refreshed implementation includes an exact odd-modulus adapter and a
+complete native power-of-two packing path: ring-FFT compilation, the D.1/D.2
+transform, signed approximate gadgets, compact matrices, and lifted NTT/CRT
+products. Native IPIR-SP integration is opt-in with `native-reinspiring` and
+uses a separate experimental Gaussian profile and versioned wire format.
+
+See the [implementation contract](reinspiring/SPEC.md),
+[production approval gates](reinspiring/SECURITY.md), and
+[comparison against main and both papers](bench-results/2026-09-24-reinspiring-perf/REPORT.md).
+The native profile does not replace the default production backend.
 
 ### `ipir-sp/` — IPIR+SP integration
 
@@ -327,9 +341,11 @@ backend-native query bytes.
 
 - IPIR+SP / YPIR+SP: ePrint 2024/270 — <https://eprint.iacr.org/2024/270>
 - InsPIRe / InsPIRing.Pack: ePrint 2025/1352 — <https://eprint.iacr.org/2025/1352>
+- ReinsPIRe / ReinspiRING: ePrint 2026/1934 — <https://eprint.iacr.org/2026/1934>
 - Google reference implementation:
   <https://github.com/google/private-membership/tree/main/research/InsPIRe>
 - Local InsPIRing spec: [`inspiring/SPEC.md`](inspiring/SPEC.md)
+- Local ReinspiRING spec: [`reinspiring/SPEC.md`](reinspiring/SPEC.md)
 - Informal math walkthrough: [`roman_notes.md`](roman_notes.md)
 
 ## License

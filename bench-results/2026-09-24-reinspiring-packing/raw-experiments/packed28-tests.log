@@ -1,0 +1,16 @@
+   Compiling reinspiring v0.1.0 (/root/optimized/reinspiring)
+    Finished `release` profile [optimized] target(s) in 8.16s
+     Running unittests src/lib.rs (target/release/deps/reinspiring-c069fc3dfff24796)
+
+running 8 tests
+test native_matrix::tests::blocks_reject_malformed_and_mismatched_shapes ... ok
+test native_kernel::tests::packed28_matches_scalar_at_signed_bounds_and_vector_tails ... ok
+test native_kernel::tests::dispatched_kernels_match_scalar_with_signs_overflow_and_tails ... ok
+test native_matrix::tests::blocks_roundtrip_and_multiply_at_storage_boundaries ... ok
+test native_kernel::tests::prepared_byte_dot_is_exact_with_carries_full_u16_chunks_and_tails ... ok
+test native_kernel::tests::interleaved_matrix_matches_independent_scalar_across_accumulator_windows ... ok
+test native::oracle_tests::python_integer_trace_matches_fft_compiled_pack ... ok
+test native::oracle_tests::mixed_width_aggregation_matches_direct_integer_definition ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
