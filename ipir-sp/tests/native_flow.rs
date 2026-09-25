@@ -346,15 +346,44 @@ fn prepared_request_rejects_changed_masks_even_with_same_setup_id() {
 
 #[test]
 fn rounded_public_masks_preserve_bytes_and_reject_mismatches() {
-    for bits in 27..=32 {
+    for (two_mask, bits) in [false, true].into_iter().flat_map(|two_mask| {
+        (if two_mask { 27 } else { 28 }..=32)
+            .chain([54])
+            .map(move |bits| (two_mask, bits))
+    }) {
         let pack = NativeParams::new(8, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
         let base = NativeProfile::new(pack, 16, 24).unwrap();
-        assert!(base.clone().with_published_mask_bits(bits).is_err());
-        let p = base
-            .with_two_mask_output()
-            .unwrap()
-            .with_published_mask_bits(bits)
-            .unwrap();
+        // One-mask publication accepts lossless 54 and rounded 28..=32 only.
+        assert_eq!(
+            base.clone().with_published_mask_bits(bits).is_ok(),
+            bits >= 28
+        );
+        assert!(base.clone().with_published_mask_bits(54).is_ok());
+        assert!(base.clone().with_published_mask_bits(27).is_err());
+        let mode = if two_mask {
+            base.clone().with_two_mask_output().unwrap()
+        } else {
+            base.clone()
+        };
+        let p = mode.with_published_mask_bits(bits).unwrap();
+        let opposite = if two_mask {
+            base
+        } else {
+            base.with_two_mask_output().unwrap()
+        };
+        let opposite = NativePublicSetup::new(
+            opposite.with_published_mask_bits(bits.max(28)).unwrap(),
+            [31; 32],
+            [32; 32],
+        );
+        let different_precision = NativePublicSetup::new(
+            p.clone()
+                .with_published_mask_bits(if bits == 28 { 29 } else { 28 })
+                .unwrap(),
+            [31; 32],
+            [32; 32],
+        );
+        let different_snapshot = NativePublicSetup::new(p.clone(), [31; 32], [33; 32]);
         assert!(p.clone().with_published_mask_bits(26).is_err());
         assert!(p.clone().with_published_mask_bits(33).is_err());
         let other = NativePublicSetup::new(
@@ -366,20 +395,31 @@ fn rounded_public_masks_preserve_bytes_and_reject_mismatches() {
         assert_ne!(setup.id(), other.id());
         let data: Vec<u16> = (0..16 * 24).map(|x| (x * 157) as u16).collect();
         let (server, stats) = NativeServer::build_analyzed(setup, data.clone()).unwrap();
-        assert!(stats.iter().all(|s| s.packing.weights
-            == s.packing
-                .public_mask_screens
-                .iter()
-                .find(|(b, _)| *b as usize == bits)
-                .unwrap()
-                .1));
+        if bits != 54 {
+            assert!(stats.iter().all(|s| s.packing.weights
+                == s.packing
+                    .public_mask_screens
+                    .iter()
+                    .find(|(b, _)| *b as usize == bits)
+                    .unwrap()
+                    .1));
+        }
         let bytes = server.published().to_bytes();
         assert_eq!(&bytes[..4], b"RNP3");
-        assert_eq!(bytes.len(), 36 + 2 * 24 * bits / 8);
-        assert!(bytes.len() <= 36 + 24 * 8);
+        assert_eq!(
+            bytes.len(),
+            36 + (1 + usize::from(two_mask)) * 24 * bits / 8
+        );
         let published = NativePublished::from_bytes(server.setup(), &bytes).unwrap();
         assert_eq!(published.to_bytes(), bytes);
-        assert!(NativePublished::from_bytes(&other, &bytes).is_err());
+        for mismatched in [&other, &opposite, &different_precision, &different_snapshot] {
+            assert_ne!(server.setup().id(), mismatched.id());
+            assert!(NativePublished::from_bytes(mismatched, &bytes).is_err());
+            // Isolate setup binding from length checks by forging only the header.
+            let mut wrong_id = bytes.clone();
+            wrong_id[4..36].copy_from_slice(&mismatched.id());
+            assert!(NativePublished::from_bytes(server.setup(), &wrong_id).is_err());
+        }
         let mut bad = bytes.clone();
         bad[3] = b'2';
         assert!(NativePublished::from_bytes(server.setup(), &bad).is_err());
@@ -412,21 +452,29 @@ fn rounded_public_masks_preserve_bytes_and_reject_mismatches() {
 
 #[test]
 fn rounded_public_masks_reject_padding() {
-    let p = NativeProfile::new(
-        NativeParams::new(2, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap(),
-        2,
-        2,
-    )
-    .unwrap()
-    .with_two_mask_output()
-    .unwrap()
-    .with_published_mask_bits(27)
-    .unwrap();
-    let setup = NativePublicSetup::new(p, [4; 32], [5; 32]);
-    let server = NativeServer::build(setup, vec![1; 4]).unwrap();
-    let bytes = server.published().to_bytes();
-    assert_eq!(bytes.len(), 50); // 4 coefficients * 27 bits, 4 padding bits
-    let mut bad = bytes.clone();
-    *bad.last_mut().unwrap() |= 0x80;
-    assert!(NativePublished::from_bytes(server.setup(), &bad).is_err());
+    // d=2 leaves padding in one-mask 29/54-bit and two-mask 27-bit layouts.
+    for (two_mask, bits) in [(false, 29), (false, 54), (true, 27)] {
+        let p = NativeProfile::new(
+            NativeParams::new(2, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap(),
+            2,
+            2,
+        )
+        .unwrap();
+        let p = if two_mask {
+            p.with_two_mask_output().unwrap()
+        } else {
+            p
+        };
+        let p = p.with_published_mask_bits(bits).unwrap();
+        let setup = NativePublicSetup::new(p, [4; 32], [5; 32]);
+        let server = NativeServer::build(setup, vec![1; 4]).unwrap();
+        let bytes = server.published().to_bytes();
+        let count = 2 * (1 + usize::from(two_mask));
+        assert_ne!(count * bits % 8, 0);
+        assert_eq!(bytes.len(), 36 + (count * bits).div_ceil(8));
+        assert!(NativePublished::from_bytes(server.setup(), &bytes).is_ok());
+        let mut bad = bytes.clone();
+        *bad.last_mut().unwrap() |= 0x80;
+        assert!(NativePublished::from_bytes(server.setup(), &bad).is_err());
+    }
 }

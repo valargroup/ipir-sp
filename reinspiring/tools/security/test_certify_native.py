@@ -41,6 +41,25 @@ class CertificateTests(unittest.TestCase):
             if mutation=='missing_screen': bad['blocks'][0]['public_mask_screens'].pop()
             with self.assertRaises(ValueError): evaluate(bad)
 
+    def test_recorded_one_mask_rounded_certificates_and_rejection(self):
+        evidence=Path(__file__).resolve().parents[3]/'bench-results/2026-09-25-one-mask-rounded'
+        for bits, expected, nbytes in ((54,429,221220),(29,333,118820),(28,161,114724)):
+            report=json.loads((evidence/f'noise-{bits}.json').read_text())
+            result=evaluate(report)
+            self.assertEqual(result['format'],'native-certificate-rounded-v1')
+            self.assertEqual(result['actual_profile']['certified_failure_bits'],expected)
+            self.assertEqual(result['actual_profile']['published_bytes'],nbytes)
+            self.assertTrue(result['actual_profile']['meets_128'])
+        report=json.loads((evidence/'noise-28.json').read_text())
+        for mutation in ('bits','size','weights','missing_screen','legacy_format'):
+            bad=copy.deepcopy(report)
+            if mutation=='bits': bad['published_mask_bits']=27
+            if mutation=='size': bad['published_bytes']-=1
+            if mutation=='weights': bad['blocks'][0]['weights']['max']=str(int(bad['blocks'][0]['weights']['max'])-1)
+            if mutation=='missing_screen': bad['blocks'][0]['public_mask_screens'].pop(0)
+            if mutation=='legacy_format': bad['format']='native-noise-v1'
+            with self.assertRaises(ValueError): evaluate(bad)
+
     def test_recorded_two_mask_certificate_and_rejection(self):
         evidence=Path(__file__).resolve().parents[3]/'bench-results/2026-09-25-two-mask'
         report=json.loads((evidence/'noise.json').read_text())

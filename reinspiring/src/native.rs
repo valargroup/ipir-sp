@@ -946,6 +946,7 @@ impl NativePreprocessed {
                     last,
                     p.bits,
                     p.dropped,
+                    &a,
                 )?
             } else {
                 crate::noise::analyze_two_mask(
@@ -1346,7 +1347,7 @@ mod oracle_tests {
                 assert_eq!(screen.collapse_secret, analysis.collapse_secret);
                 assert_eq!(screen.final_mask, analysis.final_mask);
             }
-            let input = serde_json::json!({"d":p.d,"q":p.q,"bits":p.bits,"ell":p.ell,"dropped":p.dropped,"masks":masks,"w":setup.w,"v":setup.v,"kg":keys.kg,"kh":keys.kh,"b":b,"include_weights":true});
+            let input = serde_json::json!({"d":p.d,"q":p.q,"bits":p.bits,"ell":p.ell,"dropped":p.dropped,"masks":masks,"w":setup.w,"v":setup.v,"kg":keys.kg,"kh":keys.kh,"b":b,"secret":secret.coeffs,"include_weights":true});
             let mut child = Command::new("python3")
                 .arg(concat!(
                     env!("CARGO_MANIFEST_DIR"),
@@ -1461,6 +1462,33 @@ mod oracle_tests {
             }
             let norms =
                 |n: crate::noise::WeightNorms| serde_json::json!([n.l1, n.l2_squared, n.max]);
+            assert_eq!(analysis.public_mask_screens.len(), 9);
+            assert_eq!(got["public_mask_screens"].as_array().unwrap().len(), 9);
+            for (i, (bits, weights)) in analysis.public_mask_screens.iter().enumerate() {
+                let screen = &got["public_mask_screens"][i];
+                assert_eq!(screen["bits"], *bits);
+                assert_eq!(screen["noise"], norms(*weights));
+                assert_eq!(screen["phase_cases"].as_array().unwrap().len(), 2);
+                for case in screen["phase_cases"].as_array().unwrap() {
+                    let mask: Vec<u64> = serde_json::from_value(case["mask"].clone()).unwrap();
+                    let step = p.q >> bits;
+                    let rounded: Vec<_> = mask
+                        .iter()
+                        .map(|&x| ((x + step / 2) / step * step) & (p.q - 1))
+                        .collect();
+                    assert_eq!(case["rounded"], serde_json::json!(rounded));
+                    let exact = NativeCiphertext::from_rows(&p, mask, ct.b.clone()).unwrap();
+                    let rounded = NativeCiphertext::from_rows(&p, rounded, ct.b.clone()).unwrap();
+                    let change: Vec<_> = secret
+                        .phase(&rounded)
+                        .unwrap()
+                        .iter()
+                        .zip(secret.phase(&exact).unwrap())
+                        .map(|(&x, y)| x.wrapping_sub(y) & (p.q - 1))
+                        .collect();
+                    assert_eq!(case["delta"], serde_json::json!(change));
+                }
+            }
             assert_eq!(got["noise"], norms(analysis.weights));
             assert_eq!(got["kh_l1"], serde_json::json!(analysis.kh_l1));
             for (i, candidate) in analysis.one_limb.iter().enumerate() {

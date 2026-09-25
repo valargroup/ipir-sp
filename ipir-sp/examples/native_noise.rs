@@ -58,7 +58,7 @@ fn main() {
     println!(
         "{}",
         json!({
-            "format":if published_bits!=64 { "native-noise-two-mask-rounded-v1" } else if two_mask { "native-noise-two-mask-v1" } else { "native-noise-v1" },"d":2048,"q_bits":54,"p_bits":16,
+            "format":if published_bits!=64 && two_mask { "native-noise-two-mask-rounded-v1" } else if published_bits!=64 { "native-noise-rounded-v1" } else if two_mask { "native-noise-two-mask-v1" } else { "native-noise-v1" },"d":2048,"q_bits":54,"p_bits":16,
             "published_mask_bits":published_bits,"published_bytes":server.published().to_bytes().len(),
             "rows":rows,"cols":cols,"query_bits":49,"response_bits":22,"kh_bits":kh_bits,
             "setup_id":server.setup().id().iter().map(|x|format!("{x:02x}")).collect::<String>(),
