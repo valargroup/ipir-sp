@@ -10,6 +10,8 @@ keywords = ["fhe", "lattice", "rlwe", "lwe", "pir"]
 categories = ["cryptography"]
 
 [dependencies]
+memmap2 = "0.9"
+bytemuck = "1"
 inspiring = { path = "../inspiring" }
 spiral-rs = { workspace = true }
 thiserror = "1.0"

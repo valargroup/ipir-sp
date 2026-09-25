@@ -109,6 +109,38 @@ where
         Ok(())
     }
 
+    /// Exact power-of-two evaluation without an NTT parameter object.
+    /// The low bits of wrapping products/sums are exact modulo a power of two.
+    #[allow(clippy::too_many_arguments)]
+    fn try_multiply_power_of_two(
+        &self,
+        q: u64,
+        db: &[T],
+        rows: usize,
+        cols: usize,
+        query: &[u64],
+        out: &mut [u64],
+    ) -> Result<(), KernelError> {
+        if !q.is_power_of_two()
+            || q < 2
+            || rows.checked_mul(cols) != Some(db.len())
+            || query.len() != rows
+            || out.len() != cols
+            || query.iter().any(|&x| x >= q)
+        {
+            return Err(KernelError("invalid native matrix/query shape".into()));
+        }
+        use rayon::prelude::*;
+        out.par_iter_mut()
+            .zip(db.par_chunks_exact(rows))
+            .for_each(|(dst, col)| {
+                *dst = col.iter().zip(query).fold(0u64, |sum, (&a, &b)| {
+                    sum.wrapping_add(a.to_u64().wrapping_mul(b))
+                }) & (q - 1);
+            });
+        Ok(())
+    }
+
     /// Compute the first-dimension query/database product.
     ///
     /// Required shapes:

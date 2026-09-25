@@ -104,6 +104,21 @@ impl FirstDimKernel<u16> for CudaKernel {
         self.try_multiply_query(rlwe, db, rows, cols, query, max, out)
             .expect("CUDA evaluation failed");
     }
+    fn try_multiply_power_of_two(
+        &self,
+        q: u64,
+        db: &[u16],
+        rows: usize,
+        cols: usize,
+        query: &[u64],
+        out: &mut [u64],
+    ) -> Result<(), KernelError> {
+        if !q.is_power_of_two() || q < 2 || query.iter().any(|&x| x >= q) {
+            return Err(error("invalid native modulus/query"));
+        }
+        self.evaluate_modulus(q, db, rows, cols, query, out, false)
+            .map(|_| ())
+    }
     fn try_multiply_query(
         &self,
         rlwe: &RlweParams,
@@ -144,7 +159,19 @@ impl CudaKernel {
         out: &mut [u64],
         timed: bool,
     ) -> Result<f32, KernelError> {
-        if rlwe.q == 0
+        self.evaluate_modulus(rlwe.q, db, rows, cols, query, out, timed)
+    }
+    fn evaluate_modulus(
+        &self,
+        q: u64,
+        db: &[u16],
+        rows: usize,
+        cols: usize,
+        query: &[u64],
+        out: &mut [u64],
+        timed: bool,
+    ) -> Result<f32, KernelError> {
+        if q == 0
             || rows.checked_mul(cols) != Some(db.len())
             || query.len() != rows
             || out.len() != cols
@@ -186,7 +213,7 @@ impl CudaKernel {
             .arg(&mut s.partial)
             .arg(&r)
             .arg(&t)
-            .arg(&rlwe.q);
+            .arg(&q);
         // SAFETY: validated shapes and grid; mutex retains allocations through
         // synchronization. Each kernel bounds every access to these buffers.
         unsafe {
@@ -198,11 +225,7 @@ impl CudaKernel {
         }
         .map_err(error)?;
         let mut args = self.stream.launch_builder(&self.reduce);
-        args.arg(&s.partial)
-            .arg(&mut s.out)
-            .arg(&c)
-            .arg(&t)
-            .arg(&rlwe.q);
+        args.arg(&s.partial).arg(&mut s.out).arg(&c).arg(&t).arg(&q);
         // SAFETY: same allocations and bounds; reduce_tiles checks column count.
         unsafe {
             args.launch(LaunchConfig {
