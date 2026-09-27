@@ -3,7 +3,7 @@ members = ["inspiring", "reinspiring", "ipir-sp", "nullifier-pir", "simplepir-ke
 resolver = "2"
 
 [workspace.dependencies]
-spiral-rs = { package = "valar-spiral-rs", version = "=0.5.3-rc.1" }
+spiral-rs = { package = "valar-spiral-rs", version = "=0.5.2" }
 
 [profile.release]
 opt-level = 3

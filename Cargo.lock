@@ -2656,9 +2656,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "valar-spiral-rs"
-version = "0.5.3-rc.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25241fdd53c5952c5c80557c6d248a2835cf9e722de52e16bbbba794009b80b9"
+checksum = "208d4b69c6a9b7b0c7d856133009a514e10236cdc698ad0b6b87f2e3c4e6d9cb"
 dependencies = [
  "fastrand",
  "getrandom 0.2.17",
