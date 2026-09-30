@@ -1,0 +1,26 @@
+name: Development tooling
+
+on:
+  pull_request:
+    paths:
+      - "scripts/dev.py"
+      - "scripts/test_dev.py"
+      - ".github/workflows/dev-tooling.yml"
+  push:
+    paths:
+      - "scripts/dev.py"
+      - "scripts/test_dev.py"
+      - ".github/workflows/dev-tooling.yml"
+
+jobs:
+  leases:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python3 -m unittest discover -s scripts -p 'test_dev.py' -v
