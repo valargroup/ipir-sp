@@ -256,11 +256,56 @@ non-AVX-512 NTT, so the workspace builds on stable Rust without any
 From the workspace root:
 
 ```bash
-cargo build --release
-cargo test
-cargo test -p inspiring
-cargo test -p ipir-sp
+python3 scripts/dev.py build --release
+python3 scripts/dev.py test
+python3 scripts/dev.py test -p inspiring
+python3 scripts/dev.py test -p ipir-sp
 ```
+
+For concurrent development checks/tests on macOS or Linux, use `scripts/dev.py`
+(Python 3.8+, standard library only). Cargo arguments, test filters, profiles and
+features pass through unchanged; only the target directory is selected:
+
+```bash
+python3 scripts/dev.py check -p ipir-sp --all-targets --locked
+python3 scripts/dev.py test -p simplepir-kernel --test native_modulus cpu_native_modulus_matches_integer_oracle --locked
+python3 scripts/dev.py test -p ipir-sp --all-features --no-fail-fast
+python3 -m unittest discover -s scripts -p 'test_dev.py' -v
+```
+
+The helper tries nonblocking OS leases in `target/dev/<identity>/<slot>` and
+immediately takes another slot when one is busy. Later commands reuse the first
+released slot. Toolchain, checkout and Cargo/compiler environment settings
+partition caches; Cargo fingerprints handle packages, features, profiles and
+source changes. Check and test can share released caches, although Cargo may
+compile different artifacts for each. Set `IPIR_SP_BUILD_ROOT` to move this pool;
+`CARGO_TARGET_DIR` is overridden and `--target-dir` is rejected. Configured target
+directories are overridden by the explicit leased directory too.
+
+A detached supervisor keeps ownership until Cargo and all live members of its
+process group exit, including children that close inherited descriptors. Killing
+the launcher with SIGKILL leaves that supervisor and Cargo running safely;
+SIGINT/SIGTERM/SIGHUP are forwarded to Cargo's group. Kernel locks recover when
+owners finish or die, without stale PID files. Do not delete slots or `.lease`
+files while commands are running. Remove an idle pool manually to reclaim disk;
+the helper never evicts caches and fails if all 1024 slots are occupied.
+
+Limitations: this is for local macOS/Linux filesystems with reliable `flock` and
+`ps`, not Windows or network filesystems. Children deliberately escaping Cargo's
+process group (for example via `setsid`) are unsupported. Killing the supervisor
+itself can weaken protection for children that close the inherited lease; stop
+the whole Cargo group before removing its cache. Direct `cargo` still uses its
+ordinary configured target directory and can wait on other direct Cargo users;
+it does not participate in these leases. Never point direct Cargo at a leased
+slot. Cargo's registry/download locks, dependency fetches, CPU and RAM contention
+remain possible; separate targets can increase disk use and compilation work.
+
+Focused commands do not replace final validation. Keep the existing Rust CI
+matrix (format, docs, all-feature clippy/check/tests, native degree-2048
+correctness and benchmark compilation) and the Python oracle checks intact.
+For long checks, run this helper through the shared durable local-check workflow
+from a clean, stable commit/worktree. That workflow retains SHA, logs, duration
+and result after the launching agent exits; it does not itself wake an agent.
 
 Per-crate Criterion benchmarks:
 
