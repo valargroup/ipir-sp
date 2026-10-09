@@ -166,6 +166,26 @@ enum Command {
 /// Turns a `/query` response body into the decoded row bytes.
 type Decoder = Box<dyn FnOnce(&[u8]) -> Result<Vec<u8>>>;
 
+/// The `c1` rows a local-ipir response is decoded against.
+enum PublishedC1 {
+    /// Checked against the signed manifest; answers are authenticated.
+    Verified(Box<VerifiedPublicParams>),
+    /// Taken from the server as-is (`--allow-unverified`).
+    Unverified(Vec<Vec<u64>>),
+}
+
+/// Name a tampered answer plainly; `main` maps it to its own exit status.
+fn explain_decode_error(err: ClientError) -> anyhow::Error {
+    let context = match err {
+        ClientError::TamperDetected { .. } => {
+            "TAMPER DETECTED: the server answered from a database that does not match the \
+             coordinator-signed snapshot; do not act on this answer"
+        }
+        _ => "decode PIR response",
+    };
+    anyhow::Error::new(err).context(context)
+}
+
 /// How the query client authenticates the server.
 #[derive(Debug, Clone, Copy)]
 enum Trust {
@@ -534,7 +554,7 @@ fn query_row(
             // Everything the decoder needs is checked here, before the query is
             // built, so a failed check sends nothing.
             let published_c1 = match trust {
-                Trust::Pinned(key) => Ok(fetch_verified_params(
+                Trust::Pinned(key) => PublishedC1::Verified(Box::new(fetch_verified_params(
                     &client,
                     server_url,
                     &meta,
@@ -542,12 +562,12 @@ fn query_row(
                     setup_seed,
                     &key,
                     &published_c1_bytes,
-                )?),
+                )?)),
                 Trust::Unverified => {
                     eprintln!(
-                    "warning: --allow-unverified: the server's c1 and answer are not authenticated"
-                );
-                    Err(recover_published_c1(
+                        "warning: --allow-unverified: c1 and the answer are not authenticated"
+                    );
+                    PublishedC1::Unverified(recover_published_c1(
                         &published_c1_bytes,
                         pir_client.rlwe_params().d,
                         pir_client.params().db_cols / pir_client.rlwe_params().d,
@@ -579,18 +599,10 @@ fn query_row(
                     ],
                 },
                 Box::new(move |response| match published_c1 {
-                    Ok(verified) => pir_client
+                    PublishedC1::Verified(verified) => pir_client
                         .decode_response_simplepir_verified(client_seed, &verified, response, row)
-                        .map_err(|err| {
-                            match err {
-                        ClientError::TamperDetected { .. } => anyhow::Error::new(err).context(
-                            "TAMPER DETECTED: the server answered from a database that does not \
-                             match the coordinator-signed snapshot; do not act on this answer",
-                        ),
-                        other => anyhow::Error::new(other).context("decode PIR response"),
-                    }
-                        }),
-                    Err(published_c1) => {
+                        .map_err(explain_decode_error),
+                    PublishedC1::Unverified(published_c1) => {
                         let decoded_coeffs = pir_client.decode_response_simplepir_raw_unverified(
                             client_seed,
                             &published_c1,
