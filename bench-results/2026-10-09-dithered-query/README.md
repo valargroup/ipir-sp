@@ -24,18 +24,29 @@ certified by `certify_native.py` (`certificate-*.json`).
 | | 43 dithered | 154,112 | 181,796 | <=2^-147 |
 
 44 dithered bits certifies at least as strongly as today's 49 nearest bits and
-saves 17,920 B per request (7.8% one-mask, 8.8% two-mask). 43 bits is the
-smallest precision meeting the 2^-128 target in both modes and saves 21,504 B
-(9.3% and 10.6%). The `query_screen` in each certificate shows 42 bits fails
-(<=2^-54 one-mask, <=2^-48 two-mask on the 49-bit setups). Response
-(90,180 B) and published snapshot bytes are unchanged.
+saves 17,920 B per request (7.8% one-mask, 8.8% two-mask). On this fixture, 43
+bits is the smallest precision meeting the 2^-128 target in both modes and
+saves 21,504 B (9.3% and 10.6%). The `query_screen` in each certificate shows
+42 bits fails (<=2^-54 one-mask, <=2^-48 two-mask on the 49-bit setups).
+Response (90,180 B) and published snapshot bytes are unchanged.
 
-Large tables gain the most. On a 65,536-row, 16,384-column two-mask 29-bit
-report (`noise-two-mask29-65536-n49.json`), today's 49-bit nearest query
-certifies <=2^-158. The counterfactual screen gives <=2^-295 for dithered
-queries at the same 49 bits, and 44 bits is the smallest dithered precision
-meeting 2^-128 (<=2^-186). Those dithered rows are a screen on the nearest
-setup, not regenerated certificates.
+Large tables gain the most margin from dithering but need more query bits. On
+a 65,536-row, 16,384-column two-mask 29-bit report
+(`noise-two-mask29-65536-n49.json`), today's 49-bit nearest query certifies
+<=2^-158. The counterfactual screen gives <=2^-295 for dithered queries at the
+same 49 bits, but only <=2^-84 at 43 bits: 44 bits is the smallest dithered
+precision meeting 2^-128 (<=2^-186). Those dithered rows are a screen on the
+nearest setup, not regenerated certificates.
+
+The API floor of 43 bits is therefore a result on this 28,672-row fixture,
+chosen like the published-mask floors: the smallest precision certified on the
+recorded snapshot. It does not make 43 bits safe for other tables. Every
+snapshot needs its own certificate at the selected precision.
+
+The dithered reports (`noise-*-d43.json`, `noise-*-d44.json`) use the distinct
+`native-noise[-two-mask][-rounded]-dithered-v1` formats, which checkers that
+predate dithering reject. They were regenerated after review with that change
+and are byte-identical to the first run apart from `format`.
 
 ## End-to-end runs
 
@@ -58,7 +69,7 @@ lifts it to the same 54-bit words, and every matrix-vector backend does the
 same fixed integer work regardless of word values. Client generation adds one
 ChaCha20 draw per row. The sequential runs above showed 20-25% slower server medians for the
 dithered configurations, so three interleaved rounds (`paired-*.jsonl`,
-`paired.log`, 10 queries each, one-mask 49 nearest then 43 dithered) repeated
+`paired-log.txt`, 10 queries each, one-mask 49 nearest then 43 dithered) repeated
 the comparison. The dithered/nearest server-median ratio was 0.62, 1.14 and
 0.63 across rounds, with 1-minute load averages of 8 to 12 on 8 vCPUs: the
 host cannot resolve a server-time difference in either direction, and the

@@ -6,11 +6,17 @@ on:
       - "scripts/dev.py"
       - "scripts/test_dev.py"
       - ".github/workflows/dev-tooling.yml"
+      - "reinspiring/tools/security/**"
+      - "reinspiring/src/native_gaussian_cdf.txt"
+      - "bench-results/**"
   push:
     paths:
       - "scripts/dev.py"
       - "scripts/test_dev.py"
       - ".github/workflows/dev-tooling.yml"
+      - "reinspiring/tools/security/**"
+      - "reinspiring/src/native_gaussian_cdf.txt"
+      - "bench-results/**"
 
 jobs:
   leases:
@@ -24,3 +30,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: python3 -m unittest discover -s scripts -p 'test_dev.py' -v
+
+  certifier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python3 -m unittest discover -s reinspiring/tools/security -v

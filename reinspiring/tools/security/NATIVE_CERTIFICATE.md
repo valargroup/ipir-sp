@@ -189,11 +189,15 @@ is the existing one-mask u64 wire encoding: 36 + 8*cols bytes. RNP3 uses
 
 ## Dithered query bodies
 
-A dithered profile sends query bodies at t in 40..=49 bits (the API floor is
-the smallest precision certified on the recorded snapshot). With k=54-t and
-f the dropped low k bits of a query coefficient c, the client rounds c up to
-the next multiple of 2^k when a fresh uniform k-bit integer is below f, and
-down otherwise. So it rounds up with probability exactly f/2^k, and the
+A dithered profile sends query bodies at t bits. The checker accepts t in
+40..=49; the API floor of 43 is the smallest precision certified on the recorded
+28,672-row snapshot. That floor is a fixture result, not a safe width for other
+tables: the 65,536-row two-mask screen certifies 43 dithered bits only at
+2^-84 and needs 44 (2^-186). Every snapshot needs its own certificate.
+
+With k=54-t and f the dropped low k bits of a query coefficient c, the client
+rounds c up to the next multiple of 2^k when a fresh uniform k-bit integer is
+below f, and down otherwise. So it rounds up with probability exactly f/2^k, and the
 rounding error r = rounded(c) - c lies in [-f, 2^k - f] with E[r | c] = 0.
 The coins come from the per-request ChaCha20 stream after the query is
 sampled. The setup hash binds the precision and a `/dithered-query-v1/` tag.
@@ -233,3 +237,8 @@ server that may receive nearest-rounded queries must keep the nearest term.
 The probability now also covers the client's rounding coins. Like the other
 terms, it does not hold if those coins are reused or predictable to whoever
 chooses the database.
+
+Dithered reports use their own formats, `native-noise[-two-mask][-rounded]-dithered-v1`.
+The checker requires `query_rounding: dithered` exactly for those formats, so a
+checker that predates dithering rejects a dithered report instead of budgeting
+it as nearest rounding.
