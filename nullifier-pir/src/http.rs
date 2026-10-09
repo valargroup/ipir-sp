@@ -9,6 +9,7 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::backend::PirBackend;
+use crate::manifest::ManifestArtifacts;
 use crate::snapshot::SnapshotMetadata;
 
 pub const SERVER_TIME_HEADER: &str = "x-nullifier-pir-server-time-us";
@@ -25,6 +26,8 @@ pub const SERVER_SERIALIZATION_TIME_HEADER: &str = "x-nullifier-pir-server-seria
 pub struct AppState {
     pub backend: Arc<dyn PirBackend>,
     pub snapshot: SnapshotMetadata,
+    /// Snapshot manifest and row digests; `None` when the backend has none.
+    pub manifest: Option<Arc<ManifestArtifacts>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -36,6 +39,10 @@ struct HealthResponse {
 struct MetaResponse {
     snapshot: SnapshotMetadata,
     backend: crate::backend::BackendMetadata,
+    /// SHA-256 of the `GET /manifest` bytes, so a client can tell that a
+    /// cached manifest and digest table are stale. Absent without a manifest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    manifest_sha256: Option<String>,
 }
 
 #[get("/health")]
@@ -48,6 +55,7 @@ async fn meta(data: web::Data<AppState>) -> impl Responder {
     web::Json(MetaResponse {
         snapshot: data.snapshot.clone(),
         backend: data.backend.meta(),
+        manifest_sha256: data.manifest.as_ref().map(|m| m.manifest_sha256()),
     })
 }
 
@@ -56,6 +64,27 @@ async fn public_params(data: web::Data<AppState>) -> impl Responder {
     HttpResponse::Ok()
         .content_type("application/octet-stream")
         .body(data.backend.public_params())
+}
+
+/// The exact signed manifest bytes (base64) and their signature (hex).
+#[get("/manifest")]
+async fn snapshot_manifest(data: web::Data<AppState>) -> HttpResponse {
+    match &data.manifest {
+        Some(manifest) => HttpResponse::Ok().json(manifest.envelope()),
+        None => HttpResponse::NotFound().body("no snapshot manifest for this backend"),
+    }
+}
+
+/// One 32-byte SHA-256 per PIR row, row-major. Clients download the whole
+/// table, so fetching it reveals nothing about which row they will query.
+#[get("/row-digests")]
+async fn row_digest_table(data: web::Data<AppState>) -> HttpResponse {
+    match &data.manifest {
+        Some(manifest) => HttpResponse::Ok()
+            .content_type("application/octet-stream")
+            .body(manifest.row_digests.clone()),
+        None => HttpResponse::NotFound().body("no row digests for this backend"),
+    }
 }
 
 #[post("/query")]
@@ -101,8 +130,13 @@ pub async fn serve(
     port: u16,
     backend: Arc<dyn PirBackend>,
     snapshot: SnapshotMetadata,
+    manifest: Option<ManifestArtifacts>,
 ) -> Result<()> {
-    let state = web::Data::new(AppState { backend, snapshot });
+    let state = web::Data::new(AppState {
+        backend,
+        snapshot,
+        manifest: manifest.map(Arc::new),
+    });
     HttpServer::new(move || {
         App::new()
             .wrap(Cors::permissive())
@@ -111,6 +145,8 @@ pub async fn serve(
             .service(health)
             .service(meta)
             .service(public_params)
+            .service(snapshot_manifest)
+            .service(row_digest_table)
             .service(query)
     })
     .workers(1)

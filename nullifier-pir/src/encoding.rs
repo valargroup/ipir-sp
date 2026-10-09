@@ -262,6 +262,22 @@ mod tests {
         assert_eq!(decode_item_coefficients(&decoded_coeffs), item);
     }
 
+    /// The verified client path returns `ipir_sp`'s packed row bytes, not
+    /// `decode_item_coefficients`; the two must be the same item.
+    #[test]
+    fn client_row_bytes_are_the_item_bytes() {
+        let item: Vec<u8> = (0..ITEM_BYTES).map(|idx| (idx * 131 + 7) as u8).collect();
+        let coeffs: Vec<u64> = encode_item_bytes(&item)
+            .iter()
+            .map(|c| u64::from(*c))
+            .collect();
+        assert_eq!(
+            ipir_sp::manifest::decoded_row_bytes(&coeffs, 1 << SIMPLEPIR_COEFF_BITS),
+            item
+        );
+        assert_eq!(decode_item_coefficients(&coeffs), item);
+    }
+
     #[test]
     fn extracts_nullifier_by_global_index_mapping() {
         // Expressed in terms of the packing constant so the mapping stays

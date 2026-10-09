@@ -10,12 +10,14 @@
 //! few seconds; `db_rows` feeds the width derivation, so the configuration is
 //! self-consistent even though it is smaller than the deployed shape.
 
+use ed25519_dalek::{Signer, SigningKey};
 use inspiring::TopKeyImages;
-use ipir_sp::client::IPIRClient;
+use ipir_sp::client::{ClientError, IPIRClient};
+use ipir_sp::manifest::{setup_seed_from_u64, RowDigestTable, SnapshotManifest};
 use ipir_sp::modulus_switch::recover_published_c1;
 use ipir_sp::params::params_for_simplepir;
 use ipir_sp::server::{build_pack_preprocessed_blocks, published_c1_rows, YServer};
-use ipir_sp::{ProductionSimplePirParams, SimplePirProfile};
+use ipir_sp::{ProductionSimplePirParams, SimplePirProfile, VerifiedPublicParams};
 
 /// The deployed row count, so the derived query width and the rounding term
 /// it controls are exactly production's. Only the column count is reduced, and
@@ -24,6 +26,43 @@ const ROWS: u64 = 28_672;
 /// First, last, a block boundary, and a few interior rows.
 const TARGET_ROWS: [usize; 8] = [0, 2_047, 2_048, 7_777, 13_000, 19_001, 25_555, 28_671];
 const SETUP_SEED: [u8; 32] = [0x5A; 32];
+/// Manifest setup seed for the verified-path tests.
+const MANIFEST_SETUP_SEED: u64 = 0x5A5A;
+/// Public, test-only coordinator signing seed.
+const COORDINATOR_SEED: [u8; 32] = [0xC0; 32];
+
+/// What a coordinator publishes for a snapshot, signed with the test key, and
+/// the client's verification of it.
+fn sign_and_verify(
+    profile: &ProductionSimplePirParams,
+    rows: &[u16],
+    public_params: &[u8],
+) -> VerifiedPublicParams {
+    let ypir = profile.ypir();
+    let table = RowDigestTable::from_rows(
+        rows.chunks_exact(ypir.db_cols).map(|row| {
+            row.iter()
+                .map(|value| u64::from(*value))
+                .collect::<Vec<_>>()
+        }),
+        ypir.p,
+    );
+    let manifest =
+        SnapshotManifest::new(profile, MANIFEST_SETUP_SEED, [0; 32], public_params, &table)
+            .expect("manifest")
+            .to_bytes();
+    let signing = SigningKey::from_bytes(&COORDINATOR_SEED);
+    VerifiedPublicParams::verify(
+        profile,
+        MANIFEST_SETUP_SEED,
+        &signing.verifying_key().to_bytes(),
+        &manifest,
+        &signing.sign(&manifest).to_bytes(),
+        public_params,
+        &table.to_bytes(),
+    )
+    .expect("honest snapshot artefacts verify")
+}
 
 #[test]
 fn production_params_round_trip_recovers_the_target_row() {
@@ -47,19 +86,24 @@ fn production_params_round_trip_recovers_the_target_row() {
     let server = YServer::from_profile(&profile, db.iter().copied(), false, true);
     let client = IPIRClient::new(&profile);
 
-    let offline_query_polys = client.generate_public_query_setup_simplepir_from_seed(SETUP_SEED);
+    let offline_query_polys = client
+        .generate_public_query_setup_simplepir_from_seed(setup_seed_from_u64(MANIFEST_SETUP_SEED));
     let offline =
         server.perform_offline_precomputation_simplepir(&rlwe, offline_query_polys.polys());
     let preprocessed =
         build_pack_preprocessed_blocks(&rlwe, &offline.crs_blocks).expect("preprocessing builds");
 
-    // Published once per snapshot, not per query.
-    let published_c1 = recover_published_c1(
-        &published_c1_rows(&preprocessed, rlwe.q),
-        rlwe.d,
-        ypir.db_cols / rlwe.d,
-        rlwe.q,
+    // Published once per snapshot, not per query, and checked against the
+    // coordinator-signed manifest before the first query. The real `c1`
+    // must also pass the structured-`c1` residue check.
+    let public_params = published_c1_rows(&preprocessed, rlwe.q);
+    let verified = sign_and_verify(&profile, &db, &public_params);
+    assert_eq!(
+        verified.setup_seed(),
+        offline_query_polys.seed(),
+        "the signed seed names the public setup the server precomputed"
     );
+    let published_c1 = verified.published_c1();
 
     let top_keys = TopKeyImages::build(&rlwe);
     let threshold = rlwe.delta / 2;
@@ -100,7 +144,7 @@ fn production_params_round_trip_recovers_the_target_row() {
 
         let (decoded, max_error) = client.decode_response_simplepir_with_expected_phase_error(
             client_seed,
-            &published_c1,
+            published_c1,
             &response,
             &expected,
         );
@@ -109,6 +153,29 @@ fn production_params_round_trip_recovers_the_target_row() {
             "decoded row {target_row} must match the database row"
         );
         worst_error = worst_error.max(max_error);
+
+        // The authenticated decoder returns the same row and accepts it.
+        let row_bytes = client
+            .decode_response_simplepir_verified(client_seed, &verified, &response, target_row)
+            .expect("honest response authenticates");
+        assert_eq!(
+            row_bytes,
+            ipir_sp::manifest::decoded_row_bytes(&expected, rlwe.p)
+        );
+        assert_eq!(
+            client.decode_response_simplepir_raw(client_seed, &verified, &response),
+            Ok(expected)
+        );
+        // Checking the answer against another row's digest fails.
+        assert!(matches!(
+            client.decode_response_simplepir_verified(
+                client_seed,
+                &verified,
+                &response,
+                (target_row + 1) % ypir.db_rows
+            ),
+            Err(ClientError::TamperDetected { .. })
+        ));
     }
 
     // Assert headroom against the expected encoding, so a wrong plaintext
@@ -125,6 +192,97 @@ fn production_params_round_trip_recovers_the_target_row() {
         "phase error too large: error 2^{} against delta/2 = 2^{}",
         bits(worst_error),
         bits(threshold)
+    );
+}
+
+/// Attack B: the server answers from a copy of the database with half the
+/// rows blanked. Without authentication the client decodes "absent" for a
+/// blanked row and "present" otherwise, and any behaviour that depends on
+/// that leaks which half its row is in.
+///
+/// `c1` is derived from the database hint, so the server has two choices.
+/// Publishing the tampered database's own `c1` fails the signed `c1` digest
+/// before any query is sent. Publishing the signed `c1` and answering from
+/// the tampered database makes the blanked row decode to something that is
+/// not its signed digest.
+#[test]
+fn verified_decode_detects_a_blanked_row() {
+    const ROWS: u64 = 2048;
+    const BLANKED_ROW: usize = 5;
+    let profile =
+        ProductionSimplePirParams::new(ROWS, 2048 * 14, SimplePirProfile::P14).expect("profile");
+    let (rlwe, ypir) = (profile.rlwe(), profile.ypir());
+    let db: Vec<u16> = (0..ypir.db_rows)
+        .flat_map(|row| {
+            (0..ypir.db_cols).map(move |col| ((row * 7 + col * 13 + 1) % ypir.p as usize) as u16)
+        })
+        .collect();
+    let mut blanked = db.clone();
+    blanked[..ypir.db_rows / 2 * ypir.db_cols].fill(0);
+
+    let client = IPIRClient::new(&profile);
+    let setup = client
+        .generate_public_query_setup_simplepir_from_seed(setup_seed_from_u64(MANIFEST_SETUP_SEED));
+    let top_keys = TopKeyImages::build(rlwe);
+    let build = |rows: &[u16]| {
+        let server = YServer::from_profile(&profile, rows.iter().copied(), false, true);
+        let offline = server.perform_offline_precomputation_simplepir(rlwe, setup.polys());
+        let preprocessed =
+            build_pack_preprocessed_blocks(rlwe, &offline.crs_blocks).expect("preprocessing");
+        (server, preprocessed)
+    };
+    let (_, honest_pre) = build(&db);
+    let (tampered, tampered_pre) = build(&blanked);
+    let public_params = published_c1_rows(&honest_pre, rlwe.q);
+    let tampered_public_params = published_c1_rows(&tampered_pre, rlwe.q);
+    let verified = sign_and_verify(&profile, &db, &public_params);
+
+    let (query, keys, seed) = client.generate_fresh_query_simplepir(&setup, BLANKED_ROW);
+    let (response, _) = tampered
+        .perform_full_online_computation_simplepir_measured(
+            rlwe,
+            &query.to_switched_bytes(rlwe.q, ypir.query_bits),
+            &keys,
+            &top_keys,
+            &tampered_pre,
+        )
+        .expect("online response");
+
+    // Without a manifest the attack works: the tampered server's own `c1`
+    // decodes its answer cleanly to the blanked row.
+    let tampered_c1 = recover_published_c1(
+        &tampered_public_params,
+        rlwe.d,
+        ypir.db_cols / rlwe.d,
+        rlwe.q,
+    )
+    .expect("c1 decodes");
+    let unverified = client
+        .decode_response_simplepir_raw_unverified(seed, &tampered_c1, &response)
+        .expect("decodes");
+    assert!(unverified.iter().all(|value| *value == 0));
+
+    // With a manifest, the tampered `c1` is refused before the first query...
+    let signing = SigningKey::from_bytes(&COORDINATOR_SEED);
+    let table = verified.row_digests().to_bytes();
+    let manifest = verified.manifest().to_bytes();
+    assert_eq!(
+        VerifiedPublicParams::verify(
+            &profile,
+            MANIFEST_SETUP_SEED,
+            &signing.verifying_key().to_bytes(),
+            &manifest,
+            &signing.sign(&manifest).to_bytes(),
+            &tampered_public_params,
+            &table,
+        )
+        .unwrap_err(),
+        ClientError::DigestMismatch("public params (c1)")
+    );
+    // ...and an answer from the tampered database fails the row digest.
+    assert_eq!(
+        client.decode_response_simplepir_verified(seed, &verified, &response, BLANKED_ROW),
+        Err(ClientError::TamperDetected { row: BLANKED_ROW })
     );
 }
 
@@ -165,7 +323,8 @@ fn p16_profiles_round_trip_with_decryption_margin() {
             rlwe.d,
             ypir.db_cols / rlwe.d,
             rlwe.q,
-        );
+        )
+        .expect("published c1 decodes");
         let top_keys = TopKeyImages::build(rlwe);
         let (query, packing_keys, seed) = client.generate_fresh_query_simplepir(&setup, TARGET);
         let query_bytes = query.to_switched_bytes(rlwe.q, ypir.query_bits);
@@ -273,7 +432,8 @@ fn cuda_profiles_round_trip_with_cpu_packing() {
             rlwe.d,
             ypir.db_cols / rlwe.d,
             rlwe.q,
-        );
+        )
+        .expect("published c1 decodes");
         let top_keys = TopKeyImages::build(rlwe);
         let (query, packing_keys, seed) = client.generate_fresh_query_simplepir(&setup, TARGET);
         let query_bytes = query.to_switched_bytes(rlwe.q, ypir.query_bits);

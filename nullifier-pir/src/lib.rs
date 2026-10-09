@@ -6,6 +6,7 @@
 pub mod backend;
 pub mod encoding;
 pub mod http;
+pub mod manifest;
 pub mod snapshot;
 
 pub use backend::{Backend, BackendKind, BackendMetadata, LocalIpirBackend, PirBackend};

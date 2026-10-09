@@ -11,6 +11,7 @@
 
 pub mod bits;
 pub mod client;
+pub mod manifest;
 pub mod modulus_switch;
 #[cfg(feature = "native-reinspiring")]
 pub mod native;
@@ -20,7 +21,8 @@ pub mod sampling;
 pub mod serialize;
 pub mod server;
 
-pub use client::{IPIRClient, IPIRSeed, IPIRSimpleQuery, PublicQuerySetup};
+pub use client::{ClientError, IPIRClient, IPIRSeed, IPIRSimpleQuery, PublicQuerySetup};
+pub use manifest::{RowDigestTable, SnapshotManifest, VerifiedPublicParams};
 pub use pack_backend::{
     build_reinspiring_blocks, pack_intermediate_blocks_reinspiring,
     pack_intermediate_blocks_with_backend, PackBackend,

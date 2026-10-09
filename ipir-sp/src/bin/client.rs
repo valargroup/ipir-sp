@@ -64,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         client.rlwe_params().d,
         client.params().db_cols / client.rlwe_params().d,
         client.rlwe_params().q,
-    );
+    )?;
     let response = http
         .post(format!("http://127.0.0.1:{}/query", args.port))
         .body(body)
@@ -72,7 +72,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .error_for_status()?
         .bytes()?;
 
-    let decoded = client.decode_response_simplepir(client_seed, &published_c1, &response);
+    // This research client has no signed manifest to check `c1` against, so
+    // the decoded bytes are key-equivalent under a malicious server: print a
+    // short preview only, and only against a server you run yourself.
+    let decoded =
+        client.decode_response_simplepir_unverified(client_seed, &published_c1, &response)?;
     let preview_len = decoded.len().min(32);
     println!("Result: {:?}", &decoded[..preview_len]);
     Ok(())

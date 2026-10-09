@@ -59,7 +59,7 @@ fn main() {
                         .sum::<usize>()
             })
             .sum::<usize>();
-        c1.push(recover_published_c1(&bytes, r.d, cols / r.d, r.q));
+        c1.push(recover_published_c1(&bytes, r.d, cols / r.d, r.q).expect("published c1 decodes"));
         pre.push(p);
         offline_ms.push(started.elapsed().as_secs_f64() * 1000.);
         eprintln!("prepared slot {slot} in {:.1} ms", offline_ms[slot]);

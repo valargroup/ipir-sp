@@ -59,7 +59,8 @@ fn main() {
     let offline_s = t.elapsed().as_secs_f64();
     drop(offline);
     let published_bytes = published_c1_rows(&pre, rlwe.q);
-    let published = recover_published_c1(&published_bytes, rlwe.d, cols / rlwe.d, rlwe.q);
+    let published = recover_published_c1(&published_bytes, rlwe.d, cols / rlwe.d, rlwe.q)
+        .expect("published c1 decodes");
     let top = TopKeyImages::build(rlwe);
     println!(
         "{}",
@@ -93,7 +94,9 @@ fn main() {
             .unwrap();
         let server_ms = t.elapsed().as_secs_f64() * 1000.;
         let t = Instant::now();
-        let decoded = client.decode_response_simplepir_raw(seed, &published, &response);
+        let decoded = client
+            .decode_response_simplepir_raw_unverified(seed, &published, &response)
+            .unwrap();
         let decode_ms = t.elapsed().as_secs_f64() * 1000.;
         assert_eq!(decoded, expected[target]);
         let (_, error) = client.decode_response_simplepir_with_expected_phase_error(

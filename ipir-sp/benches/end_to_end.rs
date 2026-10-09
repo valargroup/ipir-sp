@@ -585,7 +585,8 @@ fn bench_end_to_end(c: &mut Criterion) {
         fixture.rlwe.d,
         output_count,
         fixture.rlwe.q,
-    );
+    )
+    .expect("published c1 decodes");
     let (deserialize_once, multiply_once, packing_once, serialization_once, packing_rein_once) =
         measure_server_breakdown_once(&fixture, &packed_query_body, &packed_fixture);
 
@@ -792,11 +793,12 @@ fn bench_end_to_end(c: &mut Criterion) {
 
     group.bench_function(BenchmarkId::new("client_decode_only", output_count), |b| {
         b.iter(|| {
-            black_box(client.decode_response_simplepir_raw(
+            black_box(client.decode_response_simplepir_raw_unverified(
                 black_box(client_seed),
                 black_box(&published_c1),
                 black_box(&response_fixture),
-            ));
+            ))
+            .expect("fixture response decodes");
         });
     });
 

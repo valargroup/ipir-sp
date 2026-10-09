@@ -1,12 +1,14 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use ipir_sp::client::IPIRClient;
+use ipir_sp::client::{ClientError, IPIRClient};
+use ipir_sp::manifest::COORDINATOR_KEY_BYTES;
 use ipir_sp::modulus_switch::recover_published_c1;
 use ipir_sp::serialize::serialize_packing_keys;
+use ipir_sp::{ProductionSimplePirParams, SimplePirProfile, VerifiedPublicParams};
 use nullifier_pir::backend::{Backend, BackendKind, PirBackend};
 use nullifier_pir::encoding::{decode_item_coefficients, extract_nullifier, nullifier_offset};
 use nullifier_pir::http::{
@@ -14,17 +16,23 @@ use nullifier_pir::http::{
     SERVER_PACKING_TIME_HEADER, SERVER_PACK_PREPROCESS_TIME_HEADER,
     SERVER_SERIALIZATION_TIME_HEADER, SERVER_SETUP_DESERIALIZE_TIME_HEADER, SERVER_TIME_HEADER,
 };
+use nullifier_pir::manifest::{ManifestArtifacts, ManifestEnvelope};
 use nullifier_pir::snapshot::{
     download_snapshot, sha256_file, write_metadata, NullifierSnapshot, SnapshotMetadata,
     DEFAULT_SNAPSHOT_URL,
 };
 use nullifier_pir::ITEM_SIZE_BITS;
+use sha2::Digest as _;
 #[cfg(feature = "ypir-artifact")]
 use ypir::serialize::ToBytes as YpirToBytes;
 
 const META_ENDPOINT: &str = "/meta";
 const QUERY_ENDPOINT: &str = "/query";
 const PUBLIC_PARAMS_ENDPOINT: &str = "/public-params";
+const MANIFEST_ENDPOINT: &str = "/manifest";
+const ROW_DIGESTS_ENDPOINT: &str = "/row-digests";
+/// Exit status when a response fails row authentication.
+const TAMPER_EXIT_CODE: i32 = 3;
 
 #[derive(Debug, Clone)]
 struct UploadBreakdown {
@@ -101,6 +109,26 @@ enum Command {
         /// Recompute SHA-256 for /meta. This scans the full snapshot.
         #[arg(long)]
         hash_snapshot: bool,
+        /// DEV ONLY: sign the snapshot manifest with the hex Ed25519 seed in
+        /// this file. Production signatures come from the coordinator.
+        #[arg(long)]
+        dev_sign_key_file: Option<PathBuf>,
+    },
+    /// Write manifest.json and row-digests.bin next to a snapshot.
+    ///
+    /// `serve` does this at startup too; this subcommand produces the bytes
+    /// for the coordinator to sign without starting a server. The signature
+    /// goes in manifest.sig next to them.
+    Manifest {
+        /// Snapshot to describe.
+        #[arg(long, default_value = "data/nullifiers.bin")]
+        snapshot_path: PathBuf,
+        /// Setup seed the server will be started with.
+        #[arg(long, default_value_t = 7)]
+        setup_seed: u64,
+        /// DEV ONLY: also sign with the hex Ed25519 seed in this file.
+        #[arg(long)]
+        dev_sign_key_file: Option<PathBuf>,
     },
     /// Query a server and verify an existing or absent nullifier.
     Query {
@@ -122,12 +150,68 @@ enum Command {
         /// Row to query when checking an absent nullifier.
         #[arg(long, default_value_t = 0)]
         absent_probe_row: usize,
+        /// Pinned coordinator Ed25519 public key, 64 hex characters. The
+        /// manifest, `c1` and row digests are verified against it before any
+        /// query is sent, and the answer is checked against its row digest.
+        #[arg(long, conflicts_with = "allow_unverified")]
+        coordinator_pubkey: Option<String>,
+        /// Skip authentication, for fixtures and servers without a signed
+        /// manifest. The decoded row is then key-equivalent under a malicious
+        /// server and is not authenticated.
+        #[arg(long)]
+        allow_unverified: bool,
     },
+}
+
+/// Turns a `/query` response body into the decoded row bytes.
+type Decoder = Box<dyn FnOnce(&[u8]) -> Result<Vec<u8>>>;
+
+/// The `c1` rows a local-ipir response is decoded against.
+enum PublishedC1 {
+    /// Checked against the signed manifest; answers are authenticated.
+    Verified(Box<VerifiedPublicParams>),
+    /// Taken from the server as-is (`--allow-unverified`).
+    Unverified(Vec<Vec<u64>>),
+}
+
+/// Name a tampered answer plainly; `main` maps it to its own exit status.
+fn explain_decode_error(err: ClientError) -> anyhow::Error {
+    let context = match err {
+        ClientError::TamperDetected { .. } => {
+            "TAMPER DETECTED: the server answered from a database that does not match the \
+             coordinator-signed snapshot; do not act on this answer"
+        }
+        _ => "decode PIR response",
+    };
+    anyhow::Error::new(err).context(context)
+}
+
+/// How the query client authenticates the server.
+#[derive(Debug, Clone, Copy)]
+enum Trust {
+    Pinned([u8; COORDINATOR_KEY_BYTES]),
+    Unverified,
 }
 
 #[actix_web::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let result = run(Cli::parse()).await;
+    if let Err(err) = &result {
+        let tampered = err.chain().any(|cause| {
+            matches!(
+                cause.downcast_ref::<ClientError>(),
+                Some(ClientError::TamperDetected { .. })
+            )
+        });
+        if tampered {
+            eprintln!("Error: {err:#}");
+            std::process::exit(TAMPER_EXIT_CODE);
+        }
+    }
+    result
+}
+
+async fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Download { url, output } => {
             let metadata = download_snapshot(&url, &output)?;
@@ -141,6 +225,7 @@ async fn main() -> Result<()> {
             port,
             setup_seed,
             hash_snapshot,
+            dev_sign_key_file,
         } => {
             if !snapshot_path.exists() {
                 let Some(url) = snapshot_url.as_deref() else {
@@ -172,9 +257,32 @@ async fn main() -> Result<()> {
             write_metadata(snapshot.path(), &metadata)?;
 
             let backend = Backend::prepare(backend, &snapshot, setup_seed)?;
+            let manifest = publish_manifest(
+                &snapshot,
+                &backend,
+                setup_seed,
+                dev_sign_key_file.as_deref(),
+            )?;
             let backend: Arc<dyn PirBackend> = Arc::new(backend);
             println!("Listening on http://{host}:{port}");
-            nullifier_pir::http::serve(host, port, backend, metadata).await?;
+            nullifier_pir::http::serve(host, port, backend, metadata, manifest).await?;
+        }
+        Command::Manifest {
+            snapshot_path,
+            setup_seed,
+            dev_sign_key_file,
+        } => {
+            let snapshot = NullifierSnapshot::open(&snapshot_path)?;
+            let backend = Backend::prepare(BackendKind::LocalIpir, &snapshot, setup_seed)?;
+            let artifacts = publish_manifest(
+                &snapshot,
+                &backend,
+                setup_seed,
+                dev_sign_key_file.as_deref(),
+            )?
+            .context("local-ipir backend has no production profile to describe")?;
+            print!("{}", String::from_utf8_lossy(&artifacts.manifest));
+            println!("manifest_sha256 {}", artifacts.manifest_sha256());
         }
         Command::Query {
             server_url,
@@ -183,7 +291,16 @@ async fn main() -> Result<()> {
             setup_seed,
             expect_absent,
             absent_probe_row,
+            coordinator_pubkey,
+            allow_unverified,
         } => {
+            let trust = match (coordinator_pubkey, allow_unverified) {
+                (Some(key), false) => Trust::Pinned(parse_coordinator_key(&key)?),
+                (None, true) => Trust::Unverified,
+                _ => anyhow::bail!(
+                    "pass --coordinator-pubkey to authenticate the server, or --allow-unverified for fixtures"
+                ),
+            };
             let target = parse_nullifier_hex(&nullifier_hex)?;
             let snapshot = NullifierSnapshot::open(&snapshot_path)?;
             let found = snapshot.find_nullifier(&target)?;
@@ -194,8 +311,14 @@ async fn main() -> Result<()> {
                         "expected absent nullifier, but found it at global index {index}"
                     );
                 }
-                let row_bytes =
-                    query_row(&server_url, setup_seed, absent_probe_row, &target, None)?;
+                let row_bytes = query_row(
+                    &server_url,
+                    setup_seed,
+                    absent_probe_row,
+                    &target,
+                    None,
+                    trust,
+                )?;
                 if row_contains_nullifier(&row_bytes, &target) {
                     anyhow::bail!(
                         "absent nullifier unexpectedly appeared in decoded row {absent_probe_row}"
@@ -211,7 +334,8 @@ async fn main() -> Result<()> {
                     anyhow::bail!("nullifier was not found in {}", snapshot_path.display());
                 };
                 let (row, offset) = nullifier_offset(index);
-                let row_bytes = query_row(&server_url, setup_seed, row, &target, Some(offset))?;
+                let row_bytes =
+                    query_row(&server_url, setup_seed, row, &target, Some(offset), trust)?;
                 let returned = extract_nullifier(&row_bytes, offset)
                     .context("decoded row did not contain expected offset")?;
                 if returned != target {
@@ -231,12 +355,117 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Generate, sign (dev only) and write the manifest artefacts for a backend
+/// that has a production profile. Returns what `/manifest` should serve.
+fn publish_manifest(
+    snapshot: &NullifierSnapshot,
+    backend: &Backend,
+    setup_seed: u64,
+    dev_sign_key_file: Option<&Path>,
+) -> Result<Option<ManifestArtifacts>> {
+    let Some(params) = backend.production_params() else {
+        if dev_sign_key_file.is_some() {
+            anyhow::bail!("--dev-sign-key-file needs the local-ipir backend");
+        }
+        return Ok(None);
+    };
+    let dev_key = dev_sign_key_file
+        .map(nullifier_pir::manifest::read_dev_signing_key)
+        .transpose()?;
+    if let Some(key) = &dev_key {
+        eprintln!(
+            "warning: signing the manifest with DEV key {}; production signatures come from the coordinator",
+            hex::encode(key.verifying_key().to_bytes())
+        );
+    }
+    let started = Instant::now();
+    let (manifest, row_digests) =
+        nullifier_pir::manifest::generate(snapshot, params, setup_seed, &backend.public_params())?;
+    let dir = nullifier_pir::manifest::artifact_dir(snapshot.path());
+    let artifacts =
+        nullifier_pir::manifest::publish(&dir, &manifest, &row_digests, dev_key.as_ref())?;
+    println!(
+        "manifest {} sha256={} rows={} signed={} in {} ms",
+        dir.join(nullifier_pir::manifest::MANIFEST_FILE).display(),
+        artifacts.manifest_sha256(),
+        manifest.row_count,
+        artifacts.signature.is_some(),
+        started.elapsed().as_millis()
+    );
+    Ok(Some(artifacts))
+}
+
+fn parse_coordinator_key(input: &str) -> Result<[u8; COORDINATOR_KEY_BYTES]> {
+    let bytes = hex::decode(input.trim()).context("--coordinator-pubkey is not valid hex")?;
+    bytes.try_into().map_err(|bytes: Vec<u8>| {
+        anyhow::anyhow!(
+            "--coordinator-pubkey must be {COORDINATOR_KEY_BYTES} bytes, got {}",
+            bytes.len()
+        )
+    })
+}
+
+fn get_bytes(client: &reqwest::blocking::Client, url: &str) -> Result<Vec<u8>> {
+    Ok(client
+        .get(url)
+        .send()
+        .with_context(|| format!("GET {url}"))?
+        .error_for_status()
+        .with_context(|| format!("GET {url}"))?
+        .bytes()
+        .with_context(|| format!("read {url} body"))?
+        .to_vec())
+}
+
+/// Fetch and check every snapshot artefact before the first query, so a
+/// failed check sends nothing.
+fn fetch_verified_params(
+    client: &reqwest::blocking::Client,
+    server_url: &str,
+    meta: &serde_json::Value,
+    profile: &ProductionSimplePirParams,
+    setup_seed: u64,
+    coordinator_key: &[u8; COORDINATOR_KEY_BYTES],
+    public_params: &[u8],
+) -> Result<VerifiedPublicParams> {
+    let base = server_url.trim_end_matches('/');
+    let envelope: ManifestEnvelope =
+        serde_json::from_slice(&get_bytes(client, &format!("{base}{MANIFEST_ENDPOINT}"))?)
+            .context("decode /manifest JSON")?;
+    let (manifest, signature) = envelope.decode()?;
+    let signature = signature
+        .context("server has no coordinator signature for this snapshot; refusing to query")?;
+    let row_digests = get_bytes(client, &format!("{base}{ROW_DIGESTS_ENDPOINT}"))?;
+
+    let advertised = meta["manifest_sha256"]
+        .as_str()
+        .context("missing manifest_sha256 in /meta")?;
+    let fetched = hex::encode(sha2::Sha256::digest(&manifest));
+    if advertised != fetched {
+        anyhow::bail!(
+            "/meta advertises manifest {advertised} but /manifest served {fetched}; the snapshot changed, retry"
+        );
+    }
+
+    VerifiedPublicParams::verify(
+        profile,
+        setup_seed,
+        coordinator_key,
+        &manifest,
+        &signature,
+        public_params,
+        &row_digests,
+    )
+    .context("server snapshot artefacts failed verification; refusing to query")
+}
+
 fn query_row(
     server_url: &str,
     setup_seed: u64,
     row: usize,
     target: &[u8; nullifier_pir::NULLIFIER_BYTES],
     expected_offset: Option<usize>,
+    trust: Trust,
 ) -> Result<Vec<u8>> {
     let client = reqwest::blocking::Client::new();
     let meta_url = format!("{}{}", server_url.trim_end_matches('/'), META_ENDPOINT);
@@ -271,97 +500,126 @@ fn query_row(
     let query_gen_started = Instant::now();
     let query_url = format!("{}{}", server_url.trim_end_matches('/'), QUERY_ENDPOINT);
 
-    let (query_body, upload_breakdown, decoder): (
-        Vec<u8>,
-        UploadBreakdown,
-        Box<dyn FnOnce(&[u8]) -> Vec<u8>>,
-    ) = if backend_kind == "ypir-artifact" {
-        #[cfg(feature = "ypir-artifact")]
-        {
-            let ypir_client = ypir::client::YPIRClient::from_db_sz(pir_item_count, ITEM_SIZE_BITS);
-            let (query, client_seed) = ypir_client.generate_query_simplepir(row);
-            let simplepir_query_bytes = query.0.as_slice().len() * std::mem::size_of::<u64>();
-            let pack_pub_params_bytes = query.1.as_slice().len() * std::mem::size_of::<u64>();
-            let query_body = YpirToBytes::to_bytes(&query);
+    let (query_body, upload_breakdown, decoder): (Vec<u8>, UploadBreakdown, Decoder) =
+        if backend_kind == "ypir-artifact" {
+            if let Trust::Pinned(_) = trust {
+                anyhow::bail!(
+                "the ypir-artifact backend has no signed manifest; pass --allow-unverified to query it"
+            );
+            }
+            #[cfg(feature = "ypir-artifact")]
+            {
+                let ypir_client =
+                    ypir::client::YPIRClient::from_db_sz(pir_item_count, ITEM_SIZE_BITS);
+                let (query, client_seed) = ypir_client.generate_query_simplepir(row);
+                let simplepir_query_bytes = query.0.as_slice().len() * std::mem::size_of::<u64>();
+                let pack_pub_params_bytes = query.1.as_slice().len() * std::mem::size_of::<u64>();
+                let query_body = YpirToBytes::to_bytes(&query);
+                (
+                    query_body,
+                    UploadBreakdown {
+                        backend: "ypir-artifact",
+                        components: vec![
+                            ("simplepir_query", simplepir_query_bytes),
+                            ("pack_pub_params", pack_pub_params_bytes),
+                        ],
+                    },
+                    Box::new(move |response| {
+                        Ok(ypir_client.decode_response_simplepir(client_seed, response))
+                    }),
+                )
+            }
+            #[cfg(not(feature = "ypir-artifact"))]
+            {
+                anyhow::bail!(
+                    "server uses ypir-artifact, but client was built without that feature"
+                );
+            }
+        } else {
+            let profile = ProductionSimplePirParams::new(
+                pir_item_count,
+                ITEM_SIZE_BITS,
+                SimplePirProfile::P14,
+            )
+            .context("derive SimplePIR parameters from /meta")?;
+            let pir_client = IPIRClient::new(&profile);
+            // `c1` is constant for the snapshot, so it is fetched once here instead
+            // of riding along with every response.
+            let public_params_url = format!(
+                "{}{}",
+                server_url.trim_end_matches('/'),
+                PUBLIC_PARAMS_ENDPOINT
+            );
+            let published_c1_bytes = get_bytes(&client, &public_params_url)?;
+            // Everything the decoder needs is checked here, before the query is
+            // built, so a failed check sends nothing.
+            let published_c1 = match trust {
+                Trust::Pinned(key) => PublishedC1::Verified(Box::new(fetch_verified_params(
+                    &client,
+                    server_url,
+                    &meta,
+                    &profile,
+                    setup_seed,
+                    &key,
+                    &published_c1_bytes,
+                )?)),
+                Trust::Unverified => {
+                    eprintln!(
+                        "warning: --allow-unverified: c1 and the answer are not authenticated"
+                    );
+                    PublishedC1::Unverified(recover_published_c1(
+                        &published_c1_bytes,
+                        pir_client.rlwe_params().d,
+                        pir_client.params().db_cols / pir_client.rlwe_params().d,
+                        pir_client.rlwe_params().q,
+                    )?)
+                }
+            };
+            let offline_query_polys = pir_client.generate_public_query_setup_simplepir_from_seed(
+                nullifier_pir::backend::seed_from_u64(setup_seed),
+            );
+            let (query, packing_keys, client_seed) =
+                pir_client.generate_fresh_query_simplepir(&offline_query_polys, row);
+            let packing_keys_body = serialize_packing_keys(pir_client.rlwe_params(), &packing_keys)
+                .context("serialize local ipir packing keys")?;
+            let online_query_packed =
+                query.to_switched_bytes(pir_client.rlwe_params().q, pir_client.params().query_bits);
+            let packing_keys_bytes = packing_keys_body.len();
+            let online_query_packed_bytes = online_query_packed.len();
+            let mut query_body = Vec::with_capacity(packing_keys_bytes + online_query_packed_bytes);
+            query_body.extend_from_slice(&packing_keys_body);
+            query_body.extend_from_slice(&online_query_packed);
             (
                 query_body,
                 UploadBreakdown {
-                    backend: "ypir-artifact",
+                    backend: "local-ipir",
                     components: vec![
-                        ("simplepir_query", simplepir_query_bytes),
-                        ("pack_pub_params", pack_pub_params_bytes),
+                        ("packing_keys", packing_keys_bytes),
+                        ("online_query", online_query_packed_bytes),
                     ],
                 },
-                Box::new(move |response| {
-                    ypir_client.decode_response_simplepir(client_seed, response)
+                Box::new(move |response| match published_c1 {
+                    PublishedC1::Verified(verified) => pir_client
+                        .decode_response_simplepir_verified(client_seed, &verified, response, row)
+                        .map_err(explain_decode_error),
+                    PublishedC1::Unverified(published_c1) => {
+                        let decoded_coeffs = pir_client.decode_response_simplepir_raw_unverified(
+                            client_seed,
+                            &published_c1,
+                            response,
+                        )?;
+                        Ok(decode_item_coefficients(&decoded_coeffs))
+                    }
                 }),
             )
-        }
-        #[cfg(not(feature = "ypir-artifact"))]
-        {
-            anyhow::bail!("server uses ypir-artifact, but client was built without that feature");
-        }
-    } else {
-        let pir_client = IPIRClient::from_db_sz(pir_item_count, ITEM_SIZE_BITS);
-        // `c1` is constant for the snapshot, so it is fetched once here instead
-        // of riding along with every response.
-        let public_params_url = format!(
-            "{}{}",
-            server_url.trim_end_matches('/'),
-            PUBLIC_PARAMS_ENDPOINT
-        );
-        let published_c1_bytes = client
-            .get(&public_params_url)
-            .send()
-            .with_context(|| format!("GET {public_params_url}"))?
-            .error_for_status()?
-            .bytes()
-            .with_context(|| format!("read {public_params_url} body"))?
-            .to_vec();
-        let blocks = pir_client.params().db_cols / pir_client.rlwe_params().d;
-        let published_c1 = recover_published_c1(
-            &published_c1_bytes,
-            pir_client.rlwe_params().d,
-            blocks,
-            pir_client.rlwe_params().q,
-        );
-        let offline_query_polys = pir_client.generate_public_query_setup_simplepir_from_seed(
-            nullifier_pir::backend::seed_from_u64(setup_seed),
-        );
-        let (query, packing_keys, client_seed) =
-            pir_client.generate_fresh_query_simplepir(&offline_query_polys, row);
-        let packing_keys_body = serialize_packing_keys(pir_client.rlwe_params(), &packing_keys)
-            .context("serialize local ipir packing keys")?;
-        let online_query_packed =
-            query.to_switched_bytes(pir_client.rlwe_params().q, pir_client.params().query_bits);
-        let packing_keys_bytes = packing_keys_body.len();
-        let online_query_packed_bytes = online_query_packed.len();
-        let mut query_body = Vec::with_capacity(packing_keys_bytes + online_query_packed_bytes);
-        query_body.extend_from_slice(&packing_keys_body);
-        query_body.extend_from_slice(&online_query_packed);
-        (
-            query_body,
-            UploadBreakdown {
-                backend: "local-ipir",
-                components: vec![
-                    ("packing_keys", packing_keys_bytes),
-                    ("online_query", online_query_packed_bytes),
-                ],
-            },
-            Box::new(move |response| {
-                let decoded_coeffs =
-                    pir_client.decode_response_simplepir_raw(client_seed, &published_c1, response);
-                decode_item_coefficients(&decoded_coeffs)
-            }),
-        )
-    };
+        };
     let query_gen_time = query_gen_started.elapsed();
 
     let (response, post_round_trip, server_timing, upload_bytes, download_bytes) =
         post_query(&client, &query_url, query_body)?;
 
     let decode_started = Instant::now();
-    let row_bytes = decoder(&response);
+    let row_bytes = decoder(&response)?;
     let decode_time = decode_started.elapsed();
     if let Some(offset) = expected_offset {
         let returned = extract_nullifier(&row_bytes, offset)

@@ -61,10 +61,10 @@ pub trait PirBackend: Send + Sync {
     }
 }
 
+/// Expand a `--setup-seed` value. Shared with the manifest so a signed
+/// `setup_seed` names exactly the public setup this server precomputed.
 pub fn seed_from_u64(value: u64) -> [u8; 32] {
-    let mut seed = [0u8; 32];
-    seed[..8].copy_from_slice(&value.to_le_bytes());
-    seed
+    ipir_sp::manifest::setup_seed_from_u64(value)
 }
 
 pub struct LocalIpirBackend {
@@ -82,6 +82,10 @@ pub struct LocalIpirBackend {
     server: IPIRServer<u16>,
     /// Serialized snapshot-constant `c1` rows, one per output block.
     published_c1: Vec<u8>,
+    /// The pinned production profile, or `None` for research parameters.
+    /// Only a production profile can be described by a signed manifest.
+    /// Boxed: the parameter set is large and only read at startup.
+    profile: Option<Box<ProductionSimplePirParams>>,
     /// Per-block preprocessing used to pack SimplePIR responses efficiently.
     pack_preprocessed: Vec<inspiring::QueryPackPreprocessed<'static>>,
     /// Cached top-level key images used during query response packing.
@@ -153,9 +157,16 @@ impl LocalIpirBackend {
             setup_seed,
             server,
             published_c1: ipir_sp::server::published_c1_rows(&pack_preprocessed, rlwe.q),
+            profile: profile.cloned().map(Box::new),
             pack_preprocessed,
             top_key_images,
         })
+    }
+
+    /// The production profile this backend serves, if any.
+    #[must_use]
+    pub fn production_params(&self) -> Option<&ProductionSimplePirParams> {
+        self.profile.as_deref()
     }
 
     fn parse_fresh_query(
@@ -260,6 +271,19 @@ impl Backend {
                     )
                 }
             }
+        }
+    }
+}
+
+impl Backend {
+    /// The production profile served, for backends a signed manifest can
+    /// describe. `None` for `ypir-artifact`, which inlines `c1` in responses.
+    #[must_use]
+    pub fn production_params(&self) -> Option<&ProductionSimplePirParams> {
+        match self {
+            Self::Local(backend) => backend.production_params(),
+            #[cfg(feature = "ypir-artifact")]
+            Self::YpirArtifact(_) => None,
         }
     }
 }

@@ -354,10 +354,11 @@ For a single SimplePIR query:
    lifts the query back to `q`, runs the matrix product through
    `simplepir-kernel`, packs each intermediate `b` block against the uploaded
    key bodies, and returns only the `c2` rows, modulus-switched.
-5. **Client decode.** `IPIRClient::decode_response_simplepir` pairs each `c2`
-   with its published `c1` and runs standard RLWE decryption; do **not** apply
-   YPIR's extra `poly_len` multiplier (InspiRING absorbs the `d^-1` scaling
-   internally).
+5. **Client decode.** `IPIRClient::decode_response_simplepir_verified` pairs
+   each `c2` with its published `c1` (checked against a coordinator-signed
+   manifest in `VerifiedPublicParams`), runs standard RLWE decryption, and
+   checks the row against its signed digest; do **not** apply YPIR's extra
+   `poly_len` multiplier (InspiRING absorbs the `d^-1` scaling internally).
 
 A worked example lives in
 [`ipir-sp/README.md`](ipir-sp/README.md#basic-flow).
@@ -379,8 +380,11 @@ cargo run --release -p nullifier-pir -- serve \
 ```
 
 The server exposes `GET /health`, `GET /meta`, `GET /public-params` (the
-snapshot-constant `c1` rows, fetched once per snapshot), and `POST /query` with
-backend-native query bytes.
+snapshot-constant `c1` rows, fetched once per snapshot), `GET /manifest` and
+`GET /row-digests` (the coordinator-signed snapshot manifest and per-row
+digests clients use to authenticate answers; see
+[`nullifier-pir/README.md`](nullifier-pir/README.md#snapshot-manifests)), and
+`POST /query` with backend-native query bytes.
 
 ## References
 
