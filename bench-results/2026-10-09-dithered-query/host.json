@@ -1,0 +1,9 @@
+{
+  "cpu": "DO-Premium-Intel",
+  "vcpus": 8,
+  "memory_bytes": "33654894592",
+  "os": "Linux x86_64",
+  "rustc": "rustc 1.89.0 (29483883e 2025-08-04)",
+  "rayon_workers": 6,
+  "shared_host": "DigitalOcean droplet also running the dev hub; timings are paired comparisons only"
+}

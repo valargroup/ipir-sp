@@ -7,7 +7,7 @@ import subprocess
 import sys
 from decimal import Decimal, localcontext
 from fractions import Fraction as F
-from certify_native import exp_upper, sampler_bounds, certified_bits, evaluate
+from certify_native import exp_upper, sampler_bounds, certified_bits, evaluate, query_terms, query_transport, report_format, REPORT_FORMATS, LN2_UPPER
 
 
 class CertificateTests(unittest.TestCase):
@@ -124,6 +124,86 @@ class CertificateTests(unittest.TestCase):
         self.assertLess(certified_bits(weights,500,450,32768,mean,bounds),78)
         with self.assertRaises(ValueError):
             sampler_bounds([(0,2**64-1)])
+
+    def test_recorded_dithered_query_certificates_and_rejection(self):
+        evidence=Path(__file__).resolve().parents[3]/'bench-results/2026-10-09-dithered-query'
+        for name, bits, rounding, expected in (
+                ('one-mask-n49',49,'nearest',405),('one-mask-d44',44,'dithered',406),('one-mask-d43',43,'dithered',208),
+                ('two-mask29-n49',49,'nearest',228),('two-mask29-d44',44,'dithered',230),('two-mask29-d43',43,'dithered',147),
+                ('two-mask29-65536-n49',49,'nearest',158)):
+            report=json.loads((evidence/f'noise-{name}.json').read_text())
+            self.assertEqual(report['format'].endswith('-dithered-v1'),rounding=='dithered')
+            result=evaluate(report)
+            actual=result['actual_profile']
+            self.assertEqual((actual['query_bits'],actual['query_rounding'],actual['certified_failure_bits']),(bits,rounding,expected))
+            self.assertTrue(actual['meets_128'])
+            self.assertEqual(len(result['query_screen']),11)
+        big=evaluate(json.loads((evidence/'noise-two-mask29-65536-n49.json').read_text()))
+        self.assertEqual(next(v['certified_failure_bits'] for v in big['query_screen'] if v['query_rounding']=='dithered' and v['query_bits']==49),295)
+        self.assertEqual(big['smallest_screened_query_bits_128'],44)
+        report=json.loads((evidence/'noise-one-mask-d43.json').read_text())
+        for mutation in ('nearest','unlabelled','nearest_format','width','missing','small','large'):
+            bad=copy.deepcopy(report)
+            if mutation=='nearest': bad['query_rounding']='nearest'
+            if mutation=='unlabelled': del bad['query_rounding']
+            if mutation=='nearest_format': bad['format']='native-noise-v1'
+            if mutation=='width': bad['query_bits']=50
+            if mutation=='missing': del bad['blocks'][0]['query_l2_squared']
+            if mutation=='small': bad['blocks'][0]['query_l2_squared']=str(int(bad['blocks'][0]['query_l1'])-1)
+            if mutation=='large': bad['blocks'][0]['query_l2_squared']=str(int(bad['blocks'][0]['query_l1'])*65535+1)
+            with self.assertRaises(ValueError): evaluate(bad)
+
+    def test_report_format_must_match_query_rounding(self):
+        # Nearest reports keep the formats that predate dithering.
+        self.assertEqual(sorted(f for f,(_,_,d) in REPORT_FORMATS.items() if not d),
+                         ['native-noise-rounded-v1','native-noise-two-mask-rounded-v1',
+                          'native-noise-two-mask-v1','native-noise-v1'])
+        self.assertEqual(report_format({'format':'native-noise-two-mask-rounded-dithered-v1','query_rounding':'dithered'}),(True,True))
+        self.assertEqual(report_format({'format':'native-noise-v1'}),(False,False))
+        for fmt,rounding in (('native-noise-dithered-v1','nearest'),('native-noise-dithered-v1',None),
+                             ('native-noise-v1','dithered'),('native-noise-two-mask-v1','dithered'),
+                             ('native-noise-dithered','dithered'),('native-noise-v1-dithered','dithered')):
+            report={'format':fmt} if rounding is None else {'format':fmt,'query_rounding':rounding}
+            with self.assertRaises(ValueError):
+                report_format(report)
+        evidence=Path(__file__).resolve().parents[3]/'bench-results/2026-10-09-dithered-query'
+        for name,fmt in (('one-mask-n49','native-noise-dithered-v1'),('one-mask-d43','native-noise-v1'),
+                         ('two-mask29-n49','native-noise-two-mask-rounded-dithered-v1'),
+                         ('two-mask29-d44','native-noise-two-mask-rounded-v1')):
+            bad=json.loads((evidence/f'noise-{name}.json').read_text())
+            bad['format']=fmt
+            with self.assertRaises(ValueError): evaluate(bad)
+
+    def test_dither_variance_enters_the_chernoff_exponent(self):
+        mean,bounds=sampler_bounds([(-1,2**63),(1,2**63)])
+        none={'l1':0,'l2_squared':0,'max':0}
+        # Dither alone: exponent B²/(2V) = 100 nats; one coefficient costs one union bit.
+        self.assertEqual(certified_bits(none,1000,0,1,mean,bounds,F(10**6,200)),
+                         int(F(100)//LN2_UPPER)-1)
+        self.assertEqual(certified_bits(none,1000,0,1,mean,bounds),1000000)
+        weights={'l1':1024,'l2_squared':1024,'max':1}
+        clean=certified_bits(weights,500,0,1,mean,bounds)
+        noisy=certified_bits(weights,500,0,1,mean,bounds,1000)
+        self.assertLess(noisy,clean)
+        with self.assertRaises(ValueError):
+            certified_bits(weights,500,0,1,mean,bounds,-1)
+
+    def test_query_transport_terms_and_rejections(self):
+        block={'query_l1':'100','query_l2_squared':'5000'}
+        self.assertEqual(query_terms(block,10,49,False),(1600,0))
+        self.assertEqual(query_terms(block,10,44,True),(0,F(5000*2**20,4)))
+        for bits,rounding in ((49,'nearest'),(49,'dithered'),(48,'dithered'),(40,'dithered')):
+            self.assertEqual(query_transport({'query_bits':bits,'query_rounding':rounding}),(bits,rounding=='dithered'))
+        self.assertEqual(query_transport({'query_bits':49}),(49,False))
+        for bits,rounding in ((48,'nearest'),(39,'dithered'),(50,'dithered'),(44,'floor')):
+            with self.assertRaises(ValueError):
+                query_transport({'query_bits':bits,'query_rounding':rounding})
+        for bad in ({'query_l1':'100','query_l2_squared':'99'},
+                    {'query_l1':'100','query_l2_squared':str(100*65535+1)},
+                    {'query_l1':'100'},
+                    {'query_l1':str(10*65535+1),'query_l2_squared':'1'}):
+            with self.assertRaises(ValueError):
+                query_terms(bad,10,44,True)
 
 
 if __name__ == '__main__':

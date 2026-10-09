@@ -5,12 +5,14 @@ use ipir_sp::native::*;
 use reinspiring::native::*;
 use rand_chacha::{ChaCha20Rng,rand_core::SeedableRng};
 struct Fixture { server:NativeServer, request:NativeRequest, valid:Vec<u8>, response:Vec<u8> }
-fn fixtures()->&'static [Fixture;5] {
- static F:OnceLock<[Fixture;5]>=OnceLock::new();
- F.get_or_init(|| [54,47,0,29,32].map(|bits| {
+fn fixtures()->&'static [Fixture;7] {
+ static F:OnceLock<[Fixture;7]>=OnceLock::new();
+ // (K_h or two-mask public-mask bits, dithered query bits; 0 = nearest 49).
+ F.get_or_init(|| [(54,0),(47,0),(0,0),(29,0),(32,0),(47,43),(0,45)].map(|(bits,query)| {
   let p=NativeParams::new(8,54,14,19,2,SecretDistribution::Gaussian).unwrap();
   let profile=NativeProfile::new(p,8,8).unwrap();
   let profile=if bits==0 {profile.with_two_mask_output().unwrap()} else if bits<40 {profile.with_two_mask_output().unwrap().with_published_mask_bits(bits).unwrap()} else {profile.with_kh_bits(bits).unwrap()};
+  let profile=if query==0 {profile} else {profile.with_dithered_query_bits(query).unwrap()};
   let setup=NativePublicSetup::new(profile,[1;32],[2;32]);
   let server=NativeServer::build(setup,vec![1;64]).unwrap();
   let request=NativeRequest::generate_with_rng(server.setup(),0,&mut ChaCha20Rng::seed_from_u64(9)).unwrap();

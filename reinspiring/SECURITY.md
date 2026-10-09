@@ -60,8 +60,11 @@ independent samples. Approximate-decomposition and D.1 errors reuse secret
 coefficients and need analogous accounting, or valid deterministic budgets.
 
 The first dimension also contributes database-weighted query errors and rounding.
-The native query rounding magnitude is <=q/2^(query_bits+1) per coefficient;
-response-body rounding is <=q/2^(response_bits+1). p divides q in native profiles,
+The native query rounding magnitude is <=q/2^(query_bits+1) per coefficient with
+the default nearest rounding. Opt-in dithered profiles round each coefficient by
+less than q/2^query_bits (a full unit) and are budgeted statistically, not by
+worst case; see [the dithered-query argument](tools/security/NATIVE_CERTIFICATE.md#dithered-query-bodies).
+Response-body rounding is <=q/2^(response_bits+1). p divides q in native profiles,
 so there is no q mod p encoding residual. Tests report centered distance from the
 known encoded row and compare decoded rows exactly. Historical InspiRING snapshot
 certificates do not cover these native schedules.

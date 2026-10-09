@@ -13,6 +13,9 @@ use reinspiring::{lift_ntt::LiftContext, native::*, ReinspiringError};
 use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
 
+/// Smallest dithered query precision certified on the recorded full-size snapshot.
+const MIN_DITHERED_QUERY_BITS: usize = 43;
+
 /// Validated profile and database shape. All fields are immutable.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NativeProfile {
@@ -24,6 +27,7 @@ pub struct NativeProfile {
     kh_bits: usize,
     two_mask: bool,
     published_mask_bits: usize,
+    dithered_query: bool,
 }
 impl NativeProfile {
     /// Database dimensions must be nonzero multiples of d, with bounded size.
@@ -52,6 +56,7 @@ impl NativeProfile {
             response_bits,
             two_mask: false,
             published_mask_bits: 64,
+            dithered_query: false,
         })
     }
     /// Experimental, lossy final-key transport. No correctness approval is implied.
@@ -105,6 +110,32 @@ impl NativeProfile {
     pub fn is_two_mask(&self) -> bool {
         self.two_mask
     }
+    /// Experimental dithered query transport at up to the legacy 49 bits.
+    /// Each coefficient rounds up with probability equal to its dropped
+    /// fraction, drawn from the request RNG, so rounding errors are
+    /// independent and zero-mean given the query. Requires a snapshot
+    /// certificate; 49-bit nearest rounding remains the default. Dithering
+    /// at 49 bits keeps the request length and tightens the certificate.
+    /// The 43-bit floor was certified on the recorded 28,672-row fixture only;
+    /// larger tables can need more (a 65,536-row two-mask screen needs 44).
+    pub fn with_dithered_query_bits(mut self, bits: usize) -> Result<Self, ReinspiringError> {
+        // The floor is the smallest precision certified on the recorded
+        // full-size snapshot; other snapshots need their own certificate.
+        if self.pack.q() != 1u64 << 54 || !(MIN_DITHERED_QUERY_BITS..=49).contains(&bits) {
+            return Err(err("dithered queries require native q54 and 43..=49 bits"));
+        }
+        self.query_bits = bits;
+        self.dithered_query = true;
+        Ok(self)
+    }
+    /// Bits transmitted per query coefficient.
+    pub fn query_bits(&self) -> usize {
+        self.query_bits
+    }
+    /// Whether query coefficients use dithered rather than nearest rounding.
+    pub fn is_dithered_query(&self) -> bool {
+        self.dithered_query
+    }
     fn request_magic(&self) -> &'static [u8; 4] {
         if self.two_mask {
             b"RNQ3"
@@ -152,6 +183,9 @@ impl NativePublicSetup {
         if profile.published_mask_bits != 64 {
             h.update(b"/rounded-public-masks-v1/");
             h.update((profile.published_mask_bits as u64).to_le_bytes());
+        }
+        if profile.dithered_query {
+            h.update(b"/dithered-query-v1/");
         }
         for n in [
             profile.rows,
@@ -248,10 +282,12 @@ impl NativeRequest {
                 p.kh_bits,
             ));
         }
-        bytes.extend(encode(
-            &down(&query, p.pack.q(), p.query_bits),
-            p.query_bits,
-        ));
+        let query = if p.dithered_query {
+            down_dithered(&query, p.pack.q(), p.query_bits, rng)
+        } else {
+            down(&query, p.pack.q(), p.query_bits)
+        };
+        bytes.extend(encode(&query, p.query_bits));
         let query_id = Sha256::digest(&bytes).into();
         Ok(Self {
             secret,
@@ -894,6 +930,20 @@ fn down(words: &[u64], q: u64, bits: usize) -> Vec<u64> {
         })
         .collect()
 }
+/// Unbiased randomized rounding: round up with probability `dropped / 2^shift`,
+/// exactly, by comparing the dropped bits with a fresh uniform integer.
+/// Branch-free in the coefficient values.
+fn down_dithered(words: &[u64], q: u64, bits: usize, rng: &mut ChaCha20Rng) -> Vec<u64> {
+    let shift = q.trailing_zeros() as usize - bits;
+    let low = (1u64 << shift) - 1;
+    words
+        .iter()
+        .map(|&x| {
+            let up = u64::from((rng.next_u64() & low) < (x & low));
+            ((x >> shift) + up) & ((1 << bits) - 1)
+        })
+        .collect()
+}
 fn up(words: &[u64], q: u64, bits: usize) -> Vec<u64> {
     let shift = q.trailing_zeros() as usize - bits;
     words.iter().map(|&x| x << shift).collect()
@@ -948,6 +998,226 @@ mod transport_tests {
             actual.decode(&server.published(), &response).unwrap(),
             vec![1, 0]
         );
+    }
+    /// Rebuild request bytes by hand from the RNG order and wire layout:
+    /// secret, keys, query, then (when `dithered`) one coin per query row.
+    fn rebuild_request(
+        setup: &NativePublicSetup,
+        target: usize,
+        seed: u64,
+        dithered: bool,
+    ) -> Vec<u8> {
+        let p = &setup.profile;
+        let (q, full) = (p.pack.q(), p.pack.q().trailing_zeros() as usize);
+        let mut rng = ChaCha20Rng::seed_from_u64(seed);
+        let secret = NativeSecret::sample(&p.pack, &mut rng);
+        let mut bytes = Vec::new();
+        if p.two_mask {
+            let keys = NativeKeys::generate_one_key(&setup.packing, &secret, &mut rng).unwrap();
+            bytes.extend(b"RNQ3");
+            bytes.extend(setup.id);
+            bytes.extend(encode(&keys.kg_words(), full));
+        } else if p.kh_bits == full {
+            let keys = NativeKeys::generate(&setup.packing, &secret, &mut rng).unwrap();
+            bytes.extend(b"RNQ1");
+            bytes.extend(setup.id);
+            bytes.extend(encode(&keys.words(), full));
+        } else {
+            let keys = NativeKeys::generate(&setup.packing, &secret, &mut rng).unwrap();
+            let (words, half) = (keys.words(), p.pack.ell() * p.pack.d());
+            bytes.extend(b"RNQ2");
+            bytes.extend(setup.id);
+            bytes.extend(encode(&words[..half], full));
+            bytes.extend(encode(&down(&words[half..], q, p.kh_bits), p.kh_bits));
+        }
+        let query = secret
+            .encrypt_selection(&setup.polys, target, &mut rng)
+            .unwrap();
+        let body = if dithered {
+            down_dithered(&query, q, p.query_bits, &mut rng)
+        } else {
+            down(&query, q, p.query_bits)
+        };
+        bytes.extend(encode(&body, p.query_bits));
+        bytes
+    }
+    #[test]
+    fn dithered_profiles_dispatch_to_dithered_rounding() {
+        let pack = NativeParams::new(8, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+        let base = NativeProfile::new(pack, 32, 16).unwrap();
+        let modes = [
+            base.clone(),
+            base.clone().with_kh_bits(47).unwrap(),
+            base.clone()
+                .with_two_mask_output()
+                .unwrap()
+                .with_published_mask_bits(29)
+                .unwrap(),
+        ];
+        for mode in &modes {
+            // The hand rebuild reproduces the nearest dispatch, so it is a
+            // faithful model of generate_with_rng for the cases below.
+            let setup = NativePublicSetup::new(mode.clone(), [7; 32], [19; 32]);
+            let actual =
+                NativeRequest::generate_with_rng(&setup, 5, &mut ChaCha20Rng::seed_from_u64(42))
+                    .unwrap();
+            assert_eq!(actual.bytes(), rebuild_request(&setup, 5, 42, false));
+            for bits in [49, 43] {
+                let p = mode.clone().with_dithered_query_bits(bits).unwrap();
+                let setup = NativePublicSetup::new(p, [7; 32], [19; 32]);
+                for (target, seed) in [(0, 42), (21, 43)] {
+                    let actual = NativeRequest::generate_with_rng(
+                        &setup,
+                        target,
+                        &mut ChaCha20Rng::seed_from_u64(seed),
+                    )
+                    .unwrap();
+                    let dithered = rebuild_request(&setup, target, seed, true);
+                    assert_eq!(actual.bytes(), dithered);
+                    // Nearest rounding of the same query differs only in the
+                    // body, so this fails if dispatch ever skips the coins.
+                    let nearest = rebuild_request(&setup, target, seed, false);
+                    let header = dithered.len() - packed_len(32, bits);
+                    assert_eq!(nearest.len(), dithered.len());
+                    assert_eq!(nearest[..header], dithered[..header]);
+                    assert_ne!(nearest, dithered);
+                }
+            }
+        }
+    }
+    #[test]
+    fn dithered_setup_id_known_answers() {
+        let pack = NativeParams::new(8, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+        let base = NativeProfile::new(pack.clone(), 16, 24).unwrap();
+        // Mode tags hashed before the dithered tag, in setup order.
+        let cases = [
+            (base.clone(), Vec::new()),
+            (
+                base.clone().with_kh_bits(47).unwrap(),
+                [b"/kh-transport-v2/".as_slice(), &47u64.to_le_bytes()].concat(),
+            ),
+            (
+                base.clone()
+                    .with_two_mask_output()
+                    .unwrap()
+                    .with_published_mask_bits(29)
+                    .unwrap(),
+                [
+                    b"/two-mask-one-key-v1/".as_slice(),
+                    b"/rounded-public-masks-v1/",
+                    &29u64.to_le_bytes(),
+                ]
+                .concat(),
+            ),
+        ];
+        for (mode, tags) in cases {
+            let nearest = NativePublicSetup::new(mode.clone(), [7; 32], [19; 32]);
+            for bits in [43, 49] {
+                let p = mode.clone().with_dithered_query_bits(bits).unwrap();
+                let setup = NativePublicSetup::new(p, [7; 32], [19; 32]);
+                let mut h = Sha256::new();
+                h.update(b"ipir-sp/native/v1/setup");
+                h.update(pack.encoding());
+                h.update(&tags);
+                h.update(b"/dithered-query-v1/");
+                for n in [16u64, 24, bits as u64, 22] {
+                    h.update(n.to_le_bytes());
+                }
+                h.update([7; 32]);
+                h.update([19; 32]);
+                let id: [u8; 32] = h.finalize().into();
+                assert_eq!(setup.id, id);
+                assert_ne!(setup.id, nearest.id);
+            }
+        }
+    }
+    #[test]
+    fn recorded_full_size_setup_ids() {
+        // Setup IDs of bench-results/2026-10-09-dithered-query/noise-*.json.
+        let pack = NativeParams::new(2048, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+        let one = NativeProfile::new(pack, 28672, 32768).unwrap();
+        let two = one
+            .clone()
+            .with_two_mask_output()
+            .unwrap()
+            .with_published_mask_bits(29)
+            .unwrap();
+        for (mode, bits, id) in [
+            (
+                &one,
+                None,
+                "5e4eaa75bcf3f162e5e12d9d09127ce658e9ac346c051839b6ee62106f379b48",
+            ),
+            (
+                &one,
+                Some(43),
+                "8111376fc9283b2fc4a0a19652ceaf3827ba23a4fe1b6b4e5091634e78ef6565",
+            ),
+            (
+                &one,
+                Some(44),
+                "7674eb4044d25468443dc4afb687ddca036b71970ab2b1b454f65eea19db2fc9",
+            ),
+            (
+                &two,
+                None,
+                "ab5b44513d72cbfc5eff42fec5f176bf7c4d5b6a5a45f50f7c3226ae4f26cb01",
+            ),
+            (
+                &two,
+                Some(43),
+                "3c3059d5d5c4252d8c0e20c5727a6848eb2f7c2a5b9d99149da8e5e6448c99f4",
+            ),
+            (
+                &two,
+                Some(44),
+                "1ff07e69124f147a7149707cd19c0d870c3bb0b282519c618e71e57b65863e90",
+            ),
+        ] {
+            let p = match bits {
+                Some(bits) => mode.clone().with_dithered_query_bits(bits).unwrap(),
+                None => mode.clone(),
+            };
+            let setup = NativePublicSetup::new(p, [7; 32], [19; 32]);
+            let hex: String = setup.id.iter().map(|x| format!("{x:02x}")).collect();
+            assert_eq!(hex, id);
+        }
+    }
+    #[test]
+    fn dithered_query_rounding_is_unbiased_floor_or_ceiling() {
+        let q = 1u64 << 54;
+        let mut rng = ChaCha20Rng::seed_from_u64(7);
+        for bits in [43, 48] {
+            let shift = 54 - bits;
+            let unit = 1u64 << shift;
+            let mask = (1u64 << bits) - 1;
+            // Exact multiples never move, whatever the coins.
+            let exact = [0, unit, q - unit];
+            assert_eq!(
+                down_dithered(&exact, q, bits, &mut rng),
+                exact.iter().map(|&x| x >> shift).collect::<Vec<_>>()
+            );
+            for x in [1, unit / 4, unit / 2, unit - 1, q - 1, q - unit / 3] {
+                let trials = 1 << 16;
+                let floor = x >> shift;
+                let ups = down_dithered(&vec![x; trials], q, bits, &mut rng)
+                    .into_iter()
+                    .filter(|&y| {
+                        // Only floor or ceiling; the ceiling of q-1 wraps to 0.
+                        assert!(y == floor || y == (floor + 1) & mask);
+                        y != floor
+                    })
+                    .count();
+                // Round-up frequency must match the dropped fraction (zero mean
+                // error); 6 binomial standard deviations at most p=1/2.
+                let expected = trials as f64 * (x & (unit - 1)) as f64 / unit as f64;
+                let sd = (trials as f64 / 4.0).sqrt();
+                assert!(
+                    (ups as f64 - expected).abs() <= 6.0 * sd,
+                    "bits={bits} x={x}: {ups} round-ups, expected {expected}"
+                );
+            }
+        }
     }
     #[test]
     fn key_and_public_mask_rounding_known_answers_and_modular_bound() {
