@@ -7,7 +7,7 @@ import subprocess
 import sys
 from decimal import Decimal, localcontext
 from fractions import Fraction as F
-from certify_native import exp_upper, sampler_bounds, certified_bits, evaluate, query_terms, query_transport, LN2_UPPER
+from certify_native import exp_upper, sampler_bounds, certified_bits, evaluate, query_terms, query_transport, report_format, REPORT_FORMATS, LN2_UPPER
 
 
 class CertificateTests(unittest.TestCase):
@@ -131,7 +131,9 @@ class CertificateTests(unittest.TestCase):
                 ('one-mask-n49',49,'nearest',405),('one-mask-d44',44,'dithered',406),('one-mask-d43',43,'dithered',208),
                 ('two-mask29-n49',49,'nearest',228),('two-mask29-d44',44,'dithered',230),('two-mask29-d43',43,'dithered',147),
                 ('two-mask29-65536-n49',49,'nearest',158)):
-            result=evaluate(json.loads((evidence/f'noise-{name}.json').read_text()))
+            report=json.loads((evidence/f'noise-{name}.json').read_text())
+            self.assertEqual(report['format'].endswith('-dithered-v1'),rounding=='dithered')
+            result=evaluate(report)
             actual=result['actual_profile']
             self.assertEqual((actual['query_bits'],actual['query_rounding'],actual['certified_failure_bits']),(bits,rounding,expected))
             self.assertTrue(actual['meets_128'])
@@ -140,13 +142,36 @@ class CertificateTests(unittest.TestCase):
         self.assertEqual(next(v['certified_failure_bits'] for v in big['query_screen'] if v['query_rounding']=='dithered' and v['query_bits']==49),295)
         self.assertEqual(big['smallest_screened_query_bits_128'],44)
         report=json.loads((evidence/'noise-one-mask-d43.json').read_text())
-        for mutation in ('nearest','width','missing','small','large'):
+        for mutation in ('nearest','unlabelled','nearest_format','width','missing','small','large'):
             bad=copy.deepcopy(report)
             if mutation=='nearest': bad['query_rounding']='nearest'
+            if mutation=='unlabelled': del bad['query_rounding']
+            if mutation=='nearest_format': bad['format']='native-noise-v1'
             if mutation=='width': bad['query_bits']=50
             if mutation=='missing': del bad['blocks'][0]['query_l2_squared']
             if mutation=='small': bad['blocks'][0]['query_l2_squared']=str(int(bad['blocks'][0]['query_l1'])-1)
             if mutation=='large': bad['blocks'][0]['query_l2_squared']=str(int(bad['blocks'][0]['query_l1'])*65535+1)
+            with self.assertRaises(ValueError): evaluate(bad)
+
+    def test_report_format_must_match_query_rounding(self):
+        # Nearest reports keep the formats that predate dithering.
+        self.assertEqual(sorted(f for f,(_,_,d) in REPORT_FORMATS.items() if not d),
+                         ['native-noise-rounded-v1','native-noise-two-mask-rounded-v1',
+                          'native-noise-two-mask-v1','native-noise-v1'])
+        self.assertEqual(report_format({'format':'native-noise-two-mask-rounded-dithered-v1','query_rounding':'dithered'}),(True,True))
+        self.assertEqual(report_format({'format':'native-noise-v1'}),(False,False))
+        for fmt,rounding in (('native-noise-dithered-v1','nearest'),('native-noise-dithered-v1',None),
+                             ('native-noise-v1','dithered'),('native-noise-two-mask-v1','dithered'),
+                             ('native-noise-dithered','dithered'),('native-noise-v1-dithered','dithered')):
+            report={'format':fmt} if rounding is None else {'format':fmt,'query_rounding':rounding}
+            with self.assertRaises(ValueError):
+                report_format(report)
+        evidence=Path(__file__).resolve().parents[3]/'bench-results/2026-10-09-dithered-query'
+        for name,fmt in (('one-mask-n49','native-noise-dithered-v1'),('one-mask-d43','native-noise-v1'),
+                         ('two-mask29-n49','native-noise-two-mask-rounded-dithered-v1'),
+                         ('two-mask29-d44','native-noise-two-mask-rounded-v1')):
+            bad=json.loads((evidence/f'noise-{name}.json').read_text())
+            bad['format']=fmt
             with self.assertRaises(ValueError): evaluate(bad)
 
     def test_dither_variance_enters_the_chernoff_exponent(self):

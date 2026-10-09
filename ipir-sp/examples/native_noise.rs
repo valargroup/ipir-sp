@@ -1,6 +1,7 @@
 //! Public snapshot noise report. Args: rows cols Kh-wire-bits published-mask-bits
 //! (defaults: 28672 32768 54 64), plus `--two-mask` and `--query-bits N`
 //! (dithered query transport below the default 49-bit nearest rounding).
+//! Dithered reports use a distinct `...-dithered-v1` format.
 //! Deterministic research snapshot; never a certificate for a different database.
 use ipir_sp::native::*;
 use rand_chacha::{
@@ -55,6 +56,18 @@ fn main() {
             "nearest"
         },
     );
+    // Dithered reports get their own format so checkers that predate dithering,
+    // which budget only nearest rounding, reject them instead of misreading them.
+    let format = format!(
+        "native-noise{}{}{}-v1",
+        if two_mask { "-two-mask" } else { "" },
+        if published_bits != 64 { "-rounded" } else { "" },
+        if profile.is_dithered_query() {
+            "-dithered"
+        } else {
+            ""
+        },
+    );
     let setup = NativePublicSetup::new(profile, [7; 32], [19; 32]);
     let mut rng = ChaCha20Rng::seed_from_u64(0x2417);
     let db: Vec<u16> = (0..rows * cols).map(|_| rng.next_u32() as u16).collect();
@@ -78,7 +91,7 @@ fn main() {
     println!(
         "{}",
         json!({
-            "format":if published_bits!=64 && two_mask { "native-noise-two-mask-rounded-v1" } else if published_bits!=64 { "native-noise-rounded-v1" } else if two_mask { "native-noise-two-mask-v1" } else { "native-noise-v1" },"d":2048,"q_bits":54,"p_bits":16,
+            "format":format,"d":2048,"q_bits":54,"p_bits":16,
             "published_mask_bits":published_bits,"published_bytes":server.published().to_bytes().len(),
             "rows":rows,"cols":cols,"query_bits":query_bits,"query_rounding":query_rounding,"response_bits":22,"kh_bits":kh_bits,
             "setup_id":server.setup().id().iter().map(|x|format!("{x:02x}")).collect::<String>(),

@@ -107,6 +107,22 @@ def validate_native_sampler(report):
     return digest
 
 
+# Format -> (two_mask, rounded public masks, dithered query). Dithered reports
+# have their own formats, so checkers that predate dithering reject them.
+REPORT_FORMATS = {f'native-noise{m}{r}{q}-v1': (bool(m), bool(r), bool(q))
+                  for m in ('', '-two-mask') for r in ('', '-rounded') for q in ('', '-dithered')}
+
+
+def report_format(report):
+    """Validated (two_mask, rounded) mode; the format must match the query rounding."""
+    if report.get('format') not in REPORT_FORMATS:
+        raise ValueError('unknown report format')
+    two_mask, rounded, dithered = REPORT_FORMATS[report['format']]
+    if dithered != (report.get('query_rounding', 'nearest') == 'dithered'):
+        raise ValueError('query rounding/report format mismatch')
+    return two_mask, rounded
+
+
 def query_transport(report):
     """Validated (bits, dithered) query transport; 49-bit nearest is legacy."""
     bits, rounding = report['query_bits'], report.get('query_rounding', 'nearest')
@@ -150,11 +166,9 @@ def query_screen(report, assess):
 
 def evaluate(report):
     validate_native_sampler(report)
-    if report.get('format') in ('native-noise-two-mask-v1','native-noise-two-mask-rounded-v1'):
-        return evaluate_two_mask(report)
-    rounded = report['format'] == 'native-noise-rounded-v1'
-    if report['format'] != 'native-noise-v1' and not rounded:
-        raise ValueError('unknown report format')
+    two_mask, rounded = report_format(report)
+    if two_mask:
+        return evaluate_two_mask(report, rounded)
     d, qb, pb = (int(report[k]) for k in ('d', 'q_bits', 'p_bits'))
     cols = int(report['cols'])
     mask_bits = int(report.get('published_mask_bits', 64))
@@ -228,8 +242,7 @@ def evaluate(report):
             'smallest_screened_query_bits_128':min((v['query_bits'] for v in screen or [] if v['meets_128']),default=None)}
 
 
-def evaluate_two_mask(report):
-    rounded = report['format'] == 'native-noise-two-mask-rounded-v1'
+def evaluate_two_mask(report, rounded):
     mask_bits = report.get('published_mask_bits',64)
     # 54 is lossless bit-packing: same weights as exact publication.
     if (rounded and mask_bits != 54 and mask_bits not in range(27,33)) or (not rounded and mask_bits!=64):
