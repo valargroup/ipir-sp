@@ -1346,6 +1346,23 @@ fn reference_mask_top<'a>(params: &'a RlweParams, mask_seed: [u8; 32]) -> PolyMa
     (-&reference_mask_raw(params, mask_seed)).ntt()
 }
 
+/// The `ell` fixed packing-mask polynomials expanded from `mask_seed`, in
+/// coefficient form modulo `q`, before the negation that forms the key's top
+/// row.
+///
+/// [`REFERENCE_W_SEED`] gives the `K_g` masks and [`REFERENCE_V_SEED`] the
+/// `K_h` masks. This exposes the derivation so callers can check that other
+/// public randomness, such as the query masks a server expands from its setup
+/// seed, does not coincide with the key masks. It does not change the
+/// derivation.
+#[must_use]
+pub fn reference_mask_coeffs(params: &RlweParams, mask_seed: [u8; 32]) -> Vec<Vec<u64>> {
+    let raw = reference_mask_raw(params, mask_seed);
+    (0..params.gadget.ell)
+        .map(|col| raw.get_poly(0, col).to_vec())
+        .collect()
+}
+
 fn reference_mask_raw<'a>(params: &'a RlweParams, mask_seed: [u8; 32]) -> PolyMatrixRaw<'a> {
     PolyMatrixRaw::random_rng(
         &params.spiral,

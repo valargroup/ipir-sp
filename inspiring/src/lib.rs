@@ -82,8 +82,8 @@ pub use lwe::{LweBatch, LweCiphertext};
 pub use pack::{pack, RlweCiphertext};
 pub use params::{GadgetParams, RlweParams};
 pub use preprocess::{
-    PackPreprocessed, PackPublicPreprocessed, PackingKeys, QueryPackPreprocessed, TopKeyImages,
-    REFERENCE_V_SEED, REFERENCE_W_SEED,
+    reference_mask_coeffs, PackPreprocessed, PackPublicPreprocessed, PackingKeys,
+    QueryPackPreprocessed, TopKeyImages, REFERENCE_V_SEED, REFERENCE_W_SEED,
 };
 
 mod preprocess_reuse;
