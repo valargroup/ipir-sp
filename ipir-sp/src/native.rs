@@ -110,16 +110,17 @@ impl NativeProfile {
     pub fn is_two_mask(&self) -> bool {
         self.two_mask
     }
-    /// Experimental dithered query transport below the legacy 49 bits.
+    /// Experimental dithered query transport at up to the legacy 49 bits.
     /// Each coefficient rounds up with probability equal to its dropped
     /// fraction, drawn from the request RNG, so rounding errors are
     /// independent and zero-mean given the query. Requires a snapshot
-    /// certificate; 49-bit nearest rounding remains the default.
+    /// certificate; 49-bit nearest rounding remains the default. Dithering
+    /// at 49 bits keeps the request length and tightens the certificate.
     pub fn with_dithered_query_bits(mut self, bits: usize) -> Result<Self, ReinspiringError> {
         // The floor is the smallest precision certified on the recorded
         // full-size snapshot; other snapshots need their own certificate.
-        if self.pack.q() != 1u64 << 54 || !(MIN_DITHERED_QUERY_BITS..=48).contains(&bits) {
-            return Err(err("dithered queries require native q54 and 43..=48 bits"));
+        if self.pack.q() != 1u64 << 54 || !(MIN_DITHERED_QUERY_BITS..=49).contains(&bits) {
+            return Err(err("dithered queries require native q54 and 43..=49 bits"));
         }
         self.query_bits = bits;
         self.dithered_query = true;

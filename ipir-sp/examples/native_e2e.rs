@@ -1,5 +1,6 @@
 //! Reproducible full-wire native IPIR-SP benchmark. Args: rows cols pbits ell samples
-//! concurrent_setup_blocks kh_bits published_mask_bits query_bits (49 = nearest; fewer = dithered).
+//! concurrent_setup_blocks kh_bits published_mask_bits query_bits (0 = legacy 49-bit nearest;
+//! otherwise dithered at that precision).
 use ipir_sp::native::*;
 use rand_chacha::{
     rand_core::{RngCore, SeedableRng},
@@ -40,12 +41,11 @@ fn main() {
     let profile = profile
         .with_published_mask_bits(*args.get(7).unwrap_or(&64))
         .unwrap();
-    let query_bits = *args.get(8).unwrap_or(&49);
-    let profile = if query_bits == 49 {
-        profile
-    } else {
-        profile.with_dithered_query_bits(query_bits).unwrap()
+    let profile = match *args.get(8).unwrap_or(&0) {
+        0 => profile,
+        bits => profile.with_dithered_query_bits(bits).unwrap(),
     };
+    let query_bits = profile.query_bits();
     let setup = NativePublicSetup::new(profile, [7; 32], [19; 32]);
     let mut data_rng = ChaCha20Rng::seed_from_u64(0x2417);
     let db: Vec<u16> = (0..rows * cols)

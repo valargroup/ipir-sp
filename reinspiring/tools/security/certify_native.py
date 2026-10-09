@@ -112,7 +112,7 @@ def query_transport(report):
     bits, rounding = report['query_bits'], report.get('query_rounding', 'nearest')
     if (bits, rounding) == (49, 'nearest'):
         return bits, False
-    if rounding == 'dithered' and bits in range(40, 49):
+    if rounding == 'dithered' and bits in range(40, 50):
         return bits, True
     raise ValueError('unsupported transport')
 
@@ -143,8 +143,9 @@ def query_screen(report, assess):
     if not all('query_l2_squared' in block for block in report['blocks']):
         return None  # legacy reports cannot screen dithered transport
     rows = int(report['rows'])
-    return [{'query_bits':bits, 'query_rounding':'nearest' if bits == 49 else 'dithered',
-             'query_bytes':(rows*bits+7)//8, **assess((bits, bits != 49))} for bits in range(40, 50)]
+    return [{'query_bits':bits, 'query_rounding':'dithered' if dithered else 'nearest',
+             'query_bytes':(rows*bits+7)//8, **assess((bits, dithered))}
+            for bits, dithered in [(49, False)] + [(b, True) for b in range(49, 39, -1)]]
 
 
 def evaluate(report):
@@ -224,7 +225,7 @@ def evaluate(report):
             'smallest_screened_bits_78':next((v['kh_bits'] for v in compression if v['meets_78']),None),
             'smallest_screened_bits_128':next((v['kh_bits'] for v in compression if v['meets_128']),None),
             'query_screen':screen,
-            'smallest_screened_query_bits_128':next((v['query_bits'] for v in screen or [] if v['meets_128']),None)}
+            'smallest_screened_query_bits_128':min((v['query_bits'] for v in screen or [] if v['meets_128']),default=None)}
 
 
 def evaluate_two_mask(report):
@@ -272,7 +273,7 @@ def evaluate_two_mask(report):
     return {'format':'native-certificate-two-mask-rounded-v1' if rounded else 'native-certificate-two-mask-v1','setup_id':report['setup_id'],
             'database_sha256':report['database_sha256'],'sampler_sha256':validate_native_sampler(report),'actual_profile':actual,
             'query_screen':screen,
-            'smallest_screened_query_bits_128':next((v['query_bits'] for v in screen or [] if v['meets_128']),None)}
+            'smallest_screened_query_bits_128':min((v['query_bits'] for v in screen or [] if v['meets_128']),default=None)}
 
 
 if __name__ == '__main__':

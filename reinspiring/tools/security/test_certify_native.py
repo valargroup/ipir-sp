@@ -143,10 +143,10 @@ class CertificateTests(unittest.TestCase):
         block={'query_l1':'100','query_l2_squared':'5000'}
         self.assertEqual(query_terms(block,10,49,False),(1600,0))
         self.assertEqual(query_terms(block,10,44,True),(0,F(5000*2**20,4)))
-        for bits,rounding in ((49,'nearest'),(48,'dithered'),(40,'dithered')):
+        for bits,rounding in ((49,'nearest'),(49,'dithered'),(48,'dithered'),(40,'dithered')):
             self.assertEqual(query_transport({'query_bits':bits,'query_rounding':rounding}),(bits,rounding=='dithered'))
         self.assertEqual(query_transport({'query_bits':49}),(49,False))
-        for bits,rounding in ((49,'dithered'),(48,'nearest'),(39,'dithered'),(50,'dithered'),(44,'floor')):
+        for bits,rounding in ((48,'nearest'),(39,'dithered'),(50,'dithered'),(44,'floor')):
             with self.assertRaises(ValueError):
                 query_transport({'query_bits':bits,'query_rounding':rounding})
         for bad in ({'query_l1':'100','query_l2_squared':'99'},

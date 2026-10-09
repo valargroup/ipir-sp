@@ -8,7 +8,7 @@ cryptographic generator of independent uniform draws. This is not an independent
 review, computational-security estimate, or approval of native KDM-RLWE.
 
 The supported profile is Gaussian, d=2048, q=2^54, p=2^16, two base-2^19 limbs
-with 16 dropped bits, 49-bit query bodies (or dithered 40..=48-bit bodies, see
+with 16 dropped bits, 49-bit query bodies (or dithered 40..=49-bit bodies, see
 below) and 22-bit response bodies. Keys are
 fresh per request. The passive-server threat model in `SECURITY.md` applies.
 The probability covers a complete response for the recorded database/setup,
@@ -188,7 +188,8 @@ is the existing one-mask u64 wire encoding: 36 + 8*cols bytes. RNP3 uses
 
 ## Dithered query bodies
 
-A dithered profile sends query bodies at t in 40..=48 bits. With k=54-t and
+A dithered profile sends query bodies at t in 40..=49 bits (the API floor is
+the smallest precision certified on the recorded snapshot). With k=54-t and
 f the dropped low k bits of a query coefficient c, the client rounds c up to
 the next multiple of 2^k when a fresh uniform k-bit integer is below f, and
 down otherwise. So it rounds up with probability exactly f/2^k, and the
@@ -223,9 +224,11 @@ becomes
 with `lambda=min(B/(C(a)*L2²+V), a/M)`, and no `16*max_column_L1` term in D.
 The exporter adds `query_l2_squared`, the per-block envelope of ||D||_2² over
 columns. The checker validates `query_l1 <= query_l2_squared <=
-65535*query_l1`. It rejects dithering at 49 bits and nearest rounding below 49
-bits. Its `query_screen` is a counterfactual over 40..=49 bits on the same
+65535*query_l1`. It rejects nearest rounding below 49 bits. Its `query_screen`
+is a counterfactual over nearest 49 and dithered 40..=49 bits on the same
 report, and acceptance needs a report regenerated at the selected precision.
+Dithering at 49 bits keeps the wire length but needs a dithered setup: a
+server that may receive nearest-rounded queries must keep the nearest term.
 The probability now also covers the client's rounding coins. Like the other
 terms, it does not hold if those coins are reused or predictable to whoever
 chooses the database.

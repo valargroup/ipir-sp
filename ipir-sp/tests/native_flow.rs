@@ -484,7 +484,7 @@ fn dithered_queries_roundtrip_and_bind_precision() {
     let pack = NativeParams::new(8, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
     let base = NativeProfile::new(pack, 16, 24).unwrap();
     assert_eq!((base.query_bits(), base.is_dithered_query()), (49, false));
-    for bits in [0, 42, 49, 54] {
+    for bits in [0, 42, 50, 54] {
         assert!(base.clone().with_dithered_query_bits(bits).is_err());
     }
     let small = NativeParams::new(2, 17, 1, 9, 2, SecretDistribution::Gaussian).unwrap();
@@ -509,7 +509,7 @@ fn dithered_queries_roundtrip_and_bind_precision() {
             data.clone(),
         )
         .unwrap();
-        for bits in [43, 45, 48] {
+        for bits in [43, 45, 49] {
             let p = mode.clone().with_dithered_query_bits(bits).unwrap();
             assert_eq!((p.query_bits(), p.is_dithered_query()), (bits, true));
             let setup = NativePublicSetup::new(p, [31; 32], [32; 32]);

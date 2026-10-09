@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Add experimental dithered native query transport
-  (`NativeProfile::with_dithered_query_bits`, 43..=48 bits). The client rounds
+  (`NativeProfile::with_dithered_query_bits`, 43..=49 bits). The client rounds
   each query coefficient up with probability equal to its dropped fraction,
   so the certificate budgets query rounding as a Hoeffding variance instead
   of a worst-case sum. Precision and mode are bound into the setup ID. The
