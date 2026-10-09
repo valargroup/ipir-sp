@@ -1,0 +1,239 @@
+diff --git a/ipir-sp/examples/native_e2e.rs b/ipir-sp/examples/native_e2e.rs
+index 6be6beb..edc7716 100644
+--- a/ipir-sp/examples/native_e2e.rs
++++ b/ipir-sp/examples/native_e2e.rs
+@@ -22,7 +22,7 @@ fn main() {
+         2048,
+         54,
+         pbits as u32,
+-        19,
++        std::env::var("PROTO_BASE").ok().and_then(|v| v.parse().ok()).unwrap_or(19),
+         ell,
+         SecretDistribution::Gaussian,
+     )
+diff --git a/ipir-sp/examples/native_noise.rs b/ipir-sp/examples/native_noise.rs
+index 3d86f37..1fba598 100644
+--- a/ipir-sp/examples/native_noise.rs
++++ b/ipir-sp/examples/native_noise.rs
+@@ -25,7 +25,9 @@ fn main() {
+     let cols = *args.get(1).unwrap_or(&32768);
+     let kh_bits = *args.get(2).unwrap_or(&54);
+     let published_bits = *args.get(3).unwrap_or(&64);
+-    let p = NativeParams::new(2048, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
++    let envu = |k: &str, d: usize| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
++    let pbits = envu("PROTO_PBITS", 16);
++    let p = NativeParams::new(2048, 54, pbits as u32, envu("PROTO_BASE", 19) as u32, envu("PROTO_ELL", 2), SecretDistribution::Gaussian).unwrap();
+     let profile = NativeProfile::new(p, rows, cols)
+         .unwrap()
+         .with_kh_bits(kh_bits)
+@@ -38,7 +40,7 @@ fn main() {
+     let profile = profile.with_published_mask_bits(published_bits).unwrap();
+     let setup = NativePublicSetup::new(profile, [7; 32], [19; 32]);
+     let mut rng = ChaCha20Rng::seed_from_u64(0x2417);
+-    let db: Vec<u16> = (0..rows * cols).map(|_| rng.next_u32() as u16).collect();
++    let db: Vec<u16> = (0..rows * cols).map(|_| (rng.next_u32() & ((1u32 << pbits) - 1)) as u16).collect();
+     // Bind evidence to both the declared snapshot identity and the actual contents.
+     use sha2::{Digest, Sha256};
+     let mut hash = Sha256::new();
+@@ -58,9 +60,9 @@ fn main() {
+     println!(
+         "{}",
+         json!({
+-            "format":if published_bits!=64 && two_mask { "native-noise-two-mask-rounded-v1" } else if published_bits!=64 { "native-noise-rounded-v1" } else if two_mask { "native-noise-two-mask-v1" } else { "native-noise-v1" },"d":2048,"q_bits":54,"p_bits":16,
++            "format":if published_bits!=64 && two_mask { "native-noise-two-mask-rounded-v1" } else if published_bits!=64 { "native-noise-rounded-v1" } else if two_mask { "native-noise-two-mask-v1" } else { "native-noise-v1" },"d":2048,"q_bits":54,"p_bits":pbits,
+             "published_mask_bits":published_bits,"published_bytes":server.published().to_bytes().len(),
+-            "rows":rows,"cols":cols,"query_bits":49,"response_bits":22,"kh_bits":kh_bits,
++            "rows":rows,"cols":cols,"query_bits":envu("PROTO_QUERY_BITS",49),"response_bits":envu("PROTO_RESPONSE_BITS",pbits+6),"kh_bits":kh_bits,
+             "setup_id":server.setup().id().iter().map(|x|format!("{x:02x}")).collect::<String>(),
+             "database_sha256":db_hash,
+             "sampler_sha256":gaussian_cdf_sha256().iter().map(|x|format!("{x:02x}")).collect::<String>(),
+diff --git a/ipir-sp/src/native.rs b/ipir-sp/src/native.rs
+index e3fa356..1c81488 100644
+--- a/ipir-sp/src/native.rs
++++ b/ipir-sp/src/native.rs
+@@ -34,15 +34,20 @@ impl NativeProfile {
+             || cols == 0
+             || rows % pack.d() != 0
+             || cols % pack.d() != 0
+-            || rows.checked_mul(cols).filter(|&n| n <= 1 << 30).is_none()
++            || rows.checked_mul(cols).filter(|&n| n <= 1 << 33).is_none()
+             || pack.sampler() != SecretDistribution::Gaussian
+             || pack.p() > 65536
+         {
+             return Err(err("invalid native IPIR profile or database shape"));
+         }
+-        let query_bits = 49.min(pack.q().trailing_zeros() as usize);
+-        let response_bits =
+-            (pack.p().trailing_zeros() as usize + 6).min(pack.q().trailing_zeros() as usize);
++        // PROTOTYPE ONLY (research scratch, never committed): env overrides for transport widths.
++        let env_bits = |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<usize>().ok());
++        let query_bits = env_bits("PROTO_QUERY_BITS")
++            .unwrap_or(49)
++            .min(pack.q().trailing_zeros() as usize);
++        let response_bits = env_bits("PROTO_RESPONSE_BITS")
++            .unwrap_or(pack.p().trailing_zeros() as usize + 6)
++            .min(pack.q().trailing_zeros() as usize);
+         Ok(Self {
+             kh_bits: pack.q().trailing_zeros() as usize,
+             pack,
+@@ -76,7 +81,7 @@ impl NativeProfile {
+         if self.kh_bits != self.pack.q().trailing_zeros() as usize {
+             return Err(err("two-mask mode has no K_h precision"));
+         }
+-        if !matches!(self.published_mask_bits, 64 | 54 | 27..=32) {
++        if !matches!(self.published_mask_bits, 64 | 54 | 18..=32) { // PROTOTYPE ONLY (was 27)
+             return Err(err("two-mask mode requires 27..=32 or lossless mask bits"));
+         }
+         self.two_mask = true;
+@@ -88,7 +93,7 @@ impl NativeProfile {
+         // 54 is lossless bit-packing. Lower values modulus-switch public data;
+         // the floors are the smallest precisions certified on the recorded
+         // full-size snapshot (28 one-mask, 27 two-mask screen). Both need q = 2^54.
+-        let range = if self.two_mask { 27..=32 } else { 28..=32 };
++        let range = if self.two_mask { 18..=32 } else { 28..=32 }; // PROTOTYPE ONLY (was 27)
+         if bits != 64 && (self.pack.q() != 1u64 << 54 || (bits != 54 && !range.contains(&bits))) {
+             return Err(err(
+                 "rounded public masks require native q54 and 54 or 28..=32 (27..=32 two-mask) bits",
+diff --git a/reinspiring/src/native.rs b/reinspiring/src/native.rs
+index cf8259b..ef44ba4 100644
+--- a/reinspiring/src/native.rs
++++ b/reinspiring/src/native.rs
+@@ -55,7 +55,7 @@ impl NativeParams {
+             || p_bits == 0
+             || p_bits >= q_bits
+             || bits == 0
+-            || bits > 24
++            || bits > 28 // PROTOTYPE ONLY (was 24)
+             || ell == 0
+             || ell > 8
+         {
+@@ -66,7 +66,7 @@ impl NativeParams {
+         let q = 1u64 << q_bits;
+         let p = 1u64 << p_bits;
+         let dropped = q_bits.saturating_sub(bits * ell as u32);
+-        if dropped > 24 {
++        if dropped > 32 { // PROTOTYPE ONLY (was 24)
+             return Err(ReinspiringError::InvalidParams(
+                 "too many discarded gadget bits".into(),
+             ));
+@@ -377,12 +377,15 @@ impl NativeSecret {
+         let lift = LiftContext::new(p.d, p.q)?;
+         let dg = gaussian();
+         let mut out = Vec::with_capacity(polys.len() * p.d);
++        // PROTOTYPE ONLY: radix-sample experiment scales the selection by 2^shift.
++        let sel_shift: u32 = std::env::var("PROTO_SEL_SHIFT").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
++        let sel_value = ((p.q / p.p) << sel_shift) & (p.q - 1);
+         for (block, poly) in polys.iter().enumerate() {
+             validate_poly(poly, p)?;
+             let inverse = tau_coeffs(poly, 2 * p.d as u64 - 1, p.q);
+             let inner = lift.multiply(&inverse, &self.coeffs)?;
+             for (i, x) in inner.into_iter().enumerate() {
+-                let selection = (p.q / p.p) & 0u64.wrapping_sub((block * p.d + i == target) as u64);
++                let selection = sel_value & 0u64.wrapping_sub((block * p.d + i == target) as u64);
+                 out.push(selection.wrapping_add(dg.sample(p.q, rng)).wrapping_sub(x) & (p.q - 1));
+             }
+         }
+diff --git a/reinspiring/src/noise.rs b/reinspiring/src/noise.rs
+index cbaf2b9..5bcb226 100644
+--- a/reinspiring/src/noise.rs
++++ b/reinspiring/src/noise.rs
+@@ -273,7 +273,7 @@ pub(crate) fn analyze_two_mask(
+         compile_fast(&residues, &exps, q)?
+     };
+     let mut public_mask_screens = Vec::new();
+-    for bits in 27..=32.min(q.trailing_zeros()) {
++    for bits in 18..=32.min(q.trailing_zeros()) { // PROTOTYPE ONLY (was 27)
+         let shift = q.trailing_zeros() - bits;
+         let step = 1u64 << shift;
+         let deltas: Vec<Vec<u64>> = masks
+diff --git a/reinspiring/tools/security/certify_native.py b/reinspiring/tools/security/certify_native.py
+index 760f08f..55e185e 100644
+--- a/reinspiring/tools/security/certify_native.py
++++ b/reinspiring/tools/security/certify_native.py
+@@ -176,13 +176,15 @@ def evaluate_two_mask(report):
+     rounded = report['format'] == 'native-noise-two-mask-rounded-v1'
+     mask_bits = report.get('published_mask_bits',64)
+     # 54 is lossless bit-packing: same weights as exact publication.
+-    if (rounded and mask_bits != 54 and mask_bits not in range(27,33)) or (not rounded and mask_bits!=64):
++    if (rounded and mask_bits != 54 and mask_bits not in range(18,33)) or (not rounded and mask_bits!=64):
+         raise ValueError('invalid public-mask precision or format')
+     d, qb, pb = (int(report[k]) for k in ('d', 'q_bits', 'p_bits'))
+     cols, rows = int(report['cols']), int(report['rows'])
+-    if (d, qb, pb) != (2048, 54, 16) or cols <= 0 or cols % d or rows <= 0 or rows % d:
++    # PROTOTYPE ONLY: generalized to any p_bits < q_bits and any query/response widths.
++    bq, br = int(report['query_bits']), int(report['response_bits'])
++    if (d, qb) != (2048, 54) or not 0 < pb < qb or not pb < br <= qb or not 0 < bq <= qb or cols <= 0 or cols % d or rows <= 0 or rows % d:
+         raise ValueError('unsupported two-mask profile')
+-    if len(report['blocks']) != cols // d or report['query_bits'] != 49 or report['response_bits'] != 22 or report['kh_bits'] != 54:
++    if len(report['blocks']) != cols // d or report['kh_bits'] != 54:
+         raise ValueError('incomplete two-mask report')
+     published_bytes=36+((2*cols*mask_bits+7)//8)
+     if rounded and report.get('published_bytes')!=published_bytes:
+@@ -196,9 +198,9 @@ def evaluate_two_mask(report):
+             raise ValueError('invalid two-mask block')
+         if rounded:
+             screens=block.get('public_mask_screens',[])
+-            if sorted(v['bits'] for v in screens)!=list(range(27,33)) or (mask_bits!=54 and next(v['weights'] for v in screens if v['bits']==mask_bits)!=block['weights']):
++            if sorted(v['bits'] for v in screens)!=list(range(18,33)) or (mask_bits!=54 and next(v['weights'] for v in screens if v['bits']==mask_bits)!=block['weights']):
+                 raise ValueError('rounded mask weights/precision mismatch')
+-        deterministic = support*d*d + query_l1*16 + (1 << 31)
++        deterministic = support*d*d + query_l1*(1 << (qb-bq-1)) + (1 << (qb-br-1))
+         max_deterministic = max(max_deterministic, deterministic)
+         scores.append(certified_bits(block['weights'], 1 << (qb-pb-1), deterministic, cols, mean, bounds))
+     score = None if any(x is None for x in scores) else min(scores)
+?? ipir-sp/examples/native_radix.rs
+--- new file ipir-sp/examples/native_radix.rs
+//! PROTOTYPE ONLY. Radix samples: two 4-bit rows per LWE sample.
+//! Merged entry c = D0 + 256*D1 (< 4096); profile p = 2^12 so the server accepts c.
+//! Target (g, j): selection scale q/16 (j = 0, shift 8) or q/4096 (j = 1, shift 0).
+//! Phase = D_j*q/16 + [j=1] D0*q/4096 + noise; higher digit vanishes mod q.
+//! Args: merged_rows cols ell base samples mask_bits.
+use ipir_sp::native::*;
+use rand_chacha::{rand_core::{RngCore, SeedableRng}, ChaCha20Rng};
+use reinspiring::native::*;
+use std::time::Instant;
+fn main() {
+    let a: Vec<usize> = std::env::args().skip(1).map(|x| x.parse().unwrap()).collect();
+    let (rows, cols, ell, base, samples, mask_bits) = (a[0], a[1], a[2], a[3], a[4], a[5]);
+    let pack = NativeParams::new(2048, 54, 12, base as u32, ell, SecretDistribution::Gaussian).unwrap();
+    let profile = NativeProfile::new(pack, rows, cols).unwrap()
+        .with_two_mask_output().unwrap().with_published_mask_bits(mask_bits).unwrap();
+    let setup = NativePublicSetup::new(profile, [7; 32], [19; 32]);
+    let mut rng = ChaCha20Rng::seed_from_u64(0x2417);
+    // digits[j][col*rows + r]
+    let d0: Vec<u16> = (0..rows * cols).map(|_| (rng.next_u32() & 15) as u16).collect();
+    let d1: Vec<u16> = (0..rows * cols).map(|_| (rng.next_u32() & 15) as u16).collect();
+    let db: Vec<u16> = d0.iter().zip(&d1).map(|(x, y)| x + 256 * y).collect();
+    let t = Instant::now();
+    let server = NativeServer::build_with_concurrency(setup, db, 1).unwrap();
+    let offline = t.elapsed().as_secs_f64();
+    let published = NativePublished::from_bytes(server.setup(), &server.published().to_bytes()).unwrap();
+    println!("{}", serde_json::json!({"kind":"setup","rows_merged":rows,"logical_rows":2*rows,"cols":cols,"ell":ell,"base":base,"offline_s":offline,"published_bytes":published.to_bytes().len()}));
+    let mut qrng = ChaCha20Rng::seed_from_u64(0x2418);
+    let q = 1u128 << 54;
+    for i in 0..samples {
+        let logical = [0, rows - 1, rows, 2 * rows - 1, rows / 2 * 2 + 1, 7][i % 6].min(2 * rows - 1);
+        let (g, j) = (logical / 2, logical % 2);
+        std::env::set_var("PROTO_SEL_SHIFT", if j == 0 { "8" } else { "0" });
+        let request = NativeRequest::generate_with_rng(server.setup(), g, &mut qrng).unwrap();
+        std::env::remove_var("PROTO_SEL_SHIFT");
+        let t = Instant::now();
+        let (response, timing) = server.respond(request.bytes()).unwrap();
+        let server_ms = t.elapsed().as_secs_f64() * 1000.;
+        // expected phase in q/4096 units: 256*D_j + (j==1 ? D0 : 0)
+        let expected: Vec<u64> = (0..cols).map(|c| {
+            let k = c * rows + g;
+            if j == 0 { 256 * d0[k] as u64 } else { 256 * d1[k] as u64 + d0[k] as u64 }
+        }).collect();
+        let (decoded, err) = request.decode_with_error(&published, &response, &expected).unwrap();
+        let mut ok = true;
+        for c in 0..cols {
+            let k = c * rows + g;
+            let want = if j == 0 { d0[k] } else { d1[k] } as u64;
+            let got = ((decoded[c] + 4096 - 8 + 128) / 256) % 16;
+            ok &= got == want;
+        }
+        let _ = q;
+        println!("{}", serde_json::json!({"kind":"sample","logical_row":logical,"group":g,"digit":j,"correct":ok,"phase_error_vs_expected":err,"radius_q16":1u64<<49,"server_ms":server_ms,"matvec_ms":timing.matrix_vector.as_secs_f64()*1000.,"packing_ms":timing.packing.as_secs_f64()*1000.,"upload_bytes":request.bytes().len(),"download_bytes":response.len()}));
+    }
+}

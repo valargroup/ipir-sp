@@ -1,0 +1,7 @@
+mask bits 19 certified bits 245 max det log2 48.69
+mask bits 20 certified bits 604 max det log2 48.69
+mask bits 21 certified bits 1352 max det log2 48.69
+setup {'base': 27, 'cols': 131072, 'ell': 1, 'kind': 'setup', 'logical_rows': 24576, 'offline_s': 31.457248875, 'published_bytes': 655396, 'rows_merged': 12288}
+correct True 13 up 61476 down 81988 {'server_ms': 47.88, 'matvec_ms': 38.62, 'packing_ms': 8.65} max phase err 289171558105088
+
+[exited with code 0]

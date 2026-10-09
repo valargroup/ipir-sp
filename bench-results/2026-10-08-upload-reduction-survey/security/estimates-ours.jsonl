@@ -1,0 +1,2 @@
+{"profile": "native-gaussian-q54", "n": 2048, "log2q": 54.0, "m": 36864, "MATZOV": {"log2_rop": 136.8, "attack": "primal_bdd", "beta": 370}, "ADPS16": {"log2_rop": 109.5, "attack": "primal_usvp", "beta": 375}}
+{"profile": "prod-gaussian-q56", "n": 2048, "log2q": 55.99999999999426, "m": 40960, "MATZOV": {"log2_rop": 131.2, "attack": "primal_bdd", "beta": 350}, "ADPS16": {"log2_rop": 103.4, "attack": "primal_usvp", "beta": 354}}
