@@ -478,3 +478,71 @@ fn rounded_public_masks_reject_padding() {
         assert!(NativePublished::from_bytes(server.setup(), &bad).is_err());
     }
 }
+
+#[test]
+fn dithered_queries_roundtrip_and_bind_precision() {
+    let pack = NativeParams::new(8, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+    let base = NativeProfile::new(pack, 16, 24).unwrap();
+    assert_eq!((base.query_bits(), base.is_dithered_query()), (49, false));
+    for bits in [0, 42, 49, 54] {
+        assert!(base.clone().with_dithered_query_bits(bits).is_err());
+    }
+    let small = NativeParams::new(2, 17, 1, 9, 2, SecretDistribution::Gaussian).unwrap();
+    assert!(NativeProfile::new(small, 2, 2)
+        .unwrap()
+        .with_dithered_query_bits(45)
+        .is_err());
+    let data: Vec<u16> = (0..16 * 24).map(|x| (x * 157) as u16).collect();
+    let modes = [
+        base.clone(),
+        base.clone().with_two_mask_output().unwrap(),
+        base.clone().with_published_mask_bits(28).unwrap(),
+        base.clone()
+            .with_two_mask_output()
+            .unwrap()
+            .with_published_mask_bits(29)
+            .unwrap(),
+    ];
+    for mode in modes {
+        let nearest = NativeServer::build(
+            NativePublicSetup::new(mode.clone(), [31; 32], [32; 32]),
+            data.clone(),
+        )
+        .unwrap();
+        for bits in [43, 45, 48] {
+            let p = mode.clone().with_dithered_query_bits(bits).unwrap();
+            assert_eq!((p.query_bits(), p.is_dithered_query()), (bits, true));
+            let setup = NativePublicSetup::new(p, [31; 32], [32; 32]);
+            let other = NativePublicSetup::new(
+                mode.clone()
+                    .with_dithered_query_bits(if bits == 43 { 44 } else { 43 })
+                    .unwrap(),
+                [31; 32],
+                [32; 32],
+            );
+            assert_ne!(setup.id(), nearest.setup().id());
+            assert_ne!(setup.id(), other.id());
+            let server = NativeServer::build(setup, data.clone()).unwrap();
+            let published = server.published();
+            let mut rng = ChaCha20Rng::seed_from_u64(bits as u64);
+            for target in [0, 7, 15] {
+                let request =
+                    NativeRequest::generate_with_rng(server.setup(), target, &mut rng).unwrap();
+                let legacy =
+                    NativeRequest::generate_with_rng(nearest.setup(), target, &mut rng).unwrap();
+                assert_eq!(
+                    legacy.bytes().len() - request.bytes().len(),
+                    (16 * 49usize).div_ceil(8) - (16 * bits).div_ceil(8)
+                );
+                let response = server.respond(request.bytes()).unwrap().0;
+                let expected: Vec<u64> = (0..24).map(|c| data[c * 16 + target] as u64).collect();
+                assert_eq!(request.decode(&published, &response).unwrap(), expected);
+                // Precision is bound into the setup: no cross-acceptance.
+                assert!(nearest.respond(request.bytes()).is_err());
+                assert!(server.respond(legacy.bytes()).is_err());
+                let truncated = &request.bytes()[..request.bytes().len() - 1];
+                assert!(server.respond(truncated).is_err());
+            }
+        }
+    }
+}

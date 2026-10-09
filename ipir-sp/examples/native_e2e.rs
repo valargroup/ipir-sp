@@ -1,4 +1,5 @@
-//! Reproducible full-wire native IPIR-SP benchmark. Args: rows cols pbits ell samples concurrent_setup_blocks kh_bits.
+//! Reproducible full-wire native IPIR-SP benchmark. Args: rows cols pbits ell samples
+//! concurrent_setup_blocks kh_bits published_mask_bits query_bits (49 = nearest; fewer = dithered).
 use ipir_sp::native::*;
 use rand_chacha::{
     rand_core::{RngCore, SeedableRng},
@@ -39,6 +40,12 @@ fn main() {
     let profile = profile
         .with_published_mask_bits(*args.get(7).unwrap_or(&64))
         .unwrap();
+    let query_bits = *args.get(8).unwrap_or(&49);
+    let profile = if query_bits == 49 {
+        profile
+    } else {
+        profile.with_dithered_query_bits(query_bits).unwrap()
+    };
     let setup = NativePublicSetup::new(profile, [7; 32], [19; 32]);
     let mut data_rng = ChaCha20Rng::seed_from_u64(0x2417);
     let db: Vec<u16> = (0..rows * cols)
@@ -59,7 +66,7 @@ fn main() {
     let prepare_ms = preparation.elapsed().as_secs_f64() * 1000.;
     println!(
         "{}",
-        serde_json::json!({"kind":"setup","backend":"native","rows":rows,"cols":cols,"pbits":pbits,"ell":ell,"kh_bits":kh_bits,"two_mask":server.setup().profile().is_two_mask(),"threads":rayon::current_num_threads(),"offline_s":offline,"concurrency":concurrency,"coeff_bytes":server.coefficient_bytes(),"published_bytes":published.to_bytes().len(),"prepare_decode_ms":prepare_ms,"decode_coeff_bytes":prepared.coefficient_bytes()})
+        serde_json::json!({"kind":"setup","backend":"native","rows":rows,"cols":cols,"pbits":pbits,"ell":ell,"kh_bits":kh_bits,"two_mask":server.setup().profile().is_two_mask(),"query_bits":query_bits,"dithered_query":server.setup().profile().is_dithered_query(),"threads":rayon::current_num_threads(),"offline_s":offline,"concurrency":concurrency,"coeff_bytes":server.coefficient_bytes(),"published_bytes":published.to_bytes().len(),"prepare_decode_ms":prepare_ms,"decode_coeff_bytes":prepared.coefficient_bytes()})
     );
     let mut rng = ChaCha20Rng::seed_from_u64(0x2418);
     let threads =

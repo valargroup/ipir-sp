@@ -8,7 +8,8 @@ cryptographic generator of independent uniform draws. This is not an independent
 review, computational-security estimate, or approval of native KDM-RLWE.
 
 The supported profile is Gaussian, d=2048, q=2^54, p=2^16, two base-2^19 limbs
-with 16 dropped bits, 49-bit query bodies and 22-bit response bodies. Keys are
+with 16 dropped bits, 49-bit query bodies (or dithered 40..=48-bit bodies, see
+below) and 22-bit response bodies. Keys are
 fresh per request. The passive-server threat model in `SECURITY.md` applies.
 The probability covers a complete response for the recorded database/setup,
 over fresh request randomness, for any selected row. It does not bound
@@ -59,7 +60,8 @@ Reserve, for every output in a block,
     D = B_s*d² + 16*max_column_L1 + 2^31 + R_h*sum_j ||final_digits_j||_1.
 
 The terms cover D.1 division, query-body transport, response-body transport and
-final-key transport. B_s is the actual sampler support bound (65).
+final-key transport. The query term is for 49-bit nearest rounding; dithered
+query bodies replace it by a variance term (see the last section). B_s is the actual sampler support bound (65).
 `R_h=0` at full precision, or `2^(53-t)` for t-bit K_h transmission.
 Database entries are canonical nonnegative u16 values. Both query and key
 rounding may depend on secrets/errors: these deterministic bounds assume no
@@ -183,3 +185,47 @@ proofs supplied by an untrusted server. The reference no-extra-download budget
 is the existing one-mask u64 wire encoding: 36 + 8*cols bytes. RNP3 uses
 36 + ceil(2*cols*t/8) bytes. It is not compared against a separately optimized
 54-bit lossless single-mask encoding.
+
+## Dithered query bodies
+
+A dithered profile sends query bodies at t in 40..=48 bits. With k=54-t and
+f the dropped low k bits of a query coefficient c, the client rounds c up to
+the next multiple of 2^k when a fresh uniform k-bit integer is below f, and
+down otherwise. So it rounds up with probability exactly f/2^k, and the
+rounding error r = rounded(c) - c lies in [-f, 2^k - f] with E[r | c] = 0.
+The coins come from the per-request ChaCha20 stream after the query is
+sampled. The setup hash binds the precision and a `/dithered-query-v1/` tag.
+
+Privacy is unchanged. The sent body is a function of the ciphertext and
+independent coins only, computable without the secret or the target, so any
+distinguisher for it is a distinguisher for the unrounded query.
+
+For correctness, condition on every sampler draw (secret, key errors, query
+errors). The query, and hence each f, is then fixed. The rounding errors are
+independent, have zero mean and lie in intervals of width 2^k. The query error
+enters an output with the database-column weight D, exactly as `e_query` and
+the nearest-rounding transport term do. Hoeffding's lemma gives, for every
+real lambda,
+
+    E[exp(lambda * D·r) | sampler draws] <= exp(lambda² * V / 2),
+    V = 2^(2k) * ||D||_2² / 4.
+
+This bound does not depend on the draws. Hence for the sampler part E_s,
+
+    E[exp(lambda*(E_s + D·r))] <= exp(lambda² V/2) * E[exp(lambda*E_s)].
+
+This needs no independence between the rounding errors and the secret or
+errors, which the rounding errors do depend on. The Chernoff step above then
+becomes
+
+    Pr[|E| >= T-D] <= 2 exp(-lambda*B + (C(a)*L2² + V)*lambda²/2),
+
+with `lambda=min(B/(C(a)*L2²+V), a/M)`, and no `16*max_column_L1` term in D.
+The exporter adds `query_l2_squared`, the per-block envelope of ||D||_2² over
+columns. The checker validates `query_l1 <= query_l2_squared <=
+65535*query_l1`. It rejects dithering at 49 bits and nearest rounding below 49
+bits. Its `query_screen` is a counterfactual over 40..=49 bits on the same
+report, and acceptance needs a report regenerated at the selected precision.
+The probability now also covers the client's rounding coins. Like the other
+terms, it does not hold if those coins are reused or predictable to whoever
+chooses the database.

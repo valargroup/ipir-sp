@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Add experimental dithered native query transport
+  (`NativeProfile::with_dithered_query_bits`, 43..=48 bits). The client rounds
+  each query coefficient up with probability equal to its dropped fraction,
+  so the certificate budgets query rounding as a Hoeffding variance instead
+  of a worst-case sum. Precision and mode are bound into the setup ID. The
+  default 49-bit nearest-rounding profile, its setup IDs and request bytes are
+  unchanged.
+- `native_noise` exports `query_l2_squared`, `query_rounding` and accepts
+  `--query-bits`. `certify_native.py` accepts dithered reports and adds a
+  counterfactual `query_screen`.
+
 ## 0.1.0-rc.6 — 2026-09-25
 
 - Add the experimental native two-mask output mode (#24). It removes the final

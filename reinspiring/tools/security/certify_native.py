@@ -53,28 +53,34 @@ def sampler_bounds(counts):
     return mean, bounds
 
 
-def certified_bits(weights, radius, deterministic, cols, mean, bounds):
+def certified_bits(weights, radius, deterministic, cols, mean, bounds, dither=0):
     """Integer lower bound on -log2(full-response failure probability).
 
     Each row uses an envelope of L1, squared L2 and maximum original weights.
-    Union bound requires no independence between response coefficients/blocks.
+    `dither` is the variance proxy of an extra zero-mean error that is
+    sub-Gaussian for every tilt given all sampler draws (dithered query
+    rounding). Union bound requires no independence between response
+    coefficients/blocks.
     """
     l1, s2, maximum = (int(weights[k]) for k in ('l1', 'l2_squared', 'max'))
-    if min(l1, s2, maximum, radius, deterministic) < 0 or cols <= 0:
+    dither = F(dither)
+    if min(l1, s2, maximum, radius, deterministic, dither) < 0 or cols <= 0:
         raise ValueError("invalid norms/dimensions")
     if maximum > l1 or s2 > l1*maximum or (s2 == 0) != (l1 == 0):
         raise ValueError("inconsistent norms")
     budget = F(radius-deterministic)-mean*l1
     if budget <= 0:
         return None
-    if s2 == 0 or all(c == 0 for _,c in bounds):
+    if dither == 0 and (s2 == 0 or all(c == 0 for _,c in bounds)):
         return 1000000  # zero random error: deterministic budget alone suffices
-    if maximum == 0:
+    if maximum == 0 and s2 != 0:
         raise ValueError("inconsistent norms")
     exponent = F(0)
     for a, c in bounds:
-        tilt = min(budget/(c*s2), a/maximum)
-        exponent = max(exponent, tilt*budget-c*tilt**2*s2/2)
+        # The sampler bound needs lambda*M <= a; the dither bound holds for all lambda.
+        variance = c*s2 + dither
+        tilt = budget/variance if maximum == 0 else min(budget/variance, a/maximum)
+        exponent = max(exponent, tilt*budget-variance*tilt**2/2)
     # 2*cols <= 2^union_bits; LN2_UPPER deliberately rounds up.
     union_bits = (2*cols-1).bit_length()
     return max(0, int(exponent // LN2_UPPER)-union_bits)
@@ -99,6 +105,46 @@ def validate_native_sampler(report):
     if report.get('sampler_sha256', digest) != digest:
         raise ValueError('native sampler identity mismatch')
     return digest
+
+
+def query_transport(report):
+    """Validated (bits, dithered) query transport; 49-bit nearest is legacy."""
+    bits, rounding = report['query_bits'], report.get('query_rounding', 'nearest')
+    if (bits, rounding) == (49, 'nearest'):
+        return bits, False
+    if rounding == 'dithered' and bits in range(40, 49):
+        return bits, True
+    raise ValueError('unsupported transport')
+
+
+def query_terms(block, rows, bits, dithered):
+    """Deterministic budget and variance proxy for query-body transport.
+
+    Nearest rounding reserves its worst case, 2^(53-bits) times the column L1,
+    assuming no independence. Dithered errors are independent, zero-mean and in
+    an interval of width 2^(54-bits) given every sampler draw, so Hoeffding's
+    lemma adds 2^(2(54-bits))/4 times the column squared L2 to the variance.
+    """
+    l1 = int(block['query_l1'])
+    if not 0 <= l1 <= rows*65535:
+        raise ValueError('invalid deterministic weight budget')
+    if not dithered:
+        return l1 << (53-bits), 0
+    if 'query_l2_squared' not in block:
+        raise ValueError('missing query weights')
+    s2 = int(block['query_l2_squared'])
+    if not l1 <= s2 <= l1*65535:
+        raise ValueError('invalid query weights')
+    return 0, F(s2 << (2*(54-bits)), 4)
+
+
+def query_screen(report, assess):
+    """Counterfactual query precisions on this report's weights and setup."""
+    if not all('query_l2_squared' in block for block in report['blocks']):
+        return None  # legacy reports cannot screen dithered transport
+    rows = int(report['rows'])
+    return [{'query_bits':bits, 'query_rounding':'nearest' if bits == 49 else 'dithered',
+             'query_bytes':(rows*bits+7)//8, **assess((bits, bits != 49))} for bits in range(40, 50)]
 
 
 def evaluate(report):
@@ -128,30 +174,34 @@ def evaluate(report):
         raise ValueError('legacy report with nonlegacy mask precision')
     if (d,qb,pb) != (2048,54,16) or cols <= 0 or cols % d or len(report['blocks']) != cols//d:
         raise ValueError('unsupported profile or incomplete block coverage')
-    if report['query_bits'] != 49 or report['response_bits'] != 22:
+    query = query_transport(report)
+    if report['response_bits'] != 22:
         raise ValueError('unsupported transport')
     if not 40 <= report['kh_bits'] <= 54 or report['rows'] <= 0 or report['rows'] % d:
         raise ValueError('unsupported precision or row count')
+    rows = int(report['rows'])
     for block in report['blocks']:
-        if not 0 <= int(block['query_l1']) <= report['rows']*65535 or not 0 <= int(block['kh_l1']) <= 2*d*2**18:
+        query_terms(block, rows, *query)
+        if not 0 <= int(block['kh_l1']) <= 2*d*2**18:
             raise ValueError('invalid deterministic weight budget')
         if sorted(v['bits'] for v in block['one_limb']) != list(range(25,30)):
             raise ValueError('incomplete candidate coverage')
     mean, bounds = sampler_bounds(report['sampler_counts'])
     support = max(abs(int(x)) for x,n in report['sampler_counts'] if int(n))
     radius = 1 << (qb-pb-1)
-    def assess(bits, candidate=None):
+    def assess(bits, candidate=None, query=query):
         scores = []
         max_deterministic = 0
         for block in report['blocks']:
-            deterministic = support*d*d + int(block['query_l1'])*16 + (1 << 31)
+            query_budget, dither = query_terms(block, rows, *query)
+            deterministic = support*d*d + query_budget + (1 << 31)
             if candidate is None:
                 deterministic += int(block['kh_l1'])*(0 if bits == 54 else 1 << (53-bits))
                 weights = block['weights']
             else:
                 weights = next(v['weights'] for v in block['one_limb'] if v['bits'] == candidate)
             max_deterministic = max(max_deterministic, deterministic)
-            scores.append(certified_bits(weights,radius,deterministic,cols,mean,bounds))
+            scores.append(certified_bits(weights,radius,deterministic,cols,mean,bounds,dither))
         score = None if any(x is None for x in scores) else min(scores)
         return {'certified_failure_bits':score, 'meets_78':score is not None and score>=78,
                 'meets_128':score is not None and score>=128,
@@ -162,14 +212,19 @@ def evaluate(report):
     # These sweep results are counterfactual screening; rerun native_noise at the
     # selected precision before calling it a certificate for that profile.
     actual = dict(next(v for v in compression if v['kh_bits']==report['kh_bits']))
+    actual.update(query_bits=query[0], query_rounding=report.get('query_rounding','nearest'),
+                  query_bytes=(rows*query[0]+7)//8)
     if rounded:
         actual.update(published_mask_bits=mask_bits, published_bytes=report['published_bytes'])
+    screen = query_screen(report, lambda q: assess(report['kh_bits'], query=q))
     return {'format':'native-certificate-rounded-v1' if rounded else 'native-certificate-v1','setup_id':report['setup_id'],
             'database_sha256':report['database_sha256'],'sampler_sha256':validate_native_sampler(report),'actual_kh_bits':report['kh_bits'],
             'actual_profile':actual,
             'compression_screen':compression,'one_limb_screen':one_limb,
             'smallest_screened_bits_78':next((v['kh_bits'] for v in compression if v['meets_78']),None),
-            'smallest_screened_bits_128':next((v['kh_bits'] for v in compression if v['meets_128']),None)}
+            'smallest_screened_bits_128':next((v['kh_bits'] for v in compression if v['meets_128']),None),
+            'query_screen':screen,
+            'smallest_screened_query_bits_128':next((v['query_bits'] for v in screen or [] if v['meets_128']),None)}
 
 
 def evaluate_two_mask(report):
@@ -182,34 +237,42 @@ def evaluate_two_mask(report):
     cols, rows = int(report['cols']), int(report['rows'])
     if (d, qb, pb) != (2048, 54, 16) or cols <= 0 or cols % d or rows <= 0 or rows % d:
         raise ValueError('unsupported two-mask profile')
-    if len(report['blocks']) != cols // d or report['query_bits'] != 49 or report['response_bits'] != 22 or report['kh_bits'] != 54:
+    query = query_transport(report)
+    if len(report['blocks']) != cols // d or report['response_bits'] != 22 or report['kh_bits'] != 54:
         raise ValueError('incomplete two-mask report')
     published_bytes=36+((2*cols*mask_bits+7)//8)
     if rounded and report.get('published_bytes')!=published_bytes:
         raise ValueError('public-mask byte count mismatch')
     mean, bounds = sampler_bounds(report['sampler_counts'])
     support = max(abs(int(x)) for x, n in report['sampler_counts'] if int(n))
-    scores, max_deterministic = [], 0
     for block in report['blocks']:
-        query_l1 = int(block['query_l1'])
-        if not 0 <= query_l1 <= rows * 65535 or int(block['kh_l1']) != 0 or block['one_limb']:
+        if int(block['kh_l1']) != 0 or block['one_limb']:
             raise ValueError('invalid two-mask block')
         if rounded:
             screens=block.get('public_mask_screens',[])
             if sorted(v['bits'] for v in screens)!=list(range(27,33)) or (mask_bits!=54 and next(v['weights'] for v in screens if v['bits']==mask_bits)!=block['weights']):
                 raise ValueError('rounded mask weights/precision mismatch')
-        deterministic = support*d*d + query_l1*16 + (1 << 31)
-        max_deterministic = max(max_deterministic, deterministic)
-        scores.append(certified_bits(block['weights'], 1 << (qb-pb-1), deterministic, cols, mean, bounds))
-    score = None if any(x is None for x in scores) else min(scores)
-    actual = {'key_bytes':d*2*qb//8, 'certified_failure_bits':score,
-              'meets_78':score is not None and score >= 78,
-              'meets_128':score is not None and score >= 128,
-              'max_deterministic_error':str(max_deterministic)}
+    def assess(query):
+        scores, max_deterministic = [], 0
+        for block in report['blocks']:
+            query_budget, dither = query_terms(block, rows, *query)
+            deterministic = support*d*d + query_budget + (1 << 31)
+            max_deterministic = max(max_deterministic, deterministic)
+            scores.append(certified_bits(block['weights'], 1 << (qb-pb-1), deterministic, cols, mean, bounds, dither))
+        score = None if any(x is None for x in scores) else min(scores)
+        return {'certified_failure_bits':score,
+                'meets_78':score is not None and score >= 78,
+                'meets_128':score is not None and score >= 128,
+                'max_deterministic_error':str(max_deterministic)}
+    actual = {'key_bytes':d*2*qb//8, **assess(query), 'query_bits':query[0],
+              'query_rounding':report.get('query_rounding','nearest'), 'query_bytes':(rows*query[0]+7)//8}
+    screen = query_screen(report, assess)
     if rounded:
         actual.update(published_mask_bits=mask_bits,published_bytes=published_bytes,no_extra_download=published_bytes<=36+cols*8)
     return {'format':'native-certificate-two-mask-rounded-v1' if rounded else 'native-certificate-two-mask-v1','setup_id':report['setup_id'],
-            'database_sha256':report['database_sha256'],'sampler_sha256':validate_native_sampler(report),'actual_profile':actual}
+            'database_sha256':report['database_sha256'],'sampler_sha256':validate_native_sampler(report),'actual_profile':actual,
+            'query_screen':screen,
+            'smallest_screened_query_bits_128':next((v['query_bits'] for v in screen or [] if v['meets_128']),None)}
 
 
 if __name__ == '__main__':

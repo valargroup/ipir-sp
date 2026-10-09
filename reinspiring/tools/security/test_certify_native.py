@@ -7,7 +7,7 @@ import subprocess
 import sys
 from decimal import Decimal, localcontext
 from fractions import Fraction as F
-from certify_native import exp_upper, sampler_bounds, certified_bits, evaluate
+from certify_native import exp_upper, sampler_bounds, certified_bits, evaluate, query_terms, query_transport, LN2_UPPER
 
 
 class CertificateTests(unittest.TestCase):
@@ -124,6 +124,37 @@ class CertificateTests(unittest.TestCase):
         self.assertLess(certified_bits(weights,500,450,32768,mean,bounds),78)
         with self.assertRaises(ValueError):
             sampler_bounds([(0,2**64-1)])
+
+    def test_dither_variance_enters_the_chernoff_exponent(self):
+        mean,bounds=sampler_bounds([(-1,2**63),(1,2**63)])
+        none={'l1':0,'l2_squared':0,'max':0}
+        # Dither alone: exponent B²/(2V) = 100 nats; one coefficient costs one union bit.
+        self.assertEqual(certified_bits(none,1000,0,1,mean,bounds,F(10**6,200)),
+                         int(F(100)//LN2_UPPER)-1)
+        self.assertEqual(certified_bits(none,1000,0,1,mean,bounds),1000000)
+        weights={'l1':1024,'l2_squared':1024,'max':1}
+        clean=certified_bits(weights,500,0,1,mean,bounds)
+        noisy=certified_bits(weights,500,0,1,mean,bounds,1000)
+        self.assertLess(noisy,clean)
+        with self.assertRaises(ValueError):
+            certified_bits(weights,500,0,1,mean,bounds,-1)
+
+    def test_query_transport_terms_and_rejections(self):
+        block={'query_l1':'100','query_l2_squared':'5000'}
+        self.assertEqual(query_terms(block,10,49,False),(1600,0))
+        self.assertEqual(query_terms(block,10,44,True),(0,F(5000*2**20,4)))
+        for bits,rounding in ((49,'nearest'),(48,'dithered'),(40,'dithered')):
+            self.assertEqual(query_transport({'query_bits':bits,'query_rounding':rounding}),(bits,rounding=='dithered'))
+        self.assertEqual(query_transport({'query_bits':49}),(49,False))
+        for bits,rounding in ((49,'dithered'),(48,'nearest'),(39,'dithered'),(50,'dithered'),(44,'floor')):
+            with self.assertRaises(ValueError):
+                query_transport({'query_bits':bits,'query_rounding':rounding})
+        for bad in ({'query_l1':'100','query_l2_squared':'99'},
+                    {'query_l1':'100','query_l2_squared':str(100*65535+1)},
+                    {'query_l1':'100'},
+                    {'query_l1':str(10*65535+1),'query_l2_squared':'1'}):
+            with self.assertRaises(ValueError):
+                query_terms(bad,10,44,True)
 
 
 if __name__ == '__main__':
