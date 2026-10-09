@@ -125,6 +125,30 @@ class CertificateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             sampler_bounds([(0,2**64-1)])
 
+    def test_recorded_dithered_query_certificates_and_rejection(self):
+        evidence=Path(__file__).resolve().parents[3]/'bench-results/2026-10-09-dithered-query'
+        for name, bits, rounding, expected in (
+                ('one-mask-n49',49,'nearest',405),('one-mask-d44',44,'dithered',406),('one-mask-d43',43,'dithered',208),
+                ('two-mask29-n49',49,'nearest',228),('two-mask29-d44',44,'dithered',230),('two-mask29-d43',43,'dithered',147),
+                ('two-mask29-65536-n49',49,'nearest',158)):
+            result=evaluate(json.loads((evidence/f'noise-{name}.json').read_text()))
+            actual=result['actual_profile']
+            self.assertEqual((actual['query_bits'],actual['query_rounding'],actual['certified_failure_bits']),(bits,rounding,expected))
+            self.assertTrue(actual['meets_128'])
+            self.assertEqual(len(result['query_screen']),11)
+        big=evaluate(json.loads((evidence/'noise-two-mask29-65536-n49.json').read_text()))
+        self.assertEqual(next(v['certified_failure_bits'] for v in big['query_screen'] if v['query_rounding']=='dithered' and v['query_bits']==49),295)
+        self.assertEqual(big['smallest_screened_query_bits_128'],44)
+        report=json.loads((evidence/'noise-one-mask-d43.json').read_text())
+        for mutation in ('nearest','width','missing','small','large'):
+            bad=copy.deepcopy(report)
+            if mutation=='nearest': bad['query_rounding']='nearest'
+            if mutation=='width': bad['query_bits']=50
+            if mutation=='missing': del bad['blocks'][0]['query_l2_squared']
+            if mutation=='small': bad['blocks'][0]['query_l2_squared']=str(int(bad['blocks'][0]['query_l1'])-1)
+            if mutation=='large': bad['blocks'][0]['query_l2_squared']=str(int(bad['blocks'][0]['query_l1'])*65535+1)
+            with self.assertRaises(ValueError): evaluate(bad)
+
     def test_dither_variance_enters_the_chernoff_exponent(self):
         mean,bounds=sampler_bounds([(-1,2**63),(1,2**63)])
         none={'l1':0,'l2_squared':0,'max':0}

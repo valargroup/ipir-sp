@@ -54,7 +54,8 @@ Here m encodes the target row. The key functions belong to the published family.
 In the key-dependent RLWE game, replace challenge query bodies by uniform ring
 elements while retaining the allowed auxiliary key samples. Adding either target
 indicator preserves uniformity; rounding and serialization preserve index
-independence. This proves privacy conditional on the assumption, not its hardness.
+independence. Native dithered rounding is a function of the uniform bodies and
+fresh coins independent of the target, so it preserves index independence too. This proves privacy conditional on the assumption, not its hardness.
 Public automorphic expansion creates no independent samples. The sign/inversion
 transformation acts on the public mask, requiring no sampler-symmetry assumption.
 

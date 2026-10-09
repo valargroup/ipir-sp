@@ -61,7 +61,8 @@ Reserve, for every output in a block,
 
 The terms cover D.1 division, query-body transport, response-body transport and
 final-key transport. The query term is for 49-bit nearest rounding; dithered
-query bodies replace it by a variance term (see the last section). B_s is the actual sampler support bound (65).
+query bodies replace it by a variance term (see the last section). B_s is the
+actual sampler support bound (65).
 `R_h=0` at full precision, or `2^(53-t)` for t-bit K_h transmission.
 Database entries are canonical nonnegative u16 values. Both query and key
 rounding may depend on secrets/errors: these deterministic bounds assume no
