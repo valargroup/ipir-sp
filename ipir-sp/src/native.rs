@@ -116,6 +116,8 @@ impl NativeProfile {
     /// independent and zero-mean given the query. Requires a snapshot
     /// certificate; 49-bit nearest rounding remains the default. Dithering
     /// at 49 bits keeps the request length and tightens the certificate.
+    /// The 43-bit floor was certified on the recorded 28,672-row fixture only;
+    /// larger tables can need more (a 65,536-row two-mask screen needs 44).
     pub fn with_dithered_query_bits(mut self, bits: usize) -> Result<Self, ReinspiringError> {
         // The floor is the smallest precision certified on the recorded
         // full-size snapshot; other snapshots need their own certificate.
@@ -996,6 +998,190 @@ mod transport_tests {
             actual.decode(&server.published(), &response).unwrap(),
             vec![1, 0]
         );
+    }
+    /// Rebuild request bytes by hand from the RNG order and wire layout:
+    /// secret, keys, query, then (when `dithered`) one coin per query row.
+    fn rebuild_request(
+        setup: &NativePublicSetup,
+        target: usize,
+        seed: u64,
+        dithered: bool,
+    ) -> Vec<u8> {
+        let p = &setup.profile;
+        let (q, full) = (p.pack.q(), p.pack.q().trailing_zeros() as usize);
+        let mut rng = ChaCha20Rng::seed_from_u64(seed);
+        let secret = NativeSecret::sample(&p.pack, &mut rng);
+        let mut bytes = Vec::new();
+        if p.two_mask {
+            let keys = NativeKeys::generate_one_key(&setup.packing, &secret, &mut rng).unwrap();
+            bytes.extend(b"RNQ3");
+            bytes.extend(setup.id);
+            bytes.extend(encode(&keys.kg_words(), full));
+        } else if p.kh_bits == full {
+            let keys = NativeKeys::generate(&setup.packing, &secret, &mut rng).unwrap();
+            bytes.extend(b"RNQ1");
+            bytes.extend(setup.id);
+            bytes.extend(encode(&keys.words(), full));
+        } else {
+            let keys = NativeKeys::generate(&setup.packing, &secret, &mut rng).unwrap();
+            let (words, half) = (keys.words(), p.pack.ell() * p.pack.d());
+            bytes.extend(b"RNQ2");
+            bytes.extend(setup.id);
+            bytes.extend(encode(&words[..half], full));
+            bytes.extend(encode(&down(&words[half..], q, p.kh_bits), p.kh_bits));
+        }
+        let query = secret
+            .encrypt_selection(&setup.polys, target, &mut rng)
+            .unwrap();
+        let body = if dithered {
+            down_dithered(&query, q, p.query_bits, &mut rng)
+        } else {
+            down(&query, q, p.query_bits)
+        };
+        bytes.extend(encode(&body, p.query_bits));
+        bytes
+    }
+    #[test]
+    fn dithered_profiles_dispatch_to_dithered_rounding() {
+        let pack = NativeParams::new(8, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+        let base = NativeProfile::new(pack, 32, 16).unwrap();
+        let modes = [
+            base.clone(),
+            base.clone().with_kh_bits(47).unwrap(),
+            base.clone()
+                .with_two_mask_output()
+                .unwrap()
+                .with_published_mask_bits(29)
+                .unwrap(),
+        ];
+        for mode in &modes {
+            // The hand rebuild reproduces the nearest dispatch, so it is a
+            // faithful model of generate_with_rng for the cases below.
+            let setup = NativePublicSetup::new(mode.clone(), [7; 32], [19; 32]);
+            let actual =
+                NativeRequest::generate_with_rng(&setup, 5, &mut ChaCha20Rng::seed_from_u64(42))
+                    .unwrap();
+            assert_eq!(actual.bytes(), rebuild_request(&setup, 5, 42, false));
+            for bits in [49, 43] {
+                let p = mode.clone().with_dithered_query_bits(bits).unwrap();
+                let setup = NativePublicSetup::new(p, [7; 32], [19; 32]);
+                for (target, seed) in [(0, 42), (21, 43)] {
+                    let actual = NativeRequest::generate_with_rng(
+                        &setup,
+                        target,
+                        &mut ChaCha20Rng::seed_from_u64(seed),
+                    )
+                    .unwrap();
+                    let dithered = rebuild_request(&setup, target, seed, true);
+                    assert_eq!(actual.bytes(), dithered);
+                    // Nearest rounding of the same query differs only in the
+                    // body, so this fails if dispatch ever skips the coins.
+                    let nearest = rebuild_request(&setup, target, seed, false);
+                    let header = dithered.len() - packed_len(32, bits);
+                    assert_eq!(nearest.len(), dithered.len());
+                    assert_eq!(nearest[..header], dithered[..header]);
+                    assert_ne!(nearest, dithered);
+                }
+            }
+        }
+    }
+    #[test]
+    fn dithered_setup_id_known_answers() {
+        let pack = NativeParams::new(8, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+        let base = NativeProfile::new(pack.clone(), 16, 24).unwrap();
+        // Mode tags hashed before the dithered tag, in setup order.
+        let cases = [
+            (base.clone(), Vec::new()),
+            (
+                base.clone().with_kh_bits(47).unwrap(),
+                [b"/kh-transport-v2/".as_slice(), &47u64.to_le_bytes()].concat(),
+            ),
+            (
+                base.clone()
+                    .with_two_mask_output()
+                    .unwrap()
+                    .with_published_mask_bits(29)
+                    .unwrap(),
+                [
+                    b"/two-mask-one-key-v1/".as_slice(),
+                    b"/rounded-public-masks-v1/",
+                    &29u64.to_le_bytes(),
+                ]
+                .concat(),
+            ),
+        ];
+        for (mode, tags) in cases {
+            let nearest = NativePublicSetup::new(mode.clone(), [7; 32], [19; 32]);
+            for bits in [43, 49] {
+                let p = mode.clone().with_dithered_query_bits(bits).unwrap();
+                let setup = NativePublicSetup::new(p, [7; 32], [19; 32]);
+                let mut h = Sha256::new();
+                h.update(b"ipir-sp/native/v1/setup");
+                h.update(pack.encoding());
+                h.update(&tags);
+                h.update(b"/dithered-query-v1/");
+                for n in [16u64, 24, bits as u64, 22] {
+                    h.update(n.to_le_bytes());
+                }
+                h.update([7; 32]);
+                h.update([19; 32]);
+                let id: [u8; 32] = h.finalize().into();
+                assert_eq!(setup.id, id);
+                assert_ne!(setup.id, nearest.id);
+            }
+        }
+    }
+    #[test]
+    fn recorded_full_size_setup_ids() {
+        // Setup IDs of bench-results/2026-10-09-dithered-query/noise-*.json.
+        let pack = NativeParams::new(2048, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+        let one = NativeProfile::new(pack, 28672, 32768).unwrap();
+        let two = one
+            .clone()
+            .with_two_mask_output()
+            .unwrap()
+            .with_published_mask_bits(29)
+            .unwrap();
+        for (mode, bits, id) in [
+            (
+                &one,
+                None,
+                "5e4eaa75bcf3f162e5e12d9d09127ce658e9ac346c051839b6ee62106f379b48",
+            ),
+            (
+                &one,
+                Some(43),
+                "8111376fc9283b2fc4a0a19652ceaf3827ba23a4fe1b6b4e5091634e78ef6565",
+            ),
+            (
+                &one,
+                Some(44),
+                "7674eb4044d25468443dc4afb687ddca036b71970ab2b1b454f65eea19db2fc9",
+            ),
+            (
+                &two,
+                None,
+                "ab5b44513d72cbfc5eff42fec5f176bf7c4d5b6a5a45f50f7c3226ae4f26cb01",
+            ),
+            (
+                &two,
+                Some(43),
+                "3c3059d5d5c4252d8c0e20c5727a6848eb2f7c2a5b9d99149da8e5e6448c99f4",
+            ),
+            (
+                &two,
+                Some(44),
+                "1ff07e69124f147a7149707cd19c0d870c3bb0b282519c618e71e57b65863e90",
+            ),
+        ] {
+            let p = match bits {
+                Some(bits) => mode.clone().with_dithered_query_bits(bits).unwrap(),
+                None => mode.clone(),
+            };
+            let setup = NativePublicSetup::new(p, [7; 32], [19; 32]);
+            let hex: String = setup.id.iter().map(|x| format!("{x:02x}")).collect();
+            assert_eq!(hex, id);
+        }
     }
     #[test]
     fn dithered_query_rounding_is_unbiased_floor_or_ceiling() {

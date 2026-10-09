@@ -493,8 +493,22 @@ fn dithered_queries_roundtrip_and_bind_precision() {
         .with_dithered_query_bits(45)
         .is_err());
     let data: Vec<u16> = (0..16 * 24).map(|x| (x * 157) as u16).collect();
+    // Query precision composes with reduced K_h precision in either order.
+    assert_eq!(
+        base.clone()
+            .with_dithered_query_bits(45)
+            .unwrap()
+            .with_kh_bits(47)
+            .unwrap(),
+        base.clone()
+            .with_kh_bits(47)
+            .unwrap()
+            .with_dithered_query_bits(45)
+            .unwrap()
+    );
     let modes = [
         base.clone(),
+        base.clone().with_kh_bits(47).unwrap(),
         base.clone().with_two_mask_output().unwrap(),
         base.clone().with_published_mask_bits(28).unwrap(),
         base.clone()
@@ -543,6 +557,40 @@ fn dithered_queries_roundtrip_and_bind_precision() {
                 let truncated = &request.bytes()[..request.bytes().len() - 1];
                 assert!(server.respond(truncated).is_err());
             }
+        }
+    }
+}
+
+#[test]
+fn dithered_queries_reject_padding() {
+    // d=2 with two rows leaves padding after an odd-width query body.
+    let pack = NativeParams::new(2, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+    for two_mask in [false, true] {
+        for bits in [43, 45, 49] {
+            let p = NativeProfile::new(pack.clone(), 2, 2).unwrap();
+            let p = if two_mask {
+                p.with_two_mask_output().unwrap()
+            } else {
+                p
+            };
+            let setup =
+                NativePublicSetup::new(p.with_dithered_query_bits(bits).unwrap(), [4; 32], [5; 32]);
+            let server = NativeServer::build(setup, vec![1, 2, 3, 65535]).unwrap();
+            let request = NativeRequest::generate_with_rng(
+                server.setup(),
+                1,
+                &mut ChaCha20Rng::seed_from_u64(bits as u64),
+            )
+            .unwrap();
+            assert_ne!(2 * bits % 8, 0);
+            let response = server.respond(request.bytes()).unwrap().0;
+            assert_eq!(
+                request.decode(&server.published(), &response).unwrap(),
+                vec![2, 65535]
+            );
+            let mut bad = request.bytes().to_vec();
+            *bad.last_mut().unwrap() |= 0x80;
+            assert!(server.respond(&bad).is_err());
         }
     }
 }
