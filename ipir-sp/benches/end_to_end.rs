@@ -261,7 +261,7 @@ fn encrypted_fixture_material(
             let a = deterministic_a(rlwe, column, coeff);
             hint_0[coeff * ypir.db_cols + column] = a;
             inner_product = ((u128::from(inner_product)
-                + u128::from(a) * u128::from(secret.coeffs[coeff]))
+                + u128::from(a) * u128::from(secret.coeffs()[coeff]))
                 % u128::from(rlwe.q)) as u64;
         }
 
@@ -443,7 +443,7 @@ fn noise_inf_norm(
         let raw = from_ntt_alloc(&ct.inner);
         let phase = add_poly(
             raw.get_poly(1, 0),
-            &negacyclic_mul(raw.get_poly(0, 0), &secret.coeffs, rlwe.q),
+            &negacyclic_mul(raw.get_poly(0, 0), secret.coeffs(), rlwe.q),
             rlwe.q,
         );
 
@@ -578,7 +578,7 @@ fn bench_end_to_end(c: &mut Criterion) {
         .to_switched_bytes(fixture.rlwe.q, fixture.ypir.query_bits);
     let client = IPIRClient::new_experimental(fixture.rlwe, &fixture.ypir)
         .expect("consistent experimental parameters");
-    let client_seed = seed_from_u64(SEED);
+    let client_seed = ipir_sp::client::ClientSeed::from_bytes(seed_from_u64(SEED));
     let response_fixture = serialize_rlwe_response_bodies(&packed_fixture, fixture.ypir.q_prime_1);
     let published_c1 = recover_published_c1(
         &ipir_sp::server::published_c1_rows(&fixture.preprocessed, fixture.rlwe.q),
@@ -793,7 +793,7 @@ fn bench_end_to_end(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("client_decode_only", output_count), |b| {
         b.iter(|| {
             black_box(client.decode_response_simplepir_raw(
-                black_box(client_seed),
+                black_box(&client_seed),
                 black_box(&published_c1),
                 black_box(&response_fixture),
             ));

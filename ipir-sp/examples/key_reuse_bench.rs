@@ -143,7 +143,7 @@ fn main() {
                 } else {
                     pool.client()
                         .decode_response_simplepir_with_expected_phase_error(
-                            fresh_seed.unwrap(),
+                            fresh_seed.as_ref().unwrap(),
                             &c1[bank],
                             &response,
                             &expected,

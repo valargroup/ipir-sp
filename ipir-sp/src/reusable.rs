@@ -48,7 +48,7 @@ impl QueryPool {
     /// Create a new, process-local batch. Dropping it permanently abandons slots.
     pub fn start_batch(&self) -> ReusableBatch<'_> {
         let client_seed = fresh_client_seed();
-        let mut rng = ChaCha20Rng::from_seed(client_seed);
+        let mut rng = SecretRng::from_seed(&client_seed);
         let secret = ClientSecret::sample_gaussian(&self.client.rlwe, &mut rng);
         let keys = PackingKeys::generate_full(
             &self.client.rlwe,
@@ -69,9 +69,9 @@ impl QueryPool {
 /// One ephemeral secret and evaluation-key pair; exclusive mutation allocates slots.
 pub struct ReusableBatch<'a> {
     pool: &'a QueryPool,
-    client_seed: IPIRSeed,
+    client_seed: ClientSeed,
     secret: ClientSecret,
-    rng: ChaCha20Rng,
+    rng: SecretRng,
     keys: PackingKeys<'a>,
     next: usize,
 }
@@ -133,7 +133,7 @@ impl ReusableBatch<'_> {
     ) -> (Vec<u64>, u64) {
         self.pool
             .client
-            .decode_response_simplepir_with_rounding_residual(self.client_seed, c1, response)
+            .decode_response_simplepir_with_rounding_residual(&self.client_seed, c1, response)
     }
 
     /// Decode and measure circular phase error against a known plaintext row.
@@ -147,7 +147,7 @@ impl ReusableBatch<'_> {
         self.pool
             .client
             .decode_response_simplepir_with_expected_phase_error(
-                self.client_seed,
+                &self.client_seed,
                 c1,
                 response,
                 expected,

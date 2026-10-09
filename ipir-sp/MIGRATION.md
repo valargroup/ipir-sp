@@ -30,7 +30,8 @@ backend sampler. Previously these paths sampled uniform ternary coefficients.
 `ClientSecret::sample_ternary` remains a low-level research helper; it is not
 used by the high-level query or decode paths.
 
-`IPIRSeed` is an unversioned 32-byte seed. Its interpretation changes with this
+The per-query client seed (now `ClientSeed`; previously a bare `IPIRSeed`) is an
+unversioned 32-byte seed. Its interpretation changes with this
 sampler: **an old seed cannot reconstruct its old secret through the new default
 decoder**. Finish outstanding requests with the old client or abandon them and
 issue fresh requests after upgrading. Keep the old decoder for any deliberately

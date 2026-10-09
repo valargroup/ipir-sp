@@ -12,6 +12,19 @@
   and wire format are unchanged; domain-separated mask labels wait for the
   next profile ID. The `ipir-sp` README example no longer uses the `K_g`
   reference seed as its setup seed.
+- Client secret hygiene (breaking): the per-query seed is now `ClientSeed`, which
+  is not `Copy`, prints as `<redacted>`, and is wiped on drop; decode methods take
+  `&ClientSeed`, and `ClientSeed::from_bytes`/`expose_bytes` cover persistence.
+  `ClientSecret` no longer derives `Debug` or exposes `coeffs` as a field (use
+  `coeffs()`), and is wiped on drop. `ClientSecret::to_ntt` returns a `SecretNtt`
+  that is wiped on drop, and the RNG that expands a client seed is reset on drop.
+  `IPIRSeed` now names only the public setup seed.
+- `IPIRClient::from_db_sz` returns a `Result`. The `nullifier-pir query` command
+  and the demo client report an unsupported server row count or an out-of-range
+  row as an error instead of panicking.
+- The demo `server` and `nullifier-pir serve` cap request bodies at the exact
+  query length plus 4 KiB (was 4 GiB) and drop the permissive CORS layer.
+  `PirBackend` gains a required `query_len`.
 - Add experimental dithered native query transport
   (`NativeProfile::with_dithered_query_bits`, 43..=49 bits). The client rounds
   each query coefficient up with probability equal to its dropped fraction,

@@ -54,6 +54,11 @@ pub trait PirBackend: Send + Sync {
     fn meta(&self) -> BackendMetadata;
     fn answer_query(&self, query: &[u8]) -> Result<QueryAnswer>;
 
+    /// Exact byte length of a well-formed query body. The HTTP layer caps the
+    /// request body just above this, so an oversized upload is refused before
+    /// it is buffered.
+    fn query_len(&self) -> usize;
+
     /// Snapshot-constant public parameters a client needs before it can decode
     /// a response. For `local-ipir` this is the `c1` row of every output block;
     /// it is fixed for the life of the snapshot, so it is fetched once rather
@@ -167,8 +172,7 @@ impl LocalIpirBackend {
         query: &[u8],
     ) -> Result<(inspiring::PackingKeys<'static>, Vec<u8>)> {
         let packing_keys_len = ipir_sp::serialize::serialized_packing_keys_len(self.rlwe);
-        let online_query_bytes_len = (self.ypir.db_rows * self.ypir.query_bits).div_ceil(8);
-        let expected_len = packing_keys_len + online_query_bytes_len;
+        let expected_len = self.query_len();
         if query.len() != expected_len {
             anyhow::bail!(
                 "local-ipir reference query must be {expected_len} bytes, got {}",
@@ -185,6 +189,10 @@ impl LocalIpirBackend {
 }
 
 impl PirBackend for LocalIpirBackend {
+    fn query_len(&self) -> usize {
+        ipir_sp::serialize::serialized_fresh_query_len(self.rlwe, &self.ypir)
+    }
+
     fn meta(&self) -> BackendMetadata {
         BackendMetadata {
             backend: BackendKind::LocalIpir,
@@ -285,6 +293,14 @@ impl PirBackend for Backend {
         }
     }
 
+    fn query_len(&self) -> usize {
+        match self {
+            Self::Local(backend) => backend.query_len(),
+            #[cfg(feature = "ypir-artifact")]
+            Self::YpirArtifact(backend) => backend.query_len(),
+        }
+    }
+
     fn public_params(&self) -> Vec<u8> {
         match self {
             Self::Local(backend) => backend.public_params(),
@@ -334,6 +350,19 @@ mod ypir_artifact {
         }
     }
 
+    impl YpirArtifactBackend {
+        fn first_dim_bytes_len(&self) -> usize {
+            self.params.db_rows() * std::mem::size_of::<u64>()
+        }
+
+        fn pub_param_bytes_len(&self) -> usize {
+            self.params.poly_len_log2
+                * self.params.t_exp_left
+                * self.params.poly_len
+                * std::mem::size_of::<u64>()
+        }
+    }
+
     impl PirBackend for YpirArtifactBackend {
         fn meta(&self) -> BackendMetadata {
             BackendMetadata {
@@ -350,16 +379,16 @@ mod ypir_artifact {
             }
         }
 
+        fn query_len(&self) -> usize {
+            self.first_dim_bytes_len() + self.pub_param_bytes_len()
+        }
+
         fn answer_query(&self, query: &[u8]) -> Result<QueryAnswer> {
-            let first_dim_bytes_sz = self.params.db_rows() * std::mem::size_of::<u64>();
-            let pub_param_bytes_sz = self.params.poly_len_log2
-                * self.params.t_exp_left
-                * self.params.poly_len
-                * std::mem::size_of::<u64>();
-            if query.len() != first_dim_bytes_sz + pub_param_bytes_sz {
+            let first_dim_bytes_sz = self.first_dim_bytes_len();
+            if query.len() != self.query_len() {
                 anyhow::bail!(
                     "YPIR query must be {} bytes, got {}",
-                    first_dim_bytes_sz + pub_param_bytes_sz,
+                    self.query_len(),
                     query.len()
                 );
             }
@@ -495,5 +524,39 @@ mod tests {
         };
 
         assert!(err.to_string().contains("reference query"));
+    }
+
+    #[test]
+    fn local_backend_query_len_matches_a_real_client_query() {
+        let mut file = NamedTempFile::new().expect("temp file");
+        file.write_all(&[9u8; 32]).expect("write snapshot");
+        let snapshot = NullifierSnapshot::open(file.path()).expect("open snapshot");
+        let rlwe = RlweParams::new(
+            8,
+            12289,
+            4,
+            3.2,
+            GadgetParams {
+                bits_per: 3,
+                ell: 5,
+            },
+        )
+        .expect("valid params");
+        let ypir = tiny_ypir(8, 8);
+        let backend =
+            LocalIpirBackend::prepare_with_params(&snapshot, 7, rlwe.clone(), ypir.clone())
+                .expect("prepare backend");
+
+        let client = ipir_sp::IPIRClient::new_experimental(&rlwe, &ypir).expect("client");
+        let setup = client.generate_public_query_setup_simplepir_from_seed(seed_from_u64(7));
+        let (query, keys, _seed) = client.generate_fresh_query_simplepir(&setup, 3);
+        let mut body =
+            ipir_sp::serialize::serialize_packing_keys(client.rlwe_params(), &keys).unwrap();
+        body.extend(query.to_switched_bytes(rlwe.q, ypir.query_bits));
+
+        assert_eq!(backend.query_len(), body.len());
+        backend
+            .answer_query(&body)
+            .expect("well-formed query answers");
     }
 }

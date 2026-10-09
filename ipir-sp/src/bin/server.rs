@@ -1,6 +1,4 @@
 #[cfg(feature = "http_server")]
-use actix_cors::Cors;
-#[cfg(feature = "http_server")]
 use actix_web::{get, post, web, App, HttpServer};
 #[cfg(feature = "http_server")]
 use clap::Parser;
@@ -9,14 +7,28 @@ use inspiring::{QueryPackPreprocessed, RlweParams, TopKeyImages};
 #[cfg(feature = "http_server")]
 use ipir_sp::client::IPIRClient;
 #[cfg(feature = "http_server")]
-use ipir_sp::serialize::{deserialize_packing_keys, serialized_packing_keys_len};
+use ipir_sp::serialize::{
+    deserialize_packing_keys, serialized_fresh_query_len, serialized_packing_keys_len,
+};
 #[cfg(feature = "http_server")]
 use ipir_sp::server::{
     build_pack_preprocessed_blocks, published_c1_rows, verify_query_masks_distinct_from_key_masks,
     IPIRServer,
 };
 #[cfg(feature = "http_server")]
-use ipir_sp::{ProductionSimplePirParams, SimplePirProfile};
+use ipir_sp::{ProductionSimplePirParams, SimplePirProfile, YpirSchemeParams};
+
+/// Headroom above the exact query length in the request-body limit. Queries
+/// have one fixed size, so this only absorbs framing differences; anything
+/// larger is refused before it is buffered.
+#[cfg(feature = "http_server")]
+const QUERY_BODY_SLACK_BYTES: usize = 4096;
+
+/// Largest request body the server will buffer.
+#[cfg(feature = "http_server")]
+fn query_body_limit(rlwe: &RlweParams, ypir: &YpirSchemeParams) -> usize {
+    serialized_fresh_query_len(rlwe, ypir) + QUERY_BODY_SLACK_BYTES
+}
 
 #[cfg(feature = "http_server")]
 #[derive(Parser, Debug)]
@@ -43,8 +55,7 @@ struct Args {
 #[cfg(feature = "http_server")]
 struct ServerState {
     rlwe: &'static RlweParams,
-    ypir_rows: usize,
-    query_bits: usize,
+    ypir: YpirSchemeParams,
     server: IPIRServer<u16>,
     /// Snapshot-constant `c1` rows, served once from `/public-params`.
     published_c1: Vec<u8>,
@@ -59,11 +70,10 @@ async fn query(
     data: web::Data<ServerState>,
 ) -> Result<Vec<u8>, actix_web::error::Error> {
     let packing_keys_len = serialized_packing_keys_len(data.rlwe);
-    let online_query_len = (data.ypir_rows * data.query_bits).div_ceil(8);
-    if body.len() != packing_keys_len + online_query_len {
+    let query_len = serialized_fresh_query_len(data.rlwe, &data.ypir);
+    if body.len() != query_len {
         return Err(actix_web::error::ErrorBadRequest(format!(
-            "query must be {} bytes, got {}",
-            packing_keys_len + online_query_len,
+            "query must be {query_len} bytes, got {}",
             body.len()
         )));
     }
@@ -156,10 +166,10 @@ async fn main() -> std::io::Result<()> {
     let top_keys = TopKeyImages::build(client.rlwe_params());
 
     let published_c1 = published_c1_rows(&preprocessed, client.rlwe_params().q);
+    let body_limit = query_body_limit(client.rlwe_params(), &ypir);
     let app_data = web::Data::new(ServerState {
         rlwe: client.rlwe_params(),
-        ypir_rows: ypir.db_rows,
-        query_bits: ypir.query_bits,
+        ypir,
         server,
         published_c1,
         preprocessed,
@@ -167,11 +177,12 @@ async fn main() -> std::io::Result<()> {
     });
 
     println!("Listening on http://127.0.0.1:{}", args.port);
+    // No CORS layer: clients are native, and a browser on another origin has
+    // no reason to drive queries here.
     HttpServer::new(move || {
         App::new()
-            .wrap(Cors::permissive())
             .app_data(app_data.clone())
-            .app_data(web::PayloadConfig::new(1usize << 32))
+            .app_data(web::PayloadConfig::new(body_limit))
             .service(index)
             .service(query)
             .service(public_params)
@@ -207,5 +218,18 @@ mod tests {
         .unwrap();
         assert_eq!(gpu.cuda_device, Some(2));
         assert!(Args::try_parse_from(["server", "32768", "--matvec-backend", "invalid"]).is_err());
+    }
+
+    #[test]
+    fn query_body_limit_is_exact_query_length_plus_slack() {
+        let profile =
+            ProductionSimplePirParams::new(32_768, 16_384 * 8, SimplePirProfile::P14).unwrap();
+        let limit = query_body_limit(profile.rlwe(), profile.ypir());
+        assert_eq!(
+            limit,
+            serialized_fresh_query_len(profile.rlwe(), profile.ypir()) + QUERY_BODY_SLACK_BYTES
+        );
+        // The old limit was 4 GiB; the production query is a few MiB.
+        assert!(limit < 64 << 20, "limit {limit} is not query-sized");
     }
 }

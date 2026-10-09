@@ -93,11 +93,11 @@ fn main() {
             .unwrap();
         let server_ms = t.elapsed().as_secs_f64() * 1000.;
         let t = Instant::now();
-        let decoded = client.decode_response_simplepir_raw(seed, &published, &response);
+        let decoded = client.decode_response_simplepir_raw(&seed, &published, &response);
         let decode_ms = t.elapsed().as_secs_f64() * 1000.;
         assert_eq!(decoded, expected[target]);
         let (_, error) = client.decode_response_simplepir_with_expected_phase_error(
-            seed,
+            &seed,
             &published,
             &response,
             &expected[target],

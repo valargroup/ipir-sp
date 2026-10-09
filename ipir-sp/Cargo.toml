@@ -25,7 +25,7 @@ serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0"
 sha1 = "0.10.6"
 sha2 = "0.10"
-actix-cors = { version = "=0.7.0", optional = true }
+zeroize = "1.8"
 actix-web = { version = "=4.11.0", optional = true }
 reqwest = { version = "0.12", features = ["blocking"], optional = true }
 
@@ -35,7 +35,7 @@ cuda = ["simplepir-kernel/cuda"]
 experimental-key-reuse = []
 experimental-params = []
 native-reinspiring = []
-http_server = ["dep:actix-cors", "dep:actix-web"]
+http_server = ["dep:actix-web"]
 http_client = ["dep:reqwest"]
 
 [dev-dependencies]

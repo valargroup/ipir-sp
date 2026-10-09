@@ -15,7 +15,6 @@ debug-query-index = []
 experimental-params = ["ipir-sp/experimental-params"]
 
 [dependencies]
-actix-cors = "0.7.0"
 actix-web = "4.11.0"
 anyhow = "1.0"
 clap = { version = "4.5.0", features = ["derive"] }

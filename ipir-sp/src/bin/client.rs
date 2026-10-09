@@ -36,11 +36,15 @@ fn seed_from_u64(value: u64) -> [u8; 32] {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let item_size_bits = args.item_size_bits.unwrap_or(16_384 * 8);
-    let client = IPIRClient::from_db_sz(args.num_items as u64, item_size_bits as u64);
-    assert!(
-        args.target_row < client.params().db_rows,
-        "target row out of bounds"
-    );
+    let client = IPIRClient::from_db_sz(args.num_items as u64, item_size_bits as u64)?;
+    if args.target_row >= client.params().db_rows {
+        return Err(format!(
+            "target row {} is out of range for {} db rows",
+            args.target_row,
+            client.params().db_rows
+        )
+        .into());
+    }
 
     let setup =
         client.generate_public_query_setup_simplepir_from_seed(seed_from_u64(args.setup_seed));
@@ -72,7 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .error_for_status()?
         .bytes()?;
 
-    let decoded = client.decode_response_simplepir(client_seed, &published_c1, &response);
+    let decoded = client.decode_response_simplepir(&client_seed, &published_c1, &response);
     let preview_len = decoded.len().min(32);
     println!("Result: {:?}", &decoded[..preview_len]);
     Ok(())

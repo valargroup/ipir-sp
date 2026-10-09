@@ -306,7 +306,7 @@ fn mocked_db_query_decodes_exact_expected_row_bytes() {
     let mut decoded = Vec::with_capacity(ypir.db_cols);
     for (chunk, row_0) in response.chunks_exact(response_len).zip(&published_c1) {
         let row_1 = recover_response_body(chunk, rlwe.d, ypir.q_prime_1, rlwe.q);
-        decoded.extend(decode_rows(&rlwe, row_0, &row_1, &zero_secret.coeffs));
+        decoded.extend(decode_rows(&rlwe, row_0, &row_1, zero_secret.coeffs()));
     }
 
     let expected = db_bytes[target_row * ypir.db_cols..(target_row + 1) * ypir.db_cols].to_vec();
@@ -344,7 +344,7 @@ fn encrypted_pir_query_decodes_exact_expected_row_bytes() {
     let query = encrypted_selection_query(
         &rlwe,
         &offline_query,
-        &secret.coeffs,
+        secret.coeffs(),
         target_row,
         ypir.db_rows,
     );
@@ -360,7 +360,7 @@ fn encrypted_pir_query_decodes_exact_expected_row_bytes() {
     let mut decoded = Vec::with_capacity(ypir.db_cols);
     for (chunk, row_0) in response.chunks_exact(response_len).zip(&published_c1) {
         let row_1 = recover_response_body(chunk, rlwe.d, ypir.q_prime_1, rlwe.q);
-        decoded.extend(decode_rows(&rlwe, row_0, &row_1, &secret.coeffs));
+        decoded.extend(decode_rows(&rlwe, row_0, &row_1, secret.coeffs()));
     }
 
     let expected = db_bytes[target_row * ypir.db_cols..(target_row + 1) * ypir.db_cols].to_vec();
@@ -406,7 +406,7 @@ fn ipir_client_facade_matches_server_full_online_shape() {
         ypir.db_cols / rlwe.d,
         rlwe.q,
     );
-    let decoded = client.decode_response_simplepir_raw(client_seed, &published_c1, &response);
+    let decoded = client.decode_response_simplepir_raw(&client_seed, &published_c1, &response);
     let expected = db_values[6 * ypir.db_cols..7 * ypir.db_cols].to_vec();
 
     assert_eq!(query.as_slice().len(), ypir.db_rows);
