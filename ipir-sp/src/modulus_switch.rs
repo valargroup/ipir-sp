@@ -262,21 +262,35 @@ pub fn published_c1_len(degree: usize, q: u64) -> usize {
 }
 
 /// Recover the published `c1` rows produced by [`crate::server::published_c1_rows`].
-#[must_use]
-pub fn recover_published_c1(data: &[u8], degree: usize, blocks: usize, q: u64) -> Vec<Vec<u64>> {
+///
+/// The bytes come from the server, so a wrong length or a coefficient outside
+/// `[0, q)` is an error rather than a panic. A well-formed result is still
+/// untrusted: see [`crate::manifest::VerifiedPublicParams`].
+pub fn recover_published_c1(
+    data: &[u8],
+    degree: usize,
+    blocks: usize,
+    q: u64,
+) -> Result<Vec<Vec<u64>>, crate::client::ClientError> {
     let row_len = published_c1_len(degree, q);
-    assert_eq!(
-        data.len(),
-        blocks * row_len,
-        "published c1 must be {blocks} rows of {row_len} bytes; got {} bytes. \
-         An empty body usually means the server did not serve /public-params.",
-        data.len()
-    );
+    if data.len() != blocks * row_len {
+        // An empty body usually means the server did not serve /public-params.
+        return Err(crate::client::ClientError::Length {
+            what: "published c1",
+            expected: blocks * row_len,
+            actual: data.len(),
+        });
+    }
     data.chunks_exact(row_len)
         .map(|chunk| {
             let mut row = crate::bits::contiguous_bytes_to_u64s(chunk, modulus_bits(q));
             row.truncate(degree);
-            row
+            if row.iter().any(|coeff| *coeff >= q) {
+                return Err(crate::client::ClientError::Malformed(
+                    "published c1 coefficient is not reduced modulo q".into(),
+                ));
+            }
+            Ok(row)
         })
         .collect()
 }

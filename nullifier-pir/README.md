@@ -22,8 +22,52 @@ cargo run --release -p nullifier-pir -- serve \
 The server exposes:
 
 - `GET /health`
-- `GET /meta`
+- `GET /meta`, including `manifest_sha256` (SHA-256 of the `/manifest` bytes)
+  when the backend has a manifest, so clients can tell a cached copy is stale
+- `GET /public-params`: the snapshot-constant `c1` rows
+- `GET /manifest`: `{"manifest": <base64 of the exact signed bytes>,
+  "signature": <hex Ed25519 signature or null>}`
+- `GET /row-digests`: one 32-byte SHA-256 per PIR row, row-major (`db_rows * 32`
+  bytes; 917,504 bytes for the full snapshot)
 - `POST /query` with backend-native query bytes
+
+`/manifest` and `/row-digests` exist for the `local-ipir` backend only.
+
+## Snapshot manifests
+
+`serve` (or `nullifier-pir manifest --snapshot-path ... --setup-seed ...`)
+hashes the snapshot and every PIR row in one pass and writes, next to the
+snapshot:
+
+- `manifest.json`: the bytes the coordinator signs. It records the snapshot
+  SHA-256, profile, setup seed, shape, the SHA-256 of the `/public-params`
+  body, and the SHA-256 of `row-digests.bin`.
+- `row-digests.bin`: SHA-256 of each row's honest decoded bytes; padding rows
+  hash the all-zero row.
+
+Production signatures come from the coordinator: sign the exact
+`manifest.json` bytes with its Ed25519 key and place the signature in
+`manifest.sig` (128 hex characters or 64 raw bytes) next to them. The server
+only serves the signature, it never holds the key. If a later start finds a
+`manifest.json` for a different snapshot, it and `manifest.sig` are renamed to
+`*.stale` and a fresh unsigned manifest is written. `--dev-sign-key-file
+<file with a hex 32-byte seed>` signs locally, for tests and local runs only.
+
+The `query` command authenticates by default:
+
+```bash
+cargo run --release -p nullifier-pir -- query \
+  --server-url http://127.0.0.1:8080 \
+  --snapshot-path data/nullifiers.bin \
+  --nullifier-hex <64 hex chars> \
+  --coordinator-pubkey <64 hex chars>
+```
+
+It fetches `/meta`, `/public-params`, `/manifest` and `/row-digests` and
+verifies all of them before sending the query, then checks the decoded row
+against its digest. A mismatch prints `TAMPER DETECTED` and exits with status
+3. `--allow-unverified` skips authentication for fixtures and for servers
+without a signed manifest.
 
 To compile the YPIR SimplePIR artifact backend pinned at commit `4f7ef3d`:
 

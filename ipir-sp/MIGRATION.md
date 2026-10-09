@@ -1,5 +1,48 @@
 # Migrating YPIR Packing Code To ipir-sp
 
+## Authenticated responses (snapshot manifests)
+
+Decoding now requires verified public parameters. Nothing on the PIR wire
+changes: `POST /query`, the response body, `GET /public-params`, the existing
+`GET /meta` fields, seeds, secrets, keys and profiles are byte-identical, and
+old clients keep working against new servers. The new artefacts are additive.
+
+API changes:
+
+- `decode_response_simplepir` and `decode_response_simplepir_raw` take
+  `&VerifiedPublicParams` instead of raw `c1` rows and return
+  `Result<_, ClientError>`. They no longer panic on server-supplied lengths.
+- `decode_response_simplepir_verified(seed, &verified, response, row)` also
+  checks the decoded row against its signed digest and returns
+  `ClientError::TamperDetected` on mismatch. Use this one.
+- `modulus_switch::recover_published_c1` returns a `Result` and rejects
+  coefficients outside `[0, q)`.
+- The previous behaviour is `decode_response_simplepir_unverified` /
+  `decode_response_simplepir_raw_unverified`, taking raw `c1` rows. Under a
+  malicious server their output is key-equivalent (see
+  [`SECURITY_PROFILES.md`](SECURITY_PROFILES.md#authenticating-responses)).
+  They remain for one release so integrators can migrate.
+
+Adoption order:
+
+1. **Coordinator.** For every served snapshot, publish `manifest.json` and
+   `row-digests.bin` (`nullifier-pir manifest`, or produced by `serve` at
+   startup) and sign the exact `manifest.json` bytes with the coordinator
+   Ed25519 key into `manifest.sig` next to them. Servers then serve
+   `GET /manifest`, `GET /row-digests`, and `manifest_sha256` in `/meta`.
+2. **Library release.** Ship this crate version. Integrators that are not
+   ready may call the `_unverified` decoders for one release.
+3. **Wallet.** Pin the coordinator public key in the wallet (never fetch it
+   from the PIR server); fetch `/meta`, `/public-params`, `/manifest` and
+   `/row-digests`; build `VerifiedPublicParams` before the first query and send
+   nothing if it fails; decode with `decode_response_simplepir_verified`; and
+   adopt response-independent polling, so the request pattern never depends on
+   the decoded answer and no irreversible action follows an unverified one.
+
+No wire, key, seed or profile change occurs at any step, so the steps can roll
+out independently. A wallet that pins the key before step 1 has reached every
+server will refuse to query those servers rather than fall back.
+
 ## Decryption diagnostics
 
 `decode_response_simplepir_with_margin` and the experimental
@@ -154,8 +197,9 @@ decoding `ipir-sp` responses. InspiRING absorbs the relevant `d^-1` scaling
 inside its transform, so applying the old multiplier would double-scale the
 message.
 
-Use `IPIRClient::decode_response_simplepir` for plaintext bytes or
-`IPIRClient::decode_response_simplepir_raw` for plaintext coefficients.
+Use `IPIRClient::decode_response_simplepir_verified` for authenticated
+plaintext bytes, or `decode_response_simplepir` / `decode_response_simplepir_raw`
+for unauthenticated bytes or coefficients decoded against verified `c1`.
 
 ## Validation Checklist
 

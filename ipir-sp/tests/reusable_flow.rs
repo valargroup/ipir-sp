@@ -34,7 +34,10 @@ fn reused_keys_recover_boundary_rows_across_sets_and_fresh_batches() {
         .collect();
     let c1: Vec<_> = pre
         .iter()
-        .map(|p| recover_published_c1(&published_c1_rows(p, r.q), r.d, y.db_cols / r.d, r.q))
+        .map(|p| {
+            recover_published_c1(&published_c1_rows(p, r.q), r.d, y.db_cols / r.d, r.q)
+                .expect("published c1 decodes")
+        })
         .collect();
     let top = TopKeyImages::build(&r);
     for _ in 0..2 {

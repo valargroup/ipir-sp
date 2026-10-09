@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- Authenticate PIR responses on the client. A coordinator-signed (Ed25519)
+  `SnapshotManifest` binds the profile, shape, setup seed, the SHA-256 of the
+  `/public-params` bytes and of a per-row SHA-256 digest table.
+  `VerifiedPublicParams::verify` checks all of it, plus a residue check that
+  refuses a structured `c1`, before the first query.
+- **Breaking:** `decode_response_simplepir{,_raw}` take `&VerifiedPublicParams`
+  and return `Result<_, ClientError>`; `recover_published_c1` returns a
+  `Result`. New `decode_response_simplepir_verified` checks the row digest and
+  returns `ClientError::TamperDetected`. The old behaviour is kept as
+  `decode_response_simplepir{,_raw}_unverified` for one release; its output is
+  key-equivalent under a malicious server.
+- `nullifier-pir` writes `manifest.json` and `row-digests.bin` next to the
+  snapshot (`manifest` subcommand or `serve` startup), serves `GET /manifest`
+  and `GET /row-digests`, and adds `manifest_sha256` to `/meta`. The `query`
+  command requires `--coordinator-pubkey` or `--allow-unverified`.
+- No wire, key, seed or profile change: existing clients keep working. See
+  `ipir-sp/MIGRATION.md` for the adoption order and
+  `ipir-sp/SECURITY_PROFILES.md` for the two attacks this addresses.
+
 ## 0.1.0-rc.6 — 2026-09-25
 
 - Add the experimental native two-mask output mode (#24). It removes the final

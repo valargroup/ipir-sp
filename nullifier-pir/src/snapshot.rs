@@ -4,7 +4,8 @@ use std::fs::{self, File};
 use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
+use ipir_sp::manifest::{row_digest, RowDigestTable};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -127,6 +128,75 @@ impl NullifierSnapshot {
             item: vec![0u8; ITEM_BYTES],
             coeffs: [0u16; SIMPLEPIR_COEFFS_PER_ITEM],
             coeff_idx: SIMPLEPIR_COEFFS_PER_ITEM,
+        })
+    }
+}
+
+/// Digests a snapshot manifest binds, from one pass over the snapshot file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotDigests {
+    /// SHA-256 of the raw snapshot file.
+    pub snapshot_sha256: [u8; 32],
+    /// One digest per SimplePIR row, padding rows included.
+    pub row_digests: RowDigestTable,
+}
+
+impl NullifierSnapshot {
+    /// Hash the snapshot file and every PIR row in one sequential read.
+    ///
+    /// Rows are encoded exactly as [`Self::coeff_iter`] feeds the server, then
+    /// hashed with [`ipir_sp::manifest::row_digest`] — the helper the client
+    /// uses on a decoded row — so an honest answer to row `r` matches entry
+    /// `r`. Rows past the last record hash the all-zero row.
+    pub fn digest_rows(
+        &self,
+        db_rows: usize,
+        db_cols: usize,
+        plaintext_modulus: u64,
+    ) -> Result<SnapshotDigests> {
+        ensure!(
+            db_cols == SIMPLEPIR_COEFFS_PER_ITEM,
+            "db_cols {db_cols} does not match the {SIMPLEPIR_COEFFS_PER_ITEM}-coefficient row encoding"
+        );
+        let actual_rows = self.pir_row_count();
+        ensure!(
+            actual_rows <= db_rows,
+            "snapshot needs {actual_rows} rows but the database has {db_rows}"
+        );
+
+        let mut reader = BufReader::new(
+            File::open(&self.path).with_context(|| format!("open {}", self.path.display()))?,
+        );
+        let mut file_hasher = Sha256::new();
+        let mut item = vec![0u8; ITEM_BYTES];
+        let mut coeffs = vec![0u16; SIMPLEPIR_COEFFS_PER_ITEM];
+        let mut row = vec![0u64; SIMPLEPIR_COEFFS_PER_ITEM];
+        let mut digests = Vec::with_capacity(db_rows);
+        for row_index in 0..actual_rows {
+            let remaining_records = self.record_count - row_index * NULLIFIERS_PER_ITEM;
+            let bytes_in_row = remaining_records.min(NULLIFIERS_PER_ITEM) * NULLIFIER_BYTES;
+            reader
+                .read_exact(&mut item[..bytes_in_row])
+                .with_context(|| format!("read snapshot row {row_index}"))?;
+            file_hasher.update(&item[..bytes_in_row]);
+            encode_item_into(&item[..bytes_in_row], &mut coeffs);
+            for (out, coeff) in row.iter_mut().zip(&coeffs) {
+                *out = u64::from(*coeff);
+            }
+            digests.push(row_digest(&row, plaintext_modulus));
+        }
+        let mut trailing = [0u8; 1];
+        ensure!(
+            reader.read(&mut trailing)? == 0,
+            "snapshot {} grew while it was being hashed",
+            self.path.display()
+        );
+        let padding = row_digest(&vec![0; SIMPLEPIR_COEFFS_PER_ITEM], plaintext_modulus);
+        digests.resize(db_rows, padding);
+
+        Ok(SnapshotDigests {
+            snapshot_sha256: file_hasher.finalize().into(),
+            row_digests: RowDigestTable::from_digests(digests),
         })
     }
 }
@@ -380,6 +450,43 @@ mod tests {
 
         let padded = decode_item_coefficients(&coeffs[SIMPLEPIR_COEFFS_PER_ITEM..]);
         assert!(padded.iter().all(|byte| *byte == 0));
+    }
+
+    /// The generator must hash exactly what the server serves: the rows
+    /// `coeff_iter` produces, through the client's own digest helper.
+    #[test]
+    fn row_digests_match_served_rows_and_file_hash() {
+        let mut file = NamedTempFile::new().expect("temp file");
+        for idx in 0..NULLIFIERS_PER_ITEM + 5 {
+            let mut record = [0u8; NULLIFIER_BYTES];
+            record[..8].copy_from_slice(&(idx as u64 * 0x9E37_79B9).to_le_bytes());
+            record[31] = 0xA5;
+            file.write_all(&record).expect("write");
+        }
+        file.flush().expect("flush");
+        let snapshot = NullifierSnapshot::open(file.path()).expect("open snapshot");
+        let p = 1 << 14;
+
+        let digests = snapshot
+            .digest_rows(4, SIMPLEPIR_COEFFS_PER_ITEM, p)
+            .expect("digest rows");
+        let served: Vec<u64> = snapshot
+            .coeff_iter(4)
+            .expect("iterator")
+            .map(u64::from)
+            .collect();
+        let expected = RowDigestTable::from_rows(served.chunks_exact(SIMPLEPIR_COEFFS_PER_ITEM), p);
+        assert_eq!(digests.row_digests, expected);
+        assert_eq!(digests.row_digests.len(), 4);
+        assert_eq!(digests.row_digests.get(2), digests.row_digests.get(3));
+        assert_eq!(
+            hex::encode(digests.snapshot_sha256),
+            sha256_file(file.path()).expect("hash")
+        );
+        assert!(snapshot
+            .digest_rows(1, SIMPLEPIR_COEFFS_PER_ITEM, p)
+            .is_err());
+        assert!(snapshot.digest_rows(4, 2048, p).is_err());
     }
 
     #[test]

@@ -14,6 +14,7 @@ use spiral_rs::poly::{
 };
 
 use crate::bits::{contiguous_bytes_to_u64s, u64s_to_contiguous_bytes};
+use crate::manifest::{decoded_row_bytes, VerifiedPublicParams};
 use crate::modulus_switch::modulus_bits;
 use crate::modulus_switch::{
     query_coeff_down, query_coeff_up, recover_response_body, response_body_len,
@@ -61,6 +62,83 @@ impl PublicQuerySetup {
         &self.polys
     }
 }
+
+/// Why a client refused server-supplied data.
+///
+/// Every byte a server sends is untrusted, so decoders and
+/// [`VerifiedPublicParams::verify`] return these instead of panicking.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ClientError {
+    /// A server-supplied byte string or vector has the wrong length.
+    Length {
+        /// What was being parsed.
+        what: &'static str,
+        /// Expected length.
+        expected: usize,
+        /// Received length.
+        actual: usize,
+    },
+    /// Server-supplied data is malformed.
+    Malformed(String),
+    /// The coordinator signature over the manifest bytes did not verify.
+    BadSignature,
+    /// The signed manifest does not describe the parameters this client uses.
+    ManifestMismatch(String),
+    /// Fetched bytes do not hash to the digest the signed manifest binds.
+    DigestMismatch(&'static str),
+    /// Published `c1` has structure that an honest `c1` essentially never has
+    /// and that would let decoded output reveal the client secret.
+    SuspiciousPublicParams(String),
+    /// The verified parameters were built for a different client shape.
+    ParamsMismatch,
+    /// A row index outside the database.
+    RowOutOfRange {
+        /// Requested row.
+        row: usize,
+        /// Number of rows.
+        rows: usize,
+    },
+    /// The decoded row does not match the signed digest for that row. The
+    /// server answered from a different database; do not act on the answer.
+    TamperDetected {
+        /// The row the query asked for.
+        row: usize,
+    },
+}
+
+impl std::fmt::Display for ClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Length {
+                what,
+                expected,
+                actual,
+            } => write!(f, "{what} must be {expected} long, got {actual}"),
+            Self::Malformed(msg) => write!(f, "malformed server data: {msg}"),
+            Self::BadSignature => f.write_str("coordinator signature over the manifest is invalid"),
+            Self::ManifestMismatch(msg) => write!(f, "manifest does not match client: {msg}"),
+            Self::DigestMismatch(what) => {
+                write!(f, "{what} does not match the signed manifest digest")
+            }
+            Self::SuspiciousPublicParams(msg) => {
+                write!(f, "refusing structured public params: {msg}")
+            }
+            Self::ParamsMismatch => {
+                f.write_str("verified public params were built for different client parameters")
+            }
+            Self::RowOutOfRange { row, rows } => {
+                write!(f, "row {row} is out of range for {rows} rows")
+            }
+            Self::TamperDetected { row } => write!(
+                f,
+                "tamper detected: decoded row {row} does not match the signed row digest"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ClientError {}
 
 /// A client secret in coefficient form.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -413,42 +491,131 @@ impl IPIRClient {
         (IPIRSimpleQuery::new(first_dim), packing_keys, client_seed)
     }
 
-    /// Decode serialized response bytes into contiguous plaintext bytes.
+    /// Decode a response against verified public parameters.
     ///
-    /// `published_c1` is the snapshot-constant `c1` row of each output block,
-    /// fetched once from the server's metadata; see
-    /// [`crate::modulus_switch::recover_published_c1`].
-    #[must_use]
+    /// Returns contiguous plaintext bytes, `ceil(log2 p)` bits per coefficient
+    /// ([`crate::manifest::decoded_row_bytes`]). `c1` comes from `verified`,
+    /// so a server cannot turn the output into key material, but the row
+    /// contents are still unauthenticated: prefer
+    /// [`Self::decode_response_simplepir_verified`].
     pub fn decode_response_simplepir(
         &self,
         client_seed: IPIRSeed,
-        published_c1: &[Vec<u64>],
+        verified: &VerifiedPublicParams,
         response: &[u8],
-    ) -> Vec<u8> {
-        let decoded = self.decode_response_simplepir_raw(client_seed, published_c1, response);
-        u64s_to_contiguous_bytes(&decoded, plaintext_modulus_bits(self.rlwe.p))
+    ) -> Result<Vec<u8>, ClientError> {
+        let decoded = self.decode_response_simplepir_raw(client_seed, verified, response)?;
+        Ok(decoded_row_bytes(&decoded, self.rlwe.p))
     }
 
-    /// Decode serialized response bytes into plaintext coefficients.
-    #[must_use]
+    /// Decode a response against verified public parameters into plaintext
+    /// coefficients. See [`Self::decode_response_simplepir`].
     pub fn decode_response_simplepir_raw(
+        &self,
+        client_seed: IPIRSeed,
+        verified: &VerifiedPublicParams,
+        response: &[u8],
+    ) -> Result<Vec<u64>, ClientError> {
+        let shape = verified.shape();
+        if shape.d != self.rlwe.d
+            || shape.q != self.rlwe.q
+            || shape.p != self.rlwe.p
+            || shape.db_rows != self.ypir.db_rows
+            || shape.db_cols != self.ypir.db_cols
+            || shape.item_size_bits != self.ypir.item_size_bits
+        {
+            return Err(ClientError::ParamsMismatch);
+        }
+        self.decode_coefficients(client_seed, verified.published_c1(), response)
+    }
+
+    /// Decode the response to a query for `row_index` and authenticate it.
+    ///
+    /// The decoded row must hash to the signed digest for `row_index`;
+    /// otherwise this returns [`ClientError::TamperDetected`] and the caller
+    /// must not act on the answer. `row_index` is the `target_row` the query
+    /// was generated for. This is the decoder clients should use.
+    pub fn decode_response_simplepir_verified(
+        &self,
+        client_seed: IPIRSeed,
+        verified: &VerifiedPublicParams,
+        response: &[u8],
+        row_index: usize,
+    ) -> Result<Vec<u8>, ClientError> {
+        let row = self.decode_response_simplepir(client_seed, verified, response)?;
+        verified.check_row(row_index, &row)?;
+        Ok(row)
+    }
+
+    /// Decode with server-supplied `c1` rows that nobody has checked.
+    ///
+    /// **Warning:** under a malicious server the output is key-equivalent.
+    /// With `c1 = Δ` and `c2 = 0` every decoded coefficient is the client's
+    /// secret coefficient modulo `p`, so the bytes returned here must never
+    /// leave the device (logs, telemetry, verifier services) and must never
+    /// drive an irreversible action. Retained for one release so integrators
+    /// can migrate to [`Self::decode_response_simplepir_verified`]; research
+    /// fixtures that have no signed manifest may keep using it.
+    pub fn decode_response_simplepir_unverified(
         &self,
         client_seed: IPIRSeed,
         published_c1: &[Vec<u64>],
         response: &[u8],
-    ) -> Vec<u64> {
+    ) -> Result<Vec<u8>, ClientError> {
+        let decoded =
+            self.decode_response_simplepir_raw_unverified(client_seed, published_c1, response)?;
+        Ok(decoded_row_bytes(&decoded, self.rlwe.p))
+    }
+
+    /// Coefficient form of [`Self::decode_response_simplepir_unverified`],
+    /// with the same warning.
+    pub fn decode_response_simplepir_raw_unverified(
+        &self,
+        client_seed: IPIRSeed,
+        published_c1: &[Vec<u64>],
+        response: &[u8],
+    ) -> Result<Vec<u64>, ClientError> {
+        self.decode_coefficients(client_seed, published_c1, response)
+    }
+
+    fn decode_coefficients(
+        &self,
+        client_seed: IPIRSeed,
+        published_c1: &[Vec<u64>],
+        response: &[u8],
+    ) -> Result<Vec<u64>, ClientError> {
         let blocks = self.ypir.db_cols / self.rlwe.d;
         let body_len = response_body_len(self.rlwe.d, self.ypir.q_prime_1);
-        assert_eq!(
-            response.len(),
-            blocks * body_len,
-            "serialized response length mismatch"
-        );
-        assert_eq!(
-            published_c1.len(),
-            blocks,
-            "expected one published c1 row per output block"
-        );
+        if response.len() != blocks * body_len {
+            return Err(ClientError::Length {
+                what: "response",
+                expected: blocks * body_len,
+                actual: response.len(),
+            });
+        }
+        if published_c1.len() != blocks {
+            return Err(ClientError::Length {
+                what: "published c1 rows",
+                expected: blocks,
+                actual: published_c1.len(),
+            });
+        }
+        if let Some(row) = published_c1.iter().find(|row| row.len() != self.rlwe.d) {
+            return Err(ClientError::Length {
+                what: "published c1 row coefficients",
+                expected: self.rlwe.d,
+                actual: row.len(),
+            });
+        }
+        if published_c1
+            .iter()
+            .flatten()
+            .any(|coeff| *coeff >= self.rlwe.q)
+        {
+            return Err(ClientError::Malformed(
+                "published c1 coefficient is not reduced modulo q".into(),
+            ));
+        }
 
         let secret = self.secret_from_seed(client_seed);
         let secret_ntt = secret.to_ntt(&self.rlwe);
@@ -457,7 +624,7 @@ impl IPIRClient {
             let row_1 = recover_response_body(chunk, self.rlwe.d, self.ypir.q_prime_1, self.rlwe.q);
             decoded.extend(decode_rows(&self.rlwe, row_0, &row_1, &secret_ntt));
         }
-        decoded
+        Ok(decoded)
     }
 
     /// Decode a response and report its largest rounding residual.
@@ -850,11 +1017,6 @@ fn negacyclic_mul_mod(left: &[u64], right: &[u64], modulus: u64) -> Vec<u64> {
     }
 
     out
-}
-
-fn plaintext_modulus_bits(modulus: u64) -> usize {
-    assert!(modulus > 1, "plaintext modulus must be at least 2");
-    (u64::BITS - (modulus - 1).leading_zeros()) as usize
 }
 
 #[cfg(test)]
@@ -1316,5 +1478,89 @@ mod tests {
         };
 
         assert_ne!(build([1u8; 32]), build([2u8; 32]));
+    }
+
+    /// Attack A, documented: a server that publishes `c1 = Δ` and answers
+    /// `c2 = 0` makes the unverified decoder return the client secret modulo
+    /// `p` (negative coefficients as `p - |s_i|`). `VerifiedPublicParams`
+    /// refuses that `c1`; see `manifest::tests::rejects_delta_poison_even_when_signed`.
+    #[test]
+    fn delta_poison_decodes_to_the_secret_through_the_unverified_path() {
+        let profile = ProductionSimplePirParams::new(2048, 2048 * 14 * 2, SimplePirProfile::P14)
+            .expect("profile");
+        let (rlwe, ypir) = (profile.rlwe(), profile.ypir());
+        let client = IPIRClient::new(&profile);
+        let blocks = ypir.db_cols / rlwe.d;
+        let mut poison = vec![0u64; rlwe.d];
+        poison[0] = rlwe.delta;
+        let c1 = vec![poison; blocks];
+        let response = vec![0u8; blocks * response_body_len(rlwe.d, ypir.q_prime_1)];
+        let seed = [0x33; 32];
+
+        let decoded = client
+            .decode_response_simplepir_raw_unverified(seed, &c1, &response)
+            .expect("well-formed lengths decode");
+        let secret = client.secret_from_seed(seed);
+        let expected: Vec<u64> = secret
+            .coeffs
+            .iter()
+            .map(|&s| {
+                if s > rlwe.q / 2 {
+                    rlwe.p - (rlwe.q - s)
+                } else {
+                    s
+                }
+            })
+            .collect();
+        assert!(secret.coeffs.iter().any(|&s| s > rlwe.q / 2));
+        for block in decoded.chunks_exact(rlwe.d) {
+            assert_eq!(block, expected.as_slice(), "decoded row is the secret key");
+        }
+    }
+
+    #[test]
+    fn decode_returns_errors_on_wrong_server_lengths() {
+        let profile = ProductionSimplePirParams::new(2048, 2048 * 14, SimplePirProfile::P14)
+            .expect("profile");
+        let (rlwe, ypir) = (profile.rlwe(), profile.ypir());
+        let client = IPIRClient::new(&profile);
+        let c1 = vec![vec![1u64; rlwe.d]];
+        let body = response_body_len(rlwe.d, ypir.q_prime_1);
+
+        for len in [0, body - 1, body + 1, 2 * body] {
+            assert!(matches!(
+                client.decode_response_simplepir_unverified([0; 32], &c1, &vec![0; len]),
+                Err(ClientError::Length {
+                    what: "response",
+                    ..
+                })
+            ));
+        }
+        let response = vec![0u8; body];
+        assert!(matches!(
+            client.decode_response_simplepir_unverified([0; 32], &[], &response),
+            Err(ClientError::Length { .. })
+        ));
+        assert!(matches!(
+            client.decode_response_simplepir_unverified([0; 32], &[vec![1; rlwe.d - 1]], &response),
+            Err(ClientError::Length { .. })
+        ));
+        assert!(matches!(
+            client.decode_response_simplepir_unverified(
+                [0; 32],
+                &[vec![rlwe.q; rlwe.d]],
+                &response
+            ),
+            Err(ClientError::Malformed(_))
+        ));
+        assert!(client
+            .decode_response_simplepir_unverified([0; 32], &c1, &response)
+            .is_ok());
+
+        // Published c1 bytes of the wrong length are an error, not a panic.
+        assert!(matches!(
+            crate::modulus_switch::recover_published_c1(&[], rlwe.d, 1, rlwe.q),
+            Err(ClientError::Length { .. })
+        ));
     }
 }

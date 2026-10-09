@@ -41,8 +41,9 @@ client/server flow:
   `query.to_bytes()` for the legacy raw body.
 - `YServer::perform_full_online_computation_simplepir` parses those query bytes
   and returns serialized response bytes.
-- `IPIRClient::decode_response_simplepir` decodes the response with the returned
-  client seed.
+- `IPIRClient::decode_response_simplepir_verified` decodes the response with the
+  returned client seed against `VerifiedPublicParams` and checks the row against
+  its coordinator-signed digest (see `SECURITY_PROFILES.md`).
 
 Unlike YPIR's CDKS path, the IPIR-SP `/query` body is only the online
 first-dimension query. Key material is handled during setup/precomputation, not
