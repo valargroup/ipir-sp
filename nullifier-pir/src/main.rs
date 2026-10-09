@@ -26,6 +26,9 @@ const META_ENDPOINT: &str = "/meta";
 const QUERY_ENDPOINT: &str = "/query";
 const PUBLIC_PARAMS_ENDPOINT: &str = "/public-params";
 
+/// Turns a response body into the decoded row bytes.
+type RowDecoder = Box<dyn FnOnce(&[u8]) -> Vec<u8>>;
+
 #[derive(Debug, Clone)]
 struct UploadBreakdown {
     backend: &'static str,
@@ -271,90 +274,93 @@ fn query_row(
     let query_gen_started = Instant::now();
     let query_url = format!("{}{}", server_url.trim_end_matches('/'), QUERY_ENDPOINT);
 
-    let (query_body, upload_breakdown, decoder): (
-        Vec<u8>,
-        UploadBreakdown,
-        Box<dyn FnOnce(&[u8]) -> Vec<u8>>,
-    ) = if backend_kind == "ypir-artifact" {
-        #[cfg(feature = "ypir-artifact")]
-        {
-            let ypir_client = ypir::client::YPIRClient::from_db_sz(pir_item_count, ITEM_SIZE_BITS);
-            let (query, client_seed) = ypir_client.generate_query_simplepir(row);
-            let simplepir_query_bytes = query.0.as_slice().len() * std::mem::size_of::<u64>();
-            let pack_pub_params_bytes = query.1.as_slice().len() * std::mem::size_of::<u64>();
-            let query_body = YpirToBytes::to_bytes(&query);
+    let (query_body, upload_breakdown, decoder): (Vec<u8>, UploadBreakdown, RowDecoder) =
+        if backend_kind == "ypir-artifact" {
+            #[cfg(feature = "ypir-artifact")]
+            {
+                let ypir_client =
+                    ypir::client::YPIRClient::from_db_sz(pir_item_count, ITEM_SIZE_BITS);
+                let (query, client_seed) = ypir_client.generate_query_simplepir(row);
+                let simplepir_query_bytes = query.0.as_slice().len() * std::mem::size_of::<u64>();
+                let pack_pub_params_bytes = query.1.as_slice().len() * std::mem::size_of::<u64>();
+                let query_body = YpirToBytes::to_bytes(&query);
+                (
+                    query_body,
+                    UploadBreakdown {
+                        backend: "ypir-artifact",
+                        components: vec![
+                            ("simplepir_query", simplepir_query_bytes),
+                            ("pack_pub_params", pack_pub_params_bytes),
+                        ],
+                    },
+                    Box::new(move |response| {
+                        ypir_client.decode_response_simplepir(client_seed, response)
+                    }),
+                )
+            }
+            #[cfg(not(feature = "ypir-artifact"))]
+            {
+                anyhow::bail!(
+                    "server uses ypir-artifact, but client was built without that feature"
+                );
+            }
+        } else {
+            let pir_client = local_ipir_client(pir_item_count, row)?;
+            // `c1` is constant for the snapshot, so it is fetched once here instead
+            // of riding along with every response.
+            let public_params_url = format!(
+                "{}{}",
+                server_url.trim_end_matches('/'),
+                PUBLIC_PARAMS_ENDPOINT
+            );
+            let published_c1_bytes = client
+                .get(&public_params_url)
+                .send()
+                .with_context(|| format!("GET {public_params_url}"))?
+                .error_for_status()?
+                .bytes()
+                .with_context(|| format!("read {public_params_url} body"))?
+                .to_vec();
+            let blocks = pir_client.params().db_cols / pir_client.rlwe_params().d;
+            let published_c1 = recover_published_c1(
+                &published_c1_bytes,
+                pir_client.rlwe_params().d,
+                blocks,
+                pir_client.rlwe_params().q,
+            );
+            let offline_query_polys = pir_client.generate_public_query_setup_simplepir_from_seed(
+                nullifier_pir::backend::seed_from_u64(setup_seed),
+            );
+            let (query, packing_keys, client_seed) =
+                pir_client.generate_fresh_query_simplepir(&offline_query_polys, row);
+            let packing_keys_body = serialize_packing_keys(pir_client.rlwe_params(), &packing_keys)
+                .context("serialize local ipir packing keys")?;
+            let online_query_packed =
+                query.to_switched_bytes(pir_client.rlwe_params().q, pir_client.params().query_bits);
+            let packing_keys_bytes = packing_keys_body.len();
+            let online_query_packed_bytes = online_query_packed.len();
+            let mut query_body = Vec::with_capacity(packing_keys_bytes + online_query_packed_bytes);
+            query_body.extend_from_slice(&packing_keys_body);
+            query_body.extend_from_slice(&online_query_packed);
             (
                 query_body,
                 UploadBreakdown {
-                    backend: "ypir-artifact",
+                    backend: "local-ipir",
                     components: vec![
-                        ("simplepir_query", simplepir_query_bytes),
-                        ("pack_pub_params", pack_pub_params_bytes),
+                        ("packing_keys", packing_keys_bytes),
+                        ("online_query", online_query_packed_bytes),
                     ],
                 },
                 Box::new(move |response| {
-                    ypir_client.decode_response_simplepir(client_seed, response)
+                    let decoded_coeffs = pir_client.decode_response_simplepir_raw(
+                        &client_seed,
+                        &published_c1,
+                        response,
+                    );
+                    decode_item_coefficients(&decoded_coeffs)
                 }),
             )
-        }
-        #[cfg(not(feature = "ypir-artifact"))]
-        {
-            anyhow::bail!("server uses ypir-artifact, but client was built without that feature");
-        }
-    } else {
-        let pir_client = IPIRClient::from_db_sz(pir_item_count, ITEM_SIZE_BITS);
-        // `c1` is constant for the snapshot, so it is fetched once here instead
-        // of riding along with every response.
-        let public_params_url = format!(
-            "{}{}",
-            server_url.trim_end_matches('/'),
-            PUBLIC_PARAMS_ENDPOINT
-        );
-        let published_c1_bytes = client
-            .get(&public_params_url)
-            .send()
-            .with_context(|| format!("GET {public_params_url}"))?
-            .error_for_status()?
-            .bytes()
-            .with_context(|| format!("read {public_params_url} body"))?
-            .to_vec();
-        let blocks = pir_client.params().db_cols / pir_client.rlwe_params().d;
-        let published_c1 = recover_published_c1(
-            &published_c1_bytes,
-            pir_client.rlwe_params().d,
-            blocks,
-            pir_client.rlwe_params().q,
-        );
-        let offline_query_polys = pir_client.generate_public_query_setup_simplepir_from_seed(
-            nullifier_pir::backend::seed_from_u64(setup_seed),
-        );
-        let (query, packing_keys, client_seed) =
-            pir_client.generate_fresh_query_simplepir(&offline_query_polys, row);
-        let packing_keys_body = serialize_packing_keys(pir_client.rlwe_params(), &packing_keys)
-            .context("serialize local ipir packing keys")?;
-        let online_query_packed =
-            query.to_switched_bytes(pir_client.rlwe_params().q, pir_client.params().query_bits);
-        let packing_keys_bytes = packing_keys_body.len();
-        let online_query_packed_bytes = online_query_packed.len();
-        let mut query_body = Vec::with_capacity(packing_keys_bytes + online_query_packed_bytes);
-        query_body.extend_from_slice(&packing_keys_body);
-        query_body.extend_from_slice(&online_query_packed);
-        (
-            query_body,
-            UploadBreakdown {
-                backend: "local-ipir",
-                components: vec![
-                    ("packing_keys", packing_keys_bytes),
-                    ("online_query", online_query_packed_bytes),
-                ],
-            },
-            Box::new(move |response| {
-                let decoded_coeffs =
-                    pir_client.decode_response_simplepir_raw(client_seed, &published_c1, response);
-                decode_item_coefficients(&decoded_coeffs)
-            }),
-        )
-    };
+        };
     let query_gen_time = query_gen_started.elapsed();
 
     let (response, post_round_trip, server_timing, upload_bytes, download_bytes) =
@@ -405,6 +411,21 @@ fn query_row(
         upload_breakdown.format_components()
     );
     Ok(row_bytes)
+}
+
+/// Build the local-IPIR client for the row count reported by the server's
+/// `/meta`, and check the target row fits it. Both come from outside the
+/// process, so a bad value is an error rather than a panic.
+fn local_ipir_client(pir_item_count: u64, row: usize) -> Result<IPIRClient> {
+    let client = IPIRClient::from_db_sz(pir_item_count, ITEM_SIZE_BITS).with_context(|| {
+        format!("server reported an unsupported pir_item_count of {pir_item_count}")
+    })?;
+    anyhow::ensure!(
+        row < client.params().db_rows,
+        "row {row} is out of range for {} db rows",
+        client.params().db_rows
+    );
+    Ok(client)
 }
 
 fn format_optional_us(value: Option<u128>) -> String {
@@ -488,4 +509,28 @@ fn parse_nullifier_hex(input: &str) -> Result<[u8; nullifier_pir::NULLIFIER_BYTE
             .with_context(|| format!("invalid hex byte at offset {start}"))?;
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_ipir_client_rejects_bad_server_row_counts_without_panicking() {
+        for count in [0, 1, 2047, u64::MAX] {
+            let err = local_ipir_client(count, 0).expect_err("bad row count must be an error");
+            assert!(
+                err.to_string().contains("unsupported pir_item_count"),
+                "{count}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn local_ipir_client_bounds_the_target_row() {
+        let client = local_ipir_client(2048, 2047).expect("last row is in range");
+        assert_eq!(client.params().db_rows, 2048);
+        let err = local_ipir_client(2048, 2048).expect_err("row past the end");
+        assert!(err.to_string().contains("out of range"), "{err}");
+    }
 }

@@ -109,7 +109,7 @@ interpretation of old client seeds.
 `ProductionSimplePirParams::new` pins the RLWE tuple and transport settings for
 the selected profile; its read-only accessors keep the pair together. The
 production `IPIRClient::new` accepts only this type. `IPIRClient::from_db_sz`
-selects P14. Arbitrary client pairs require the `experimental-params` feature
+selects P14 and returns an error, not a panic, for an unsupported shape. Arbitrary client pairs require the `experimental-params` feature
 and `IPIRClient::new_experimental`; those pairs have no production security claim.
 
 `params_for_simplepir` remains the upstream-compatible 14-bit profile. Applications

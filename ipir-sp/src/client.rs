@@ -12,6 +12,7 @@ use spiral_rs::discrete_gaussian::DiscreteGaussian;
 use spiral_rs::poly::{
     from_ntt_alloc, multiply, to_ntt_alloc, PolyMatrix, PolyMatrixNTT, PolyMatrixRaw,
 };
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::bits::{contiguous_bytes_to_u64s, u64s_to_contiguous_bytes};
 use crate::modulus_switch::modulus_bits;
@@ -25,10 +26,134 @@ use crate::sampling::{uniform_u32_below, uniform_u64_below};
 #[path = "reusable.rs"]
 pub mod reusable;
 
-/// Seed used to regenerate IPIR client secret material with the current sampler.
-/// Seeds are not versioned: finish outstanding responses with the client version
-/// that generated them. See `MIGRATION.md` for the Gaussian-secret transition.
+/// Public 32-byte seed for the offline query setup.
+///
+/// The per-query secret seed is a [`ClientSeed`], which is not interchangeable
+/// with this public value.
 pub type IPIRSeed = [u8; 32];
+
+/// Private seed that regenerates one query's client secret.
+///
+/// Seeds are not versioned: finish outstanding responses with the client
+/// version that generated them. See `MIGRATION.md` for the Gaussian-secret
+/// transition.
+///
+/// The bytes are overwritten when the seed is dropped, and `Debug` never
+/// prints them. The type is deliberately not `Copy`, so it cannot be
+/// duplicated implicitly:
+///
+/// ```compile_fail
+/// fn takes_copy<T: Copy>(_: T) {}
+/// takes_copy(ipir_sp::client::ClientSeed::from_bytes([1; 32]));
+/// ```
+pub struct ClientSeed([u8; 32]);
+
+impl ClientSeed {
+    /// Wrap seed bytes, for example ones the caller persisted between building
+    /// a query and decoding its response. The caller's copy is not wiped.
+    #[must_use]
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    /// Borrow the seed bytes, for example to persist them. Anything that holds
+    /// these bytes can decrypt the query and its response.
+    #[must_use]
+    pub fn expose_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for ClientSeed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ClientSeed(<redacted>)")
+    }
+}
+
+impl Zeroize for ClientSeed {
+    fn zeroize(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+impl Drop for ClientSeed {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for ClientSeed {}
+
+/// ChaCha20 stream keyed by a [`ClientSeed`]; the key and buffered output are
+/// overwritten on drop.
+///
+/// `rand_chacha` has no zeroize support and this crate forbids `unsafe`, so the
+/// wipe replaces the generator with the all-zero-key one and passes it through
+/// [`std::hint::black_box`] so the store is not optimized away. Dereferences to
+/// [`ChaCha20Rng`] so it can be passed to samplers that take that type.
+pub(crate) struct SecretRng(ChaCha20Rng);
+
+impl SecretRng {
+    pub(crate) fn from_seed(seed: &ClientSeed) -> Self {
+        Self(ChaCha20Rng::from_seed(seed.0))
+    }
+
+    fn wipe(&mut self) {
+        self.0 = ChaCha20Rng::from_seed([0; 32]);
+        std::hint::black_box(&mut self.0);
+    }
+}
+
+impl std::ops::Deref for SecretRng {
+    type Target = ChaCha20Rng;
+    fn deref(&self) -> &ChaCha20Rng {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for SecretRng {
+    fn deref_mut(&mut self) -> &mut ChaCha20Rng {
+        &mut self.0
+    }
+}
+
+impl Drop for SecretRng {
+    fn drop(&mut self) {
+        self.wipe();
+    }
+}
+
+/// A client secret in NTT form; its coefficients are overwritten on drop.
+///
+/// Dereferences to the [`PolyMatrixNTT`] that key generation and decryption take.
+pub struct SecretNtt<'a>(PolyMatrixNTT<'a>);
+
+impl<'a> std::ops::Deref for SecretNtt<'a> {
+    type Target = PolyMatrixNTT<'a>;
+    fn deref(&self) -> &PolyMatrixNTT<'a> {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for SecretNtt<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SecretNtt(<redacted>)")
+    }
+}
+
+impl SecretNtt<'_> {
+    fn wipe(&mut self) {
+        self.0.as_mut_slice().zeroize();
+    }
+}
+
+impl Drop for SecretNtt<'_> {
+    fn drop(&mut self) {
+        self.wipe();
+    }
+}
+
+impl ZeroizeOnDrop for SecretNtt<'_> {}
 
 /// Public offline query polynomials, derived by the client from a setup seed.
 ///
@@ -63,13 +188,44 @@ impl PublicQuerySetup {
 }
 
 /// A client secret in coefficient form.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// The coefficients are overwritten on drop, and `Debug` prints only their
+/// count, so formatting a secret into a log cannot leak it.
+#[derive(Clone, PartialEq, Eq)]
 pub struct ClientSecret {
     /// Secret coefficients modulo `q`.
-    pub coeffs: Vec<u64>,
+    coeffs: Vec<u64>,
 }
 
+impl std::fmt::Debug for ClientSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientSecret")
+            .field("coeffs", &format_args!("<{} redacted>", self.coeffs.len()))
+            .finish()
+    }
+}
+
+impl Zeroize for ClientSecret {
+    fn zeroize(&mut self) {
+        self.coeffs.zeroize();
+    }
+}
+
+impl Drop for ClientSecret {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for ClientSecret {}
+
 impl ClientSecret {
+    /// Secret coefficients modulo `q`.
+    #[must_use]
+    pub fn coeffs(&self) -> &[u64] {
+        &self.coeffs
+    }
+
     /// Build a secret from coefficients, reducing each coefficient modulo `q`.
     #[must_use]
     pub fn from_coeffs(params: &RlweParams, coeffs: impl Into<Vec<u64>>) -> Self {
@@ -115,7 +271,7 @@ impl ClientSecret {
 
     /// Convert the secret to a `[1, 1]` NTT polynomial matrix.
     #[must_use]
-    pub fn to_ntt<'a>(&self, params: &'a RlweParams) -> spiral_rs::poly::PolyMatrixNTT<'a> {
+    pub fn to_ntt<'a>(&self, params: &'a RlweParams) -> SecretNtt<'a> {
         assert_eq!(
             self.coeffs.len(),
             params.d,
@@ -124,7 +280,9 @@ impl ClientSecret {
 
         let mut raw = PolyMatrixRaw::zero(&params.spiral, 1, 1);
         raw.get_poly_mut(0, 0).copy_from_slice(&self.coeffs);
-        to_ntt_alloc(&raw)
+        let ntt = SecretNtt(to_ntt_alloc(&raw));
+        raw.as_mut_slice().zeroize();
+        ntt
     }
 }
 
@@ -323,11 +481,16 @@ impl IPIRClient {
         )?))
     }
 
-    /// Build a client from database shape, mirroring `ypir::YPIRClient::from_db_sz`.
-    #[must_use]
-    pub fn from_db_sz(num_items: u64, item_size_bits: u64) -> Self {
+    /// Build a P14 client from database shape, mirroring
+    /// `ypir::YPIRClient::from_db_sz`.
+    ///
+    /// The shape often comes from the server (for example a `/meta` row
+    /// count), so an unsupported shape is an error rather than a panic.
+    pub fn from_db_sz(
+        num_items: u64,
+        item_size_bits: u64,
+    ) -> Result<Self, inspiring::InspiringError> {
         Self::from_profile(num_items, item_size_bits, SimplePirProfile::P14)
-            .expect("valid SimplePIR parameters")
     }
 
     /// Return the RLWE parameters used by the packing layer.
@@ -388,7 +551,7 @@ impl IPIRClient {
         &self,
         setup: &PublicQuerySetup,
         target_row: usize,
-    ) -> (IPIRSimpleQuery, PackingKeys<'_>, IPIRSeed) {
+    ) -> (IPIRSimpleQuery, PackingKeys<'_>, ClientSeed) {
         // An out-of-range row would silently encrypt the all-zero selector, and
         // the decoded row would read as "absent". That is the failure a server
         // mis-reporting the row count would induce, so fail loudly instead.
@@ -398,7 +561,7 @@ impl IPIRClient {
             self.ypir.db_rows
         );
         let client_seed = fresh_client_seed();
-        let mut rng = ChaCha20Rng::from_seed(client_seed);
+        let mut rng = SecretRng::from_seed(&client_seed);
         let secret = ClientSecret::sample_gaussian(&self.rlwe, &mut rng);
         let secret_ntt = secret.to_ntt(&self.rlwe);
         let packing_keys = PackingKeys::generate_full(&self.rlwe, &secret_ntt, &mut rng);
@@ -422,7 +585,7 @@ impl IPIRClient {
     #[must_use]
     pub fn decode_response_simplepir(
         &self,
-        client_seed: IPIRSeed,
+        client_seed: &ClientSeed,
         published_c1: &[Vec<u64>],
         response: &[u8],
     ) -> Vec<u8> {
@@ -434,7 +597,7 @@ impl IPIRClient {
     #[must_use]
     pub fn decode_response_simplepir_raw(
         &self,
-        client_seed: IPIRSeed,
+        client_seed: &ClientSeed,
         published_c1: &[Vec<u64>],
         response: &[u8],
     ) -> Vec<u64> {
@@ -470,7 +633,7 @@ impl IPIRClient {
     #[must_use]
     pub fn decode_response_simplepir_with_rounding_residual(
         &self,
-        client_seed: IPIRSeed,
+        client_seed: &ClientSeed,
         published_c1: &[Vec<u64>],
         response: &[u8],
     ) -> (Vec<u64>, u64) {
@@ -495,7 +658,7 @@ impl IPIRClient {
     #[must_use]
     pub fn decode_response_simplepir_with_expected_phase_error(
         &self,
-        client_seed: IPIRSeed,
+        client_seed: &ClientSeed,
         published_c1: &[Vec<u64>],
         response: &[u8],
         expected: &[u64],
@@ -523,7 +686,7 @@ impl IPIRClient {
 
     fn decode_response_simplepir_with_diagnostic(
         &self,
-        client_seed: IPIRSeed,
+        client_seed: &ClientSeed,
         published_c1: &[Vec<u64>],
         response: &[u8],
         mut distance: impl FnMut(usize, u64) -> u64,
@@ -558,8 +721,8 @@ impl IPIRClient {
         (decoded, max_distance)
     }
 
-    fn secret_from_seed(&self, client_seed: IPIRSeed) -> ClientSecret {
-        let mut rng = ChaCha20Rng::from_seed(client_seed);
+    fn secret_from_seed(&self, client_seed: &ClientSeed) -> ClientSecret {
+        let mut rng = SecretRng::from_seed(client_seed);
         ClientSecret::sample_gaussian(&self.rlwe, &mut rng)
     }
 }
@@ -571,10 +734,10 @@ impl IPIRClient {
 /// expose the difference of their selectors, so this must never be cached or
 /// derived from a caller-supplied value. A failure of the OS entropy source is
 /// a hard error rather than a fallback to a weaker source.
-pub(crate) fn fresh_client_seed() -> IPIRSeed {
-    let mut client_seed = [0u8; 32];
+pub(crate) fn fresh_client_seed() -> ClientSeed {
+    let mut client_seed = ClientSeed([0u8; 32]);
     rand::rngs::OsRng
-        .try_fill_bytes(&mut client_seed)
+        .try_fill_bytes(&mut client_seed.0)
         .expect("operating-system randomness is unavailable; refusing to build a query");
     client_seed
 }
@@ -655,8 +818,9 @@ fn add_mod(lhs: u64, rhs: u64, modulus: u64) -> u64 {
 ///
 /// This is used for the fixed client secret during query generation. Inputs are
 /// reduced modulo `q` so callers can pass canonical secrets as well as small
-/// test vectors without relying on upstream normalization.
-fn polynomial_to_ntt<'a>(params: &'a RlweParams, coeffs: &[u64]) -> PolyMatrixNTT<'a> {
+/// test vectors without relying on upstream normalization. Both the
+/// coefficient-form copy and the returned NTT form are wiped.
+fn polynomial_to_ntt<'a>(params: &'a RlweParams, coeffs: &[u64]) -> SecretNtt<'a> {
     assert_eq!(coeffs.len(), params.d);
 
     let mut raw = PolyMatrixRaw::zero(&params.spiral, 1, 1);
@@ -664,7 +828,9 @@ fn polynomial_to_ntt<'a>(params: &'a RlweParams, coeffs: &[u64]) -> PolyMatrixNT
         .iter_mut()
         .zip(coeffs)
         .for_each(|(out, coeff)| *out = coeff % params.q);
-    to_ntt_alloc(&raw)
+    let ntt = SecretNtt(to_ntt_alloc(&raw));
+    raw.as_mut_slice().zeroize();
+    ntt
 }
 
 /// Build `a(X^-1)` in coefficient form and transform it.
@@ -915,6 +1081,107 @@ mod tests {
         assert_eq!(secret.coeffs, vec![0, 1, 0, 2, 5, 6, 7, 8]);
     }
 
+    fn assert_zeroize_on_drop<T: ZeroizeOnDrop>() {}
+
+    #[test]
+    fn secret_material_types_wipe_on_drop() {
+        assert_zeroize_on_drop::<ClientSecret>();
+        assert_zeroize_on_drop::<ClientSeed>();
+        assert_zeroize_on_drop::<SecretNtt<'static>>();
+    }
+
+    #[test]
+    fn client_secret_debug_redacts_coefficients() {
+        let params = params();
+        let secret = ClientSecret::from_coeffs(&params, vec![4321; params.d]);
+
+        let printed = format!("{secret:?} {secret:#?}");
+        assert!(!printed.contains("4321"), "{printed}");
+        assert!(printed.contains("<8 redacted>"), "{printed}");
+    }
+
+    #[test]
+    fn client_secret_zeroize_clears_every_coefficient() {
+        let params = params();
+        let mut secret =
+            ClientSecret::sample_gaussian(&params, &mut ChaCha20Rng::from_seed([5; 32]));
+        assert!(secret.coeffs().iter().any(|&c| c != 0));
+
+        secret.zeroize();
+        assert!(secret.coeffs().iter().all(|&c| c == 0));
+    }
+
+    #[test]
+    fn client_seed_debug_redacts_and_zeroize_clears_bytes() {
+        let mut seed = ClientSeed::from_bytes([0xab; 32]);
+        let printed = format!("{seed:?} {seed:#?}");
+        assert!(
+            !printed.contains("171") && !printed.to_lowercase().contains("ab"),
+            "{printed}"
+        );
+        assert!(printed.contains("redacted"), "{printed}");
+
+        seed.zeroize();
+        assert_eq!(seed.expose_bytes(), &[0; 32]);
+    }
+
+    #[test]
+    fn fresh_client_seeds_are_distinct_and_nonzero() {
+        let first = fresh_client_seed();
+        let second = fresh_client_seed();
+        assert_ne!(first.expose_bytes(), &[0; 32]);
+        assert_ne!(first.expose_bytes(), second.expose_bytes());
+    }
+
+    #[test]
+    fn secret_rng_matches_chacha_and_wipe_drops_key_and_buffer() {
+        let seed = ClientSeed::from_bytes([7; 32]);
+        let mut rng = SecretRng::from_seed(&seed);
+        let mut reference = ChaCha20Rng::from_seed([7; 32]);
+        // One draw fills ChaCha's 64-word output buffer with keyed output.
+        assert_eq!(rng.next_u32(), reference.next_u32());
+
+        rng.wipe();
+        assert_eq!(rng.get_seed(), [0; 32]);
+        assert_eq!(*rng, ChaCha20Rng::from_seed([0; 32]));
+    }
+
+    #[test]
+    fn secret_ntt_matches_spiral_ntt_and_wipe_clears_it() {
+        let params = params();
+        let secret = ClientSecret::from_coeffs(&params, vec![1, 0, params.q - 1, 1, 0, 1, 0, 0]);
+        let mut raw = PolyMatrixRaw::zero(&params.spiral, 1, 1);
+        raw.get_poly_mut(0, 0).copy_from_slice(secret.coeffs());
+
+        let mut ntt = secret.to_ntt(&params);
+        assert_eq!(ntt.as_slice(), to_ntt_alloc(&raw).as_slice());
+        assert!(ntt.as_slice().iter().any(|&c| c != 0));
+        assert!(!format!("{ntt:?}").contains(&ntt.as_slice()[0].to_string()));
+
+        ntt.wipe();
+        assert!(ntt.as_slice().iter().all(|&c| c == 0));
+    }
+
+    #[test]
+    fn from_db_sz_reports_unsupported_shapes_instead_of_panicking() {
+        for (items, bits) in [
+            (0, 2048 * 14),
+            (2047, 2048 * 14),
+            (u64::MAX, 2048 * 14),
+            (2048, 1),
+        ] {
+            assert!(
+                matches!(
+                    IPIRClient::from_db_sz(items, bits),
+                    Err(inspiring::InspiringError::InvalidParams(_))
+                ),
+                "{items} items of {bits} bits"
+            );
+        }
+        let client = IPIRClient::from_db_sz(2048, 2048 * 14).expect("smallest P14 shape");
+        assert_eq!(client.params().db_rows, 2048);
+    }
+
     #[test]
     fn simple_query_packed_bytes_roundtrip() {
         let params = params();
@@ -967,8 +1234,9 @@ mod tests {
         for _ in 0..16 {
             values.extend(
                 ClientSecret::sample_gaussian(&r, &mut rng)
-                    .coeffs
-                    .into_iter()
+                    .coeffs()
+                    .iter()
+                    .copied()
                     .map(centered),
             );
         }
@@ -989,9 +1257,9 @@ mod tests {
             IPIRClient::new_experimental(&r, &y).expect("consistent experimental parameters");
         let setup = client.generate_public_query_setup_simplepir_from_seed([0x42; 32]);
         let (query, keys, seed) = client.generate_fresh_query_simplepir(&setup, 2047);
-        let mut rng = ChaCha20Rng::from_seed(seed);
+        let mut rng = ChaCha20Rng::from_seed(*seed.expose_bytes());
         let secret = ClientSecret::sample_gaussian(&r, &mut rng);
-        assert_eq!(client.secret_from_seed(seed), secret);
+        assert_eq!(client.secret_from_seed(&seed), secret);
         let expected_keys = PackingKeys::generate_full(&r, &secret.to_ntt(&r), &mut rng);
         assert_eq!(keys.kg_body.as_slice(), expected_keys.kg_body.as_slice());
         assert_eq!(keys.kh_body.as_slice(), expected_keys.kh_body.as_slice());
@@ -1000,9 +1268,9 @@ mod tests {
             encrypted_selection_query(&r, setup.polys(), &secret.coeffs, 2047, y.db_rows, &mut rng)
         );
         // There is no automatic migration of an old unversioned client seed.
-        let mut old_rng = ChaCha20Rng::from_seed(seed);
+        let mut old_rng = ChaCha20Rng::from_seed(*seed.expose_bytes());
         assert_ne!(
-            client.secret_from_seed(seed),
+            client.secret_from_seed(&seed),
             ClientSecret::sample_ternary(&r, &mut old_rng)
         );
     }
@@ -1075,7 +1343,7 @@ mod tests {
             client.generate_fresh_query_simplepir(&offline_query_polys, 3);
 
         assert_eq!(query.as_slice().len(), ypir.db_rows);
-        assert_ne!(client_seed, [0u8; 32]);
+        assert_ne!(client_seed.expose_bytes(), &[0u8; 32]);
         assert_eq!(packing_keys.kg_body.rows, 1);
         assert_eq!(packing_keys.kg_body.cols, params.gadget.ell);
         assert_eq!(packing_keys.kh_body.rows, 1);
@@ -1203,10 +1471,16 @@ mod tests {
         let response = u64s_to_contiguous_bytes(&vec![64; rlwe.d], 20);
         let expected = vec![0; rlwe.d];
 
-        let (decoded, residual) =
-            client.decode_response_simplepir_with_rounding_residual([0; 32], &c1, &response);
+        let (decoded, residual) = client.decode_response_simplepir_with_rounding_residual(
+            &ClientSeed::from_bytes([0; 32]),
+            &c1,
+            &response,
+        );
         let (checked, phase_error) = client.decode_response_simplepir_with_expected_phase_error(
-            [0; 32], &c1, &response, &expected,
+            &ClientSeed::from_bytes([0; 32]),
+            &c1,
+            &response,
+            &expected,
         );
         assert_eq!(decoded, vec![1; rlwe.d]);
         assert_eq!(checked, decoded);
@@ -1222,7 +1496,7 @@ mod tests {
         let expected = vec![0; rlwe.d];
         let zero_response = u64s_to_contiguous_bytes(&vec![0; rlwe.d], 20);
         let (decoded, error) = client.decode_response_simplepir_with_expected_phase_error(
-            [0; 32],
+            &ClientSeed::from_bytes([0; 32]),
             &c1,
             &zero_response,
             &expected,
@@ -1232,7 +1506,7 @@ mod tests {
 
         let near_q_response = u64s_to_contiguous_bytes(&vec![(1 << 20) - 1; rlwe.d], 20);
         let (decoded, error) = client.decode_response_simplepir_with_expected_phase_error(
-            [0; 32],
+            &ClientSeed::from_bytes([0; 32]),
             &c1,
             &near_q_response,
             &expected,
@@ -1252,12 +1526,17 @@ mod tests {
         let c1 = vec![vec![0; rlwe.d]];
         let response = u64s_to_contiguous_bytes(&vec![0; rlwe.d], 20);
         assert!(std::panic::catch_unwind(|| {
-            client.decode_response_simplepir_with_expected_phase_error([0; 32], &c1, &response, &[])
+            client.decode_response_simplepir_with_expected_phase_error(
+                &ClientSeed::from_bytes([0; 32]),
+                &c1,
+                &response,
+                &[],
+            )
         })
         .is_err());
         assert!(std::panic::catch_unwind(|| {
             client.decode_response_simplepir_with_expected_phase_error(
-                [0; 32],
+                &ClientSeed::from_bytes([0; 32]),
                 &c1,
                 &response,
                 &vec![rlwe.p; rlwe.d],

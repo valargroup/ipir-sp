@@ -20,7 +20,7 @@ pub mod sampling;
 pub mod serialize;
 pub mod server;
 
-pub use client::{IPIRClient, IPIRSeed, IPIRSimpleQuery, PublicQuerySetup};
+pub use client::{ClientSeed, IPIRClient, IPIRSeed, IPIRSimpleQuery, PublicQuerySetup};
 pub use pack_backend::{
     build_reinspiring_blocks, pack_intermediate_blocks_reinspiring,
     pack_intermediate_blocks_with_backend, PackBackend,

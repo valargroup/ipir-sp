@@ -8,6 +8,7 @@ use inspiring::{InspiringError, PackingKeys, RlweParams};
 
 use crate::bits::{contiguous_bytes_to_u64s, u64s_to_contiguous_bytes};
 use crate::modulus_switch::modulus_bits;
+use crate::params::YpirSchemeParams;
 use spiral_rs::poly::{PolyMatrix, PolyMatrixNTT};
 
 /// Number of bytes used by uploaded full packing-key bodies.
@@ -19,6 +20,16 @@ use spiral_rs::poly::{PolyMatrix, PolyMatrixNTT};
 pub fn serialized_packing_keys_len(params: &RlweParams) -> usize {
     let bits = modulus_bits(params.q);
     (2 * packing_key_body_u64_len(params) * bits).div_ceil(8)
+}
+
+/// Exact byte length of a fresh local-IPIR query body: the packing-key bodies
+/// followed by the modulus-switched online query.
+///
+/// Servers size their request-body limit from this, so an oversized upload is
+/// rejected before it is buffered.
+#[must_use]
+pub fn serialized_fresh_query_len(rlwe: &RlweParams, ypir: &YpirSchemeParams) -> usize {
+    serialized_packing_keys_len(rlwe) + (ypir.db_rows * ypir.query_bits).div_ceil(8)
 }
 
 /// Serialize uploaded packing-key bodies.
@@ -196,6 +207,24 @@ mod tests {
         );
         // The whole point: strictly smaller than the raw `u64` stream.
         assert!(serialized_packing_keys_len(&params) < 2 * params.gadget.ell * params.d * 8);
+    }
+
+    #[test]
+    fn serialized_fresh_query_len_matches_a_real_query_body() {
+        let client = crate::IPIRClient::from_db_sz(2048, 2048 * 14).expect("P14 shape");
+        let setup = client.generate_public_query_setup_simplepir_from_seed([3; 32]);
+        let (query, keys, _seed) = client.generate_fresh_query_simplepir(&setup, 5);
+        let body_len = serialize_packing_keys(client.rlwe_params(), &keys)
+            .expect("serialize")
+            .len()
+            + query
+                .to_switched_bytes(client.rlwe_params().q, client.params().query_bits)
+                .len();
+
+        assert_eq!(
+            serialized_fresh_query_len(client.rlwe_params(), client.params()),
+            body_len
+        );
     }
 
     #[test]

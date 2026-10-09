@@ -48,7 +48,8 @@ fn main() -> Result<()> {
     let out = PathBuf::from(arg("--out").context("--out <path> is required")?);
 
     let pir_item_count = pir_row_count(records);
-    let client = IPIRClient::from_db_sz(pir_item_count as u64, ITEM_SIZE_BITS);
+    let client = IPIRClient::from_db_sz(pir_item_count as u64, ITEM_SIZE_BITS)
+        .context("build client parameters")?;
     anyhow::ensure!(
         row < client.params().db_rows,
         "row {row} is out of range for {} rows",

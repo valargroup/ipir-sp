@@ -2,7 +2,7 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use ipir_sp::bits::u64s_to_contiguous_bytes;
-use ipir_sp::client::IPIRClient;
+use ipir_sp::client::{ClientSeed, IPIRClient};
 use ipir_sp::modulus_switch::modulus_bits;
 use ipir_sp::modulus_switch::{rescale, response_body_len};
 
@@ -58,15 +58,15 @@ fn bench_decode(c: &mut Criterion) {
     let mut group = c.benchmark_group("client_decode");
 
     for (name, item_bits) in cases {
-        let client = IPIRClient::from_db_sz(32_768, item_bits);
+        let client = IPIRClient::from_db_sz(32_768, item_bits).expect("P14 shape");
         let (published_c1, response) = synthetic_response(&client);
-        let client_seed = seed_from_u64(0x4950_4952);
+        let client_seed = ClientSeed::from_bytes(seed_from_u64(0x4950_4952));
         let output_count = client.params().db_cols / client.rlwe_params().d;
 
         group.bench_function(BenchmarkId::new(name, output_count), |b| {
             b.iter(|| {
                 black_box(client.decode_response_simplepir_raw(
-                    black_box(client_seed),
+                    black_box(&client_seed),
                     black_box(&published_c1),
                     black_box(&response),
                 ));

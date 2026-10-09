@@ -99,7 +99,7 @@ fn production_params_round_trip_recovers_the_target_row() {
             .expect("online response");
 
         let (decoded, max_error) = client.decode_response_simplepir_with_expected_phase_error(
-            client_seed,
+            &client_seed,
             &published_c1,
             &response,
             &expected,
@@ -180,7 +180,7 @@ fn p16_profiles_round_trip_with_decryption_margin() {
             )
             .expect("online response");
         let (decoded, max_error) = client.decode_response_simplepir_with_expected_phase_error(
-            seed,
+            &seed,
             &published_c1,
             &response,
             &expected,
@@ -288,7 +288,7 @@ fn cuda_profiles_round_trip_with_cpu_packing() {
             )
             .expect("online response");
         let (decoded, max_error) = client.decode_response_simplepir_with_expected_phase_error(
-            seed,
+            &seed,
             &published_c1,
             &response,
             &expected,
