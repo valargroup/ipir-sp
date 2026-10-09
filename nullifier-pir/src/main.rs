@@ -352,9 +352,10 @@ fn publish_manifest(
     let dev_key = dev_sign_key_file
         .map(nullifier_pir::manifest::read_dev_signing_key)
         .transpose()?;
-    if dev_key.is_some() {
+    if let Some(key) = &dev_key {
         eprintln!(
-            "warning: signing the manifest with a DEV key; production signatures come from the coordinator"
+            "warning: signing the manifest with DEV key {}; production signatures come from the coordinator",
+            hex::encode(key.verifying_key().to_bytes())
         );
     }
     let started = Instant::now();

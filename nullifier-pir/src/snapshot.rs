@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, ensure, Context, Result};
 use ipir_sp::manifest::{row_digest, RowDigestTable};
+use rayon::prelude::*;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -167,23 +168,39 @@ impl NullifierSnapshot {
         let mut reader = BufReader::new(
             File::open(&self.path).with_context(|| format!("open {}", self.path.display()))?,
         );
+        // The file hash is sequential; row digests are independent, so each
+        // batch of rows is read and file-hashed in order, then digested in
+        // parallel. At the full snapshot this is the difference between tens
+        // of seconds and a few at server start.
+        const BATCH_ROWS: usize = 256;
         let mut file_hasher = Sha256::new();
-        let mut item = vec![0u8; ITEM_BYTES];
-        let mut coeffs = vec![0u16; SIMPLEPIR_COEFFS_PER_ITEM];
-        let mut row = vec![0u64; SIMPLEPIR_COEFFS_PER_ITEM];
+        let mut batch = vec![0u8; BATCH_ROWS * ITEM_BYTES];
+        let mut lens = Vec::with_capacity(BATCH_ROWS);
         let mut digests = Vec::with_capacity(db_rows);
-        for row_index in 0..actual_rows {
-            let remaining_records = self.record_count - row_index * NULLIFIERS_PER_ITEM;
-            let bytes_in_row = remaining_records.min(NULLIFIERS_PER_ITEM) * NULLIFIER_BYTES;
-            reader
-                .read_exact(&mut item[..bytes_in_row])
-                .with_context(|| format!("read snapshot row {row_index}"))?;
-            file_hasher.update(&item[..bytes_in_row]);
-            encode_item_into(&item[..bytes_in_row], &mut coeffs);
-            for (out, coeff) in row.iter_mut().zip(&coeffs) {
-                *out = u64::from(*coeff);
+        while digests.len() < actual_rows {
+            let first_row = digests.len();
+            let rows = (actual_rows - first_row).min(BATCH_ROWS);
+            lens.clear();
+            for (offset, slot) in batch.chunks_exact_mut(ITEM_BYTES).take(rows).enumerate() {
+                let row_index = first_row + offset;
+                let remaining_records = self.record_count - row_index * NULLIFIERS_PER_ITEM;
+                let bytes_in_row = remaining_records.min(NULLIFIERS_PER_ITEM) * NULLIFIER_BYTES;
+                reader
+                    .read_exact(&mut slot[..bytes_in_row])
+                    .with_context(|| format!("read snapshot row {row_index}"))?;
+                file_hasher.update(&slot[..bytes_in_row]);
+                lens.push(bytes_in_row);
             }
-            digests.push(row_digest(&row, plaintext_modulus));
+            digests.par_extend(batch.par_chunks_exact(ITEM_BYTES).zip(lens.par_iter()).map(
+                |(slot, len)| {
+                    // Only the bytes read: a short final row must not
+                    // pick up an earlier batch's trailing bytes.
+                    let mut coeffs = vec![0u16; SIMPLEPIR_COEFFS_PER_ITEM];
+                    encode_item_into(&slot[..*len], &mut coeffs);
+                    let row: Vec<u64> = coeffs.iter().map(|coeff| u64::from(*coeff)).collect();
+                    row_digest(&row, plaintext_modulus)
+                },
+            ));
         }
         let mut trailing = [0u8; 1];
         ensure!(

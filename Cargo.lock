@@ -1617,6 +1617,7 @@ dependencies = [
  "hex",
  "inspiring",
  "ipir-sp",
+ "rayon",
  "reqwest",
  "serde",
  "serde_json",
