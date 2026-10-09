@@ -11,7 +11,10 @@ use ipir_sp::client::IPIRClient;
 #[cfg(feature = "http_server")]
 use ipir_sp::serialize::{deserialize_packing_keys, serialized_packing_keys_len};
 #[cfg(feature = "http_server")]
-use ipir_sp::server::{build_pack_preprocessed_blocks, published_c1_rows, IPIRServer};
+use ipir_sp::server::{
+    build_pack_preprocessed_blocks, published_c1_rows, verify_query_masks_distinct_from_key_masks,
+    IPIRServer,
+};
 #[cfg(feature = "http_server")]
 use ipir_sp::{ProductionSimplePirParams, SimplePirProfile};
 
@@ -138,6 +141,8 @@ async fn main() -> std::io::Result<()> {
     let client = Box::leak(Box::new(IPIRClient::new(&profile)));
     let setup =
         client.generate_public_query_setup_simplepir_from_seed(seed_from_u64(args.setup_seed));
+    verify_query_masks_distinct_from_key_masks(client.rlwe_params(), setup.polys())
+        .map_err(std::io::Error::other)?;
 
     let pt_modulus = ypir.p;
     let db = (0..ypir.db_rows * ypir.db_cols).map(|idx| (idx as u64 % pt_modulus) as u16);

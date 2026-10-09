@@ -497,6 +497,8 @@ where
             0,
             "db_cols must split into RLWE blocks"
         );
+        verify_query_masks_distinct_from_key_masks(rlwe, query_polys)
+            .expect("query masks must not coincide with the fixed packing-key masks");
         let blocks = self.db_cols() / rlwe.d;
         // `hint_0` is never read in production: `extract_crs_block` maps
         // `hint_0[coeff * db_cols + block * d + row]` back to hint column
@@ -884,6 +886,91 @@ fn ingest_row_major<T, I, F>(
 
         row_base += tile_rows;
     }
+}
+
+/// Check that the query masks are distinct from the fixed packing-key masks.
+///
+/// Every query row block is masked by one public polynomial `a` from the setup
+/// seed, and the client uploads it as `a(X^-1) * s + e`. The two packing keys
+/// are masked by the `ell` fixed polynomials each of `K_g` (from
+/// [`inspiring::REFERENCE_W_SEED`]) and `K_h` (from
+/// [`inspiring::REFERENCE_V_SEED`]), whose bodies are `m * s + e + ...` under
+/// the same secret. All three families are expanded from ChaCha20 without a
+/// domain label, so a setup seed that collides with a key seed would give two
+/// LWE samples under the same mask and secret, and their difference would leak
+/// the error terms. The key-mask sampler reduces by `x mod q` while the query
+/// sampler is a rejection sampler, so equal seeds do not give equal masks
+/// today; this check pins that down for the deployed seed rather than
+/// relying on it.
+///
+/// Returns an error if any query polynomial, its negation, its `X -> X^-1`
+/// image, or the negation of that image equals a `K_g` or `K_h` mask, or if a
+/// `K_g` mask equals a `K_h` mask. Servers call this once at startup, before
+/// offline precomputation; it is also asserted by
+/// [`YServer::perform_offline_precomputation_simplepir`].
+pub fn verify_query_masks_distinct_from_key_masks(
+    rlwe: &RlweParams,
+    query_polys: &[Vec<u64>],
+) -> Result<(), InspiringError> {
+    let kg = inspiring::reference_mask_coeffs(rlwe, inspiring::REFERENCE_W_SEED);
+    let kh = inspiring::reference_mask_coeffs(rlwe, inspiring::REFERENCE_V_SEED);
+    for (g_idx, g) in kg.iter().enumerate() {
+        for (h_idx, h) in kh.iter().enumerate() {
+            if g == h {
+                return Err(InspiringError::PreprocessMismatch(format!(
+                    "K_g mask {g_idx} equals K_h mask {h_idx}"
+                )));
+            }
+        }
+    }
+
+    let q = rlwe.q;
+    let negate = |poly: &[u64]| -> Vec<u64> {
+        poly.iter()
+            .map(|&c| if c == 0 { 0 } else { q - c })
+            .collect()
+    };
+    // `a(X^-1)` in `Z_q[X] / (X^d + 1)`: `X^-i = -X^(d-i)` for `i != 0`.
+    let invert = |poly: &[u64]| -> Vec<u64> {
+        let mut out = vec![0u64; poly.len()];
+        out[0] = poly[0];
+        for idx in 1..poly.len() {
+            let c = poly[poly.len() - idx];
+            out[idx] = if c == 0 { 0 } else { q - c };
+        }
+        out
+    };
+
+    for (poly_idx, poly) in query_polys.iter().enumerate() {
+        if poly.len() != rlwe.d {
+            return Err(InspiringError::PreprocessMismatch(format!(
+                "query polynomial {poly_idx} has {} coefficients, expected {}",
+                poly.len(),
+                rlwe.d
+            )));
+        }
+        let reduced: Vec<u64> = poly.iter().map(|c| c % q).collect();
+        let inverse = invert(&reduced);
+        let images = [
+            ("a", reduced.clone()),
+            ("-a", negate(&reduced)),
+            ("a(X^-1)", inverse.clone()),
+            ("-a(X^-1)", negate(&inverse)),
+        ];
+        for (family, masks) in [("K_g", &kg), ("K_h", &kh)] {
+            for (mask_idx, mask) in masks.iter().enumerate() {
+                for (image, candidate) in &images {
+                    if candidate == mask {
+                        return Err(InspiringError::PreprocessMismatch(format!(
+                            "query polynomial {poly_idx} coincides with {family} mask \
+                             {mask_idx} as {image}; choose a different setup seed"
+                        )));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Serialize the snapshot-constant `c1` row of every output block.

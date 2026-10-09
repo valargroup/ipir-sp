@@ -3,7 +3,9 @@
 use anyhow::{Context, Result};
 use ipir_sp::client::IPIRClient;
 use ipir_sp::serialize::deserialize_packing_keys;
-use ipir_sp::server::{build_pack_preprocessed_blocks, IPIRServer};
+use ipir_sp::server::{
+    build_pack_preprocessed_blocks, verify_query_masks_distinct_from_key_masks, IPIRServer,
+};
 use ipir_sp::YpirSchemeParams;
 use ipir_sp::{ProductionSimplePirParams, SimplePirProfile};
 use serde::{Deserialize, Serialize};
@@ -139,6 +141,8 @@ impl LocalIpirBackend {
         };
         let offline_query_polys =
             client.generate_public_query_setup_simplepir_from_seed(seed_from_u64(setup_seed));
+        verify_query_masks_distinct_from_key_masks(rlwe, offline_query_polys.polys())
+            .context("setup seed collides with the fixed packing-key masks")?;
         let offline =
             server.perform_offline_precomputation_simplepir(rlwe, offline_query_polys.polys());
         let pack_preprocessed = build_pack_preprocessed_blocks(rlwe, &offline.crs_blocks)

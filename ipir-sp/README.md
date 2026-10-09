@@ -61,7 +61,9 @@ let db = vec![0u16; ypir.db_rows * ypir.db_cols];
 let server = YServer::new(ypir.clone(), db.into_iter(), false, true);
 let client = IPIRClient::new(&profile);
 
-let setup = client.generate_public_query_setup_simplepir_from_seed([7; 32]);
+// Any public seed works, except the fixed packing-mask seeds
+// `inspiring::REFERENCE_W_SEED` and `REFERENCE_V_SEED`.
+let setup = client.generate_public_query_setup_simplepir_from_seed([0x1D; 32]);
 let offline = server.perform_offline_precomputation_simplepir(
     rlwe,
     &setup,

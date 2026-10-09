@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Guard the mask derivations without changing them. `inspiring` exposes the
+  fixed `K_g`/`K_h` mask coefficients (`reference_mask_coeffs`), and
+  `ipir_sp::server::verify_query_masks_distinct_from_key_masks` rejects a
+  setup seed whose query masks coincide with a key mask directly, negated, or
+  under `X -> X^-1`. The nullifier server and the demo server run it at
+  startup, offline precomputation asserts it, and a test pins the reference
+  seeds and the deployed setup seed. The CRS, preprocessing, published `c1`,
+  and wire format are unchanged; domain-separated mask labels wait for the
+  next profile ID. The `ipir-sp` README example no longer uses the `K_g`
+  reference seed as its setup seed.
 - Add experimental dithered native query transport
   (`NativeProfile::with_dithered_query_bits`, 43..=49 bits). The client rounds
   each query coefficient up with probability equal to its dropped fraction,
