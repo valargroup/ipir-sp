@@ -145,7 +145,9 @@ not assert that production activation enforces such a check.
 The evaluated source passed 137 Linux debug tests and 144 optimized native-CPU
 tests including the AVX-512 comparison, with one existing documentation example
 ignored in each suite. All 131 CDF thresholds and a complete seeded secret matched
-on tested macOS ARM64 and Linux x86_64 builds. The stress suite decoded 768 responses
+on tested macOS ARM64 and Linux x86_64 builds.
+Those 131 thresholds are now frozen in `inspiring/src/gaussian_cdf_6_4.txt`
+and pinned by SHA-256, so production sampling no longer evaluates `exp` at runtime. The stress suite decoded 768 responses
 with zero failures; these share secrets/setups and do not establish a rare-failure
 bound. Four certificate-verifier tests cover valid and malformed/incomplete evidence.
 

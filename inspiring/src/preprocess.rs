@@ -13,7 +13,6 @@ use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
 use spiral_rs::arith::barrett_reduction_u128;
-use spiral_rs::discrete_gaussian::DiscreteGaussian;
 use spiral_rs::gadget::build_gadget;
 use spiral_rs::ntt::ntt_forward;
 use spiral_rs::params::Params as SpiralParams;
@@ -580,7 +579,7 @@ fn generate_reference_body<'a>(
     let secret_from = crate::automorph::tau_ntt(secret_ntt, secret_from_exponent);
     let gadget = build_gadget(spiral, 1, ell);
     let scaled = spiral_rs::poly::scalar_multiply_alloc(&secret_from, &to_ntt_alloc(&gadget));
-    let dg = DiscreteGaussian::init(params.sigma_chi * std::f64::consts::TAU.sqrt());
+    let dg = crate::gaussian::discrete_gaussian(params.sigma_chi);
     let error = PolyMatrixRaw::noise(spiral, 1, ell, &dg, rng);
 
     let mut body = PolyMatrixNTT::zero(spiral, 1, ell);

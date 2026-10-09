@@ -88,12 +88,13 @@ impl ClientSecret {
     /// Sample a centred discrete-Gaussian secret, reduced modulo `q`.
     ///
     /// Uses the same standard deviation `sigma_chi` as the encryption errors
-    /// (6.4 for the production profile). The pinned backend takes Gaussian
-    /// width, so convert with `sqrt(2*pi)` and use its constant-time CDF sampler.
+    /// (6.4 for the production profile), through the pinned backend's
+    /// constant-time CDF sampler. The production table is frozen in
+    /// [`inspiring::gaussian`], so the secret does not depend on the host libm.
     /// The RNG must be private and cryptographically seeded. Deterministic
     /// regeneration requires the same parameters, RNG state and sampler version.
     pub fn sample_gaussian(params: &RlweParams, rng: &mut ChaCha20Rng) -> Self {
-        let dg = DiscreteGaussian::init(params.sigma_chi * std::f64::consts::TAU.sqrt());
+        let dg = inspiring::gaussian::discrete_gaussian(params.sigma_chi);
         let coeffs = (0..params.d).map(|_| dg.sample(params.q, rng)).collect();
         Self { coeffs }
     }
@@ -600,8 +601,7 @@ fn encrypted_selection_query(
         "target_row {target_row} is out of range for {db_rows} db rows"
     );
 
-    // spiral-rs parameterizes the sampler by width, not by standard deviation.
-    let dg = DiscreteGaussian::init(params.sigma_chi * std::f64::consts::TAU.sqrt());
+    let dg = inspiring::gaussian::discrete_gaussian(params.sigma_chi);
 
     let mut query = vec![0u64; db_rows];
     let secret_ntt = polynomial_to_ntt(params, secret);

@@ -11,7 +11,6 @@
 //! Spiral-PIR's expansion loop. See `docs/spiral-rs-mapping.md` §3.
 
 use rand_chacha::ChaCha20Rng;
-use spiral_rs::discrete_gaussian::DiscreteGaussian;
 use spiral_rs::gadget::build_gadget;
 use spiral_rs::poly::{
     add_into, from_ntt_alloc, multiply, scalar_multiply_alloc, stack_ntt, to_ntt_alloc, PolyMatrix,
@@ -89,7 +88,7 @@ pub fn ks_setup<'a>(
     let gadget = build_gadget(spiral, 1, ell);
     let scaled = scalar_multiply_alloc(s_from_ntt, &to_ntt_alloc(&gadget));
 
-    let dg = DiscreteGaussian::init(params.sigma_chi * std::f64::consts::TAU.sqrt());
+    let dg = crate::gaussian::discrete_gaussian(params.sigma_chi);
     let a = PolyMatrixRaw::random_rng(spiral, 1, ell, rng);
     let e = PolyMatrixRaw::noise(spiral, 1, ell, &dg, rng);
     let a_ntt = to_ntt_alloc(&a);

@@ -54,4 +54,14 @@ mod tests {
             "bc68011d7224eb5dcb649a206c70697d4e6bce32af77966f4ebd60c0683cac2e"
         );
     }
+
+    #[test]
+    fn frozen_cdf_matches_default_client_table() {
+        // The native and default client tables are separate files so the
+        // certificate tooling keeps its path; they must never drift.
+        assert_eq!(
+            gaussian().cdf_table(),
+            inspiring::gaussian::default_cdf_table()
+        );
+    }
 }

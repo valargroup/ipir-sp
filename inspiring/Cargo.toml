@@ -24,6 +24,8 @@ spiral-rs = { workspace = true }
 # but we list it explicitly to make our own use a first-class dependency.
 rand_chacha = "0.3.1"
 rayon = "1"
+# `WeightedIndex` for the frozen default Gaussian sampler (same version spiral-rs uses).
+rand = "0.8.5"
 
 # Discrete-Gaussian sampling, NTT, polynomial arithmetic, and ChaCha20 RNG all
 # come from spiral-rs; we do not need a separate crypto stack.

@@ -69,6 +69,7 @@
 pub mod automorph;
 pub mod collapse;
 pub mod error;
+pub mod gaussian;
 pub mod intermediate;
 pub mod key_switching;
 pub mod lwe;

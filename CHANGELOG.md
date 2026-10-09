@@ -25,6 +25,14 @@
   reject them; nearest reports keep their formats. `certify_native.py` accepts
   dithered reports only under those formats and adds a counterfactual
   `query_screen`.
+- Freeze the default (sigma 6.4) discrete-Gaussian CDF table in
+  `inspiring::gaussian` with a SHA-256 test, instead of rebuilding it from the
+  host's `f64::exp` at every start. Client secrets, query errors and packing-key
+  errors no longer depend on the platform math library, and a broken `exp`
+  can no longer silently shrink the error term. The frozen values equal the
+  previous runtime table on macOS ARM64 and Linux x86_64 (and the existing
+  native table), so existing seeds decode unchanged. Non-default sigmas still
+  build their table at runtime.
 
 ## 0.1.0-rc.6 — 2026-09-25
 
