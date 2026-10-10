@@ -607,15 +607,15 @@ fn p8_transport_floors_and_response_knob() {
     let p16 = NativeParams::new(16, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
     let base8 = NativeProfile::new(p8.clone(), 32, 48).unwrap();
     let base16 = NativeProfile::new(p16.clone(), 32, 48).unwrap();
-    // Dithered query floor: 24 at p8, unchanged 43 at p16.
-    assert!(base8.clone().with_dithered_query_bits(24).is_ok());
-    assert!(base8.clone().with_dithered_query_bits(23).is_err());
+    // Dithered query floor: 27 at p8, unchanged 43 at p16.
+    assert!(base8.clone().with_dithered_query_bits(27).is_ok());
+    assert!(base8.clone().with_dithered_query_bits(26).is_err());
     assert!(base16.clone().with_dithered_query_bits(43).is_ok());
     assert!(base16.clone().with_dithered_query_bits(42).is_err());
-    // Two-mask mask floor: 16 at p8, unchanged 27 at p16; one-mask stays 28.
+    // Two-mask mask floor: 21 at p8, unchanged 27 at p16; one-mask stays 28.
     let two8 = base8.clone().with_two_mask_output().unwrap();
-    assert!(two8.clone().with_published_mask_bits(16).is_ok());
-    assert!(two8.clone().with_published_mask_bits(15).is_err());
+    assert!(two8.clone().with_published_mask_bits(21).is_ok());
+    assert!(two8.clone().with_published_mask_bits(20).is_err());
     let two16 = base16.clone().with_two_mask_output().unwrap();
     assert!(two16.clone().with_published_mask_bits(27).is_ok());
     assert!(two16.clone().with_published_mask_bits(26).is_err());
@@ -656,7 +656,7 @@ fn p8_u8_and_u16_storage_respond_identically_for_both_gadgets() {
             .unwrap()
             .with_two_mask_output()
             .unwrap()
-            .with_published_mask_bits(20)
+            .with_published_mask_bits(22)
             .unwrap()
             .with_dithered_query_bits(28)
             .unwrap()
@@ -708,7 +708,7 @@ fn p8_analyzed_build_screens_coarse_masks_and_tiny_shapes_use_columns() {
         .unwrap()
         .with_two_mask_output()
         .unwrap()
-        .with_published_mask_bits(18)
+        .with_published_mask_bits(21)
         .unwrap();
     let (server, blocks) = NativeServer::build_u8_analyzed(
         NativePublicSetup::new(profile, [8; 32], [9; 32]),
@@ -728,7 +728,7 @@ fn p8_analyzed_build_screens_coarse_masks_and_tiny_shapes_use_columns() {
             .packing
             .public_mask_screens
             .iter()
-            .find(|(b, _)| *b == 18)
+            .find(|(b, _)| *b == 21)
             .unwrap()
             .1;
         assert_eq!(block.packing.weights, selected);

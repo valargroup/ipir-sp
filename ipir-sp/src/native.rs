@@ -14,11 +14,12 @@ use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
 
 /// Smallest transport precisions accepted for a plaintext width. The p >= 9
-/// values are the minima certified on the recorded 28,672-row p = 2^16
-/// fixture. The p <= 8 values are research floors pinned to the minima
-/// certified on the recorded p = 2^8 fixture. Every served snapshot still
-/// needs its own certificate; these floors only reject obviously unsafe
-/// requests.
+/// values are the minima certified (query) or screened (masks) on the recorded
+/// 28,672-row p = 2^16 fixture. The p <= 8 values are the same minima on the
+/// recorded 28,672 x 65,536 p = 2^8 fixture (bench-results/2026-10-09-p8-native):
+/// 27-bit dithered queries certified with two digits at 10-bit responses, and
+/// 21-bit masks passing the screen. Analysis screens extend below the floors.
+/// Every served snapshot still needs its own certificate.
 struct TransportFloors {
     dithered_query: usize,
     two_mask_mask_bits: usize,
@@ -28,8 +29,8 @@ struct TransportFloors {
 fn floors(p_bits: u32) -> TransportFloors {
     if p_bits <= 8 {
         TransportFloors {
-            dithered_query: 24,
-            two_mask_mask_bits: 16,
+            dithered_query: 27,
+            two_mask_mask_bits: 21,
             one_mask_mask_bits: 28,
             two_mask_screens: 16..=32,
         }
@@ -122,7 +123,7 @@ impl NativeProfile {
         Ok(self)
     }
     /// Experimental rounded public-mask transport, down to the plaintext's floor
-    /// (27 two-mask / 28 one-mask at p = 2^16; 16 two-mask at p = 2^8) and up to
+    /// (27 two-mask / 28 one-mask at p = 2^16; 21 two-mask at p = 2^8) and up to
     /// 32 bits. 54 is lossless bit-packing; 64 selects the legacy exact u64
     /// encoding. Requires q = 2^54 and a snapshot certificate.
     pub fn with_published_mask_bits(mut self, bits: usize) -> Result<Self, ReinspiringError> {
