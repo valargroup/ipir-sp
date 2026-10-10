@@ -1,0 +1,270 @@
+{
+  "format": "native-certificate-two-mask-rounded-v1",
+  "setup_id": "79e3f07a417888dd0d71b01558903834c1db546c1047f6c42718687cc722e7fe",
+  "database_sha256": "d49c674ea9f81c3098765ef1be0c69bea4df350f5d08431d87ebb531d82cd02c",
+  "sampler_sha256": "bc68011d7224eb5dcb649a206c70697d4e6bce32af77966f4ebd60c0683cac2e",
+  "actual_profile": {
+    "key_bytes": 27648,
+    "certified_failure_bits": 138,
+    "meets_78": true,
+    "meets_128": true,
+    "max_deterministic_error": "8796365651968",
+    "query_bits": 27,
+    "query_rounding": "dithered",
+    "query_bytes": 96768,
+    "published_mask_bits": 22,
+    "published_bytes": 360484,
+    "no_extra_download": true,
+    "p_bits": 8,
+    "ell": 2,
+    "gadget_bits": 19,
+    "response_bits": 10,
+    "response_bytes": 81988
+  },
+  "query_screen": [
+    {
+      "query_bits": 49,
+      "query_rounding": "nearest",
+      "query_bytes": 175616,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796425006560"
+    },
+    {
+      "query_bits": 49,
+      "query_rounding": "dithered",
+      "query_bytes": 175616,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 48,
+      "query_rounding": "dithered",
+      "query_bytes": 172032,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 47,
+      "query_rounding": "dithered",
+      "query_bytes": 168448,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 46,
+      "query_rounding": "dithered",
+      "query_bytes": 164864,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 45,
+      "query_rounding": "dithered",
+      "query_bytes": 161280,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 44,
+      "query_rounding": "dithered",
+      "query_bytes": 157696,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 43,
+      "query_rounding": "dithered",
+      "query_bytes": 154112,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 42,
+      "query_rounding": "dithered",
+      "query_bytes": 150528,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 41,
+      "query_rounding": "dithered",
+      "query_bytes": 146944,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 40,
+      "query_rounding": "dithered",
+      "query_bytes": 143360,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 39,
+      "query_rounding": "dithered",
+      "query_bytes": 139776,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 38,
+      "query_rounding": "dithered",
+      "query_bytes": 136192,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 37,
+      "query_rounding": "dithered",
+      "query_bytes": 132608,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 36,
+      "query_rounding": "dithered",
+      "query_bytes": 129024,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 35,
+      "query_rounding": "dithered",
+      "query_bytes": 125440,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 34,
+      "query_rounding": "dithered",
+      "query_bytes": 121856,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 33,
+      "query_rounding": "dithered",
+      "query_bytes": 118272,
+      "certified_failure_bits": 802,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 32,
+      "query_rounding": "dithered",
+      "query_bytes": 114688,
+      "certified_failure_bits": 800,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 31,
+      "query_rounding": "dithered",
+      "query_bytes": 111104,
+      "certified_failure_bits": 795,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 30,
+      "query_rounding": "dithered",
+      "query_bytes": 107520,
+      "certified_failure_bits": 775,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 29,
+      "query_rounding": "dithered",
+      "query_bytes": 103936,
+      "certified_failure_bits": 692,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 28,
+      "query_rounding": "dithered",
+      "query_bytes": 100352,
+      "certified_failure_bits": 405,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 27,
+      "query_rounding": "dithered",
+      "query_bytes": 96768,
+      "certified_failure_bits": 138,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 26,
+      "query_rounding": "dithered",
+      "query_bytes": 93184,
+      "certified_failure_bits": 25,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 25,
+      "query_rounding": "dithered",
+      "query_bytes": 89600,
+      "certified_failure_bits": 0,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "8796365651968"
+    },
+    {
+      "query_bits": 24,
+      "query_rounding": "dithered",
+      "query_bytes": 86016,
+      "certified_failure_bits": 0,
+      "meets_78": false,
+      "meets_128": false,
+      "max_deterministic_error": "8796365651968"
+    }
+  ],
+  "smallest_screened_query_bits_128": 27
+}

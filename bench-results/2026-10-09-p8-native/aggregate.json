@@ -1,0 +1,3353 @@
+{
+  "certificates": {
+    "p8-g19-q27-r10-m22": {
+      "key_bytes": 27648,
+      "certified_failure_bits": 138,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968",
+      "query_bits": 27,
+      "query_rounding": "dithered",
+      "query_bytes": 96768,
+      "published_mask_bits": 22,
+      "published_bytes": 360484,
+      "no_extra_download": true,
+      "p_bits": 8,
+      "ell": 2,
+      "gadget_bits": 19,
+      "response_bits": 10,
+      "response_bytes": 81988
+    },
+    "p8-g19-q28-r10-m22-rows65536": {
+      "key_bytes": 27648,
+      "certified_failure_bits": 236,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968",
+      "query_bits": 28,
+      "query_rounding": "dithered",
+      "query_bytes": 229376,
+      "published_mask_bits": 22,
+      "published_bytes": 180260,
+      "no_extra_download": true,
+      "p_bits": 8,
+      "ell": 2,
+      "gadget_bits": 19,
+      "response_bits": 10,
+      "response_bytes": 41028
+    },
+    "p8-g19-q28-r10-m22": {
+      "key_bytes": 27648,
+      "certified_failure_bits": 406,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968",
+      "query_bits": 28,
+      "query_rounding": "dithered",
+      "query_bytes": 100352,
+      "published_mask_bits": 22,
+      "published_bytes": 360484,
+      "no_extra_download": true,
+      "p_bits": 8,
+      "ell": 2,
+      "gadget_bits": 19,
+      "response_bits": 10,
+      "response_bytes": 81988
+    },
+    "p8-g19-q28-r9-m22": {
+      "key_bytes": 27648,
+      "certified_failure_bits": 187,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "17592458674176",
+      "query_bits": 28,
+      "query_rounding": "dithered",
+      "query_bytes": 100352,
+      "published_mask_bits": 22,
+      "published_bytes": 360484,
+      "no_extra_download": true,
+      "p_bits": 8,
+      "ell": 2,
+      "gadget_bits": 19,
+      "response_bits": 9,
+      "response_bytes": 73796
+    },
+    "p8-g27-q28-r10-m22-rows65536": {
+      "key_bytes": 13824,
+      "certified_failure_bits": 150,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968",
+      "query_bits": 28,
+      "query_rounding": "dithered",
+      "query_bytes": 229376,
+      "published_mask_bits": 22,
+      "published_bytes": 180260,
+      "no_extra_download": true,
+      "p_bits": 8,
+      "ell": 1,
+      "gadget_bits": 27,
+      "response_bits": 10,
+      "response_bytes": 41028
+    },
+    "p8-g27-q28-r10-m22": {
+      "key_bytes": 13824,
+      "certified_failure_bits": 209,
+      "meets_78": true,
+      "meets_128": true,
+      "max_deterministic_error": "8796365651968",
+      "query_bits": 28,
+      "query_rounding": "dithered",
+      "query_bytes": 100352,
+      "published_mask_bits": 22,
+      "published_bytes": 360484,
+      "no_extra_download": true,
+      "p_bits": 8,
+      "ell": 1,
+      "gadget_bits": 27,
+      "response_bits": 10,
+      "response_bytes": 81988
+    }
+  },
+  "p16_regression": {
+    "identical_apart_from_added_keys": true,
+    "added_keys": [
+      "dropped_bits",
+      "ell",
+      "gadget_bits"
+    ]
+  },
+  "runs": {
+    "raw-xeon/b43-c1": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 453509248,
+        "cols": 32768,
+        "concurrency": 1,
+        "database_bytes": 1879048192,
+        "decode_coeff_bytes": 1048576,
+        "dithered_query": true,
+        "ell": 2,
+        "gadget_bits": 19,
+        "key_bytes": 27648,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 27,
+          "min": 27
+        },
+        "matrix_storage": {
+          "packed27": 16
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 2845556736,
+            "rss": 2348408832
+          },
+          "db_generated": {
+            "peak": 1883463680,
+            "rss": 1883463680
+          },
+          "server_built": {
+            "peak": 2845556736,
+            "rss": 2682785792
+          },
+          "server_built_trimmed": {
+            "peak": 2845556736,
+            "rss": 2345877504
+          },
+          "start": {
+            "peak": 2613248,
+            "rss": 2613248
+          },
+          "trimmed": true
+        },
+        "offline_hint_block_s": 29.402320652,
+        "offline_layout_s": 0.242599322,
+        "offline_packing_block_s": 12.850367359,
+        "offline_s": 42.84969506,
+        "pbits": 16,
+        "prepare_decode_ms": 6.954415,
+        "published_bytes": 237604,
+        "published_mask_bits": 29,
+        "query_bits": 43,
+        "query_bytes": 154112,
+        "query_mask_bytes": 229376,
+        "request_bytes": 181796,
+        "response_bits": 22,
+        "response_bytes": 90180,
+        "rows": 28672,
+        "scan_skipped_digits": 1,
+        "setup_id": "3c3059d5d5c4252d8c0e20c5727a6848eb2f7c2a5b9d99149da8e5e6448c99f4",
+        "storage": "u16",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "8": {
+          "samples": 20,
+          "server_ms": {
+            "median": 45.628794,
+            "p10": 44.674445999999996,
+            "p90": 48.268437999999996
+          },
+          "matvec_ms": {
+            "median": 36.727136,
+            "p10": 35.907143000000005,
+            "p90": 39.063758
+          },
+          "packing_ms": {
+            "median": 6.859384,
+            "p10": 6.644340000000001,
+            "p90": 7.092896
+          },
+          "parse_ms": {
+            "median": 1.0283909999999998,
+            "p10": 1.0252729999999999,
+            "p90": 1.0382069999999999
+          },
+          "serialize_ms": {
+            "median": 1.086527,
+            "p10": 1.0709579999999999,
+            "p90": 1.0956169999999998
+          },
+          "client_ms": {
+            "median": 49.1593095,
+            "p10": 49.08569,
+            "p90": 49.244073
+          },
+          "generate_ms": {
+            "median": 45.401959500000004,
+            "p10": 45.32447,
+            "p90": 45.464709
+          },
+          "prepare_ms": {
+            "median": 3.7679125000000004,
+            "p10": 3.738688,
+            "p90": 3.786026
+          },
+          "decode_ms": {
+            "median": 0.6105714999999999,
+            "p10": 0.604059,
+            "p90": 0.618781
+          }
+        }
+      },
+      "memory": {
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": 73728,
+          "rss": {
+            "peak": 2352717824,
+            "rss": 2352717824
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 181796,
+      "download_bytes": 90180,
+      "max_phase_error": 34628173824,
+      "time": {
+        "max_rss_bytes": 2352336896,
+        "exit_status": 0
+      }
+    },
+    "raw-xeon/b43": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 453509248,
+        "cols": 32768,
+        "concurrency": 4,
+        "database_bytes": 1879048192,
+        "decode_coeff_bytes": 1048576,
+        "dithered_query": true,
+        "ell": 2,
+        "gadget_bits": 19,
+        "key_bytes": 27648,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 27,
+          "min": 27
+        },
+        "matrix_storage": {
+          "packed27": 16
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 3136843776,
+            "rss": 2346045440
+          },
+          "db_generated": {
+            "peak": 1883402240,
+            "rss": 1883402240
+          },
+          "server_built": {
+            "peak": 3136843776,
+            "rss": 3046191104
+          },
+          "server_built_trimmed": {
+            "peak": 3136843776,
+            "rss": 2344210432
+          },
+          "start": {
+            "peak": 2560000,
+            "rss": 2560000
+          },
+          "trimmed": true
+        },
+        "offline_hint_block_s": 116.138948975,
+        "offline_layout_s": 0.239730485,
+        "offline_packing_block_s": 23.707367193,
+        "offline_s": 38.882554602,
+        "pbits": 16,
+        "prepare_decode_ms": 7.613398,
+        "published_bytes": 237604,
+        "published_mask_bits": 29,
+        "query_bits": 43,
+        "query_bytes": 154112,
+        "query_mask_bytes": 229376,
+        "request_bytes": 181796,
+        "response_bits": 22,
+        "response_bytes": 90180,
+        "rows": 28672,
+        "scan_skipped_digits": 1,
+        "setup_id": "3c3059d5d5c4252d8c0e20c5727a6848eb2f7c2a5b9d99149da8e5e6448c99f4",
+        "storage": "u16",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "1": {
+          "samples": 20,
+          "server_ms": {
+            "median": 200.931284,
+            "p10": 197.68701099999998,
+            "p90": 203.361387
+          },
+          "matvec_ms": {
+            "median": 171.157455,
+            "p10": 167.778423,
+            "p90": 173.04814900000002
+          },
+          "packing_ms": {
+            "median": 27.723005,
+            "p10": 27.564378,
+            "p90": 28.085004
+          },
+          "parse_ms": {
+            "median": 1.025725,
+            "p10": 1.021634,
+            "p90": 1.062613
+          },
+          "serialize_ms": {
+            "median": 1.1484125,
+            "p10": 1.144525,
+            "p90": 1.162395
+          },
+          "client_ms": {
+            "median": 48.9398305,
+            "p10": 48.882686,
+            "p90": 49.197949
+          },
+          "generate_ms": {
+            "median": 45.2754875,
+            "p10": 45.227107000000004,
+            "p90": 45.533906
+          },
+          "prepare_ms": {
+            "median": 3.6639045,
+            "p10": 3.653945,
+            "p90": 3.668104
+          },
+          "decode_ms": {
+            "median": 0.6496569999999999,
+            "p10": 0.636458,
+            "p90": 0.6594720000000001
+          },
+          "cold_decode_ms": {
+            "median": 11.4337915,
+            "p10": 11.389665,
+            "p90": 11.549919000000001
+          }
+        },
+        "2": {
+          "samples": 20,
+          "server_ms": {
+            "median": 113.4615465,
+            "p10": 112.516725,
+            "p90": 114.86307099999999
+          },
+          "matvec_ms": {
+            "median": 96.433189,
+            "p10": 95.662077,
+            "p90": 97.690525
+          },
+          "packing_ms": {
+            "median": 14.659056,
+            "p10": 14.451538,
+            "p90": 14.915525
+          },
+          "parse_ms": {
+            "median": 1.0231045,
+            "p10": 1.020317,
+            "p90": 1.03104
+          },
+          "serialize_ms": {
+            "median": 1.2728359999999999,
+            "p10": 1.264099,
+            "p90": 1.290986
+          },
+          "client_ms": {
+            "median": 48.951264,
+            "p10": 48.911409,
+            "p90": 49.004192
+          },
+          "generate_ms": {
+            "median": 45.247401499999995,
+            "p10": 45.182642,
+            "p90": 45.303186000000004
+          },
+          "prepare_ms": {
+            "median": 3.701321,
+            "p10": 3.6919880000000003,
+            "p90": 3.707697
+          },
+          "decode_ms": {
+            "median": 0.599561,
+            "p10": 0.5933769999999999,
+            "p90": 0.60792
+          },
+          "cold_decode_ms": {
+            "median": 11.558623,
+            "p10": 11.499938,
+            "p90": 11.616227
+          }
+        },
+        "4": {
+          "samples": 20,
+          "server_ms": {
+            "median": 67.157126,
+            "p10": 66.28161200000001,
+            "p90": 68.114034
+          },
+          "matvec_ms": {
+            "median": 55.394722,
+            "p10": 54.663938,
+            "p90": 56.284192
+          },
+          "packing_ms": {
+            "median": 9.6506185,
+            "p10": 9.515348,
+            "p90": 9.826248
+          },
+          "parse_ms": {
+            "median": 1.026804,
+            "p10": 1.024743,
+            "p90": 1.0381340000000001
+          },
+          "serialize_ms": {
+            "median": 1.0560425,
+            "p10": 1.0537,
+            "p90": 1.160749
+          },
+          "client_ms": {
+            "median": 48.9494505,
+            "p10": 48.831159,
+            "p90": 49.040192000000005
+          },
+          "generate_ms": {
+            "median": 45.24841000000001,
+            "p10": 45.169596999999996,
+            "p90": 45.360717
+          },
+          "prepare_ms": {
+            "median": 3.6939435,
+            "p10": 3.658873,
+            "p90": 3.7201220000000004
+          },
+          "decode_ms": {
+            "median": 0.7229749999999999,
+            "p10": 0.656792,
+            "p90": 0.73923
+          },
+          "cold_decode_ms": {
+            "median": 11.482483499999999,
+            "p10": 11.423981,
+            "p90": 11.536379
+          }
+        },
+        "8": {
+          "samples": 20,
+          "server_ms": {
+            "median": 45.270698499999995,
+            "p10": 44.542210999999995,
+            "p90": 47.187925
+          },
+          "matvec_ms": {
+            "median": 36.231505999999996,
+            "p10": 35.614616000000005,
+            "p90": 37.976138
+          },
+          "packing_ms": {
+            "median": 6.8429985,
+            "p10": 6.715065,
+            "p90": 7.020156
+          },
+          "parse_ms": {
+            "median": 1.02072,
+            "p10": 1.018732,
+            "p90": 1.027872
+          },
+          "serialize_ms": {
+            "median": 1.187938,
+            "p10": 1.17819,
+            "p90": 1.2724730000000002
+          },
+          "client_ms": {
+            "median": 48.914186,
+            "p10": 48.844739000000004,
+            "p90": 49.099703
+          },
+          "generate_ms": {
+            "median": 45.25500099999999,
+            "p10": 45.191672000000004,
+            "p90": 45.432083
+          },
+          "prepare_ms": {
+            "median": 3.6621854999999996,
+            "p10": 3.6538299999999997,
+            "p90": 3.678883
+          },
+          "decode_ms": {
+            "median": 0.6397865,
+            "p10": 0.595958,
+            "p90": 0.653465
+          },
+          "cold_decode_ms": {
+            "median": 11.4141455,
+            "p10": 11.310709000000001,
+            "p90": 11.790808
+          }
+        }
+      },
+      "memory": {
+        "1": {
+          "kind": "memory",
+          "respond_peak_delta": 262144,
+          "rss": {
+            "peak": 2348199936,
+            "rss": 2348199936
+          },
+          "threads": 1
+        },
+        "2": {
+          "kind": "memory",
+          "respond_peak_delta": 745472,
+          "rss": {
+            "peak": 2348752896,
+            "rss": 2348122112
+          },
+          "threads": 2
+        },
+        "4": {
+          "kind": "memory",
+          "respond_peak_delta": 270336,
+          "rss": {
+            "peak": 2349318144,
+            "rss": 2349318144
+          },
+          "threads": 4
+        },
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": 827392,
+          "rss": {
+            "peak": 2351001600,
+            "rss": 2351001600
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 181796,
+      "download_bytes": 90180,
+      "max_phase_error": 34628173824,
+      "time": {
+        "max_rss_bytes": 2350985216,
+        "exit_status": 0
+      }
+    },
+    "raw-xeon/b44": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 453509248,
+        "cols": 32768,
+        "concurrency": 4,
+        "database_bytes": 1879048192,
+        "decode_coeff_bytes": 1048576,
+        "dithered_query": true,
+        "ell": 2,
+        "gadget_bits": 19,
+        "key_bytes": 27648,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 27,
+          "min": 27
+        },
+        "matrix_storage": {
+          "packed27": 16
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 3378176000,
+            "rss": 2346086400
+          },
+          "db_generated": {
+            "peak": 1883459584,
+            "rss": 1883459584
+          },
+          "server_built": {
+            "peak": 3378176000,
+            "rss": 3236290560
+          },
+          "server_built_trimmed": {
+            "peak": 3378176000,
+            "rss": 2344243200
+          },
+          "start": {
+            "peak": 2605056,
+            "rss": 2605056
+          },
+          "trimmed": true
+        },
+        "offline_hint_block_s": 117.145379801,
+        "offline_layout_s": 0.239693046,
+        "offline_packing_block_s": 28.042783624,
+        "offline_s": 39.36554023,
+        "pbits": 16,
+        "prepare_decode_ms": 7.4097420000000005,
+        "published_bytes": 237604,
+        "published_mask_bits": 29,
+        "query_bits": 44,
+        "query_bytes": 157696,
+        "query_mask_bytes": 229376,
+        "request_bytes": 185380,
+        "response_bits": 22,
+        "response_bytes": 90180,
+        "rows": 28672,
+        "scan_skipped_digits": 1,
+        "setup_id": "1ff07e69124f147a7149707cd19c0d870c3bb0b282519c618e71e57b65863e90",
+        "storage": "u16",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "8": {
+          "samples": 20,
+          "server_ms": {
+            "median": 45.8332555,
+            "p10": 45.338131,
+            "p90": 46.327903
+          },
+          "matvec_ms": {
+            "median": 36.7082355,
+            "p10": 36.246438,
+            "p90": 37.105351
+          },
+          "packing_ms": {
+            "median": 6.8289159999999995,
+            "p10": 6.738264,
+            "p90": 6.960933
+          },
+          "parse_ms": {
+            "median": 0.9948325,
+            "p10": 0.991797,
+            "p90": 1.0017260000000001
+          },
+          "serialize_ms": {
+            "median": 1.2913815,
+            "p10": 1.2770380000000001,
+            "p90": 1.299194
+          },
+          "client_ms": {
+            "median": 49.016873000000004,
+            "p10": 48.951928,
+            "p90": 49.060237
+          },
+          "generate_ms": {
+            "median": 45.360225,
+            "p10": 45.307111,
+            "p90": 45.405028
+          },
+          "prepare_ms": {
+            "median": 3.6528345,
+            "p10": 3.641981,
+            "p90": 3.658378
+          },
+          "decode_ms": {
+            "median": 0.5974135,
+            "p10": 0.5894929999999999,
+            "p90": 0.602213
+          },
+          "cold_decode_ms": {
+            "median": 11.3996885,
+            "p10": 11.333235,
+            "p90": 11.861008
+          }
+        }
+      },
+      "memory": {
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": 839680,
+          "rss": {
+            "peak": 2349686784,
+            "rss": 2349096960
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 185380,
+      "download_bytes": 90180,
+      "max_phase_error": 27044872192,
+      "time": {
+        "max_rss_bytes": 2349686784,
+        "exit_status": 0
+      }
+    },
+    "raw-xeon/b49-c1": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 453509248,
+        "cols": 32768,
+        "concurrency": 1,
+        "database_bytes": 1879048192,
+        "decode_coeff_bytes": 1048576,
+        "dithered_query": false,
+        "ell": 2,
+        "gadget_bits": 19,
+        "key_bytes": 27648,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 27,
+          "min": 27
+        },
+        "matrix_storage": {
+          "packed27": 16
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 2806755328,
+            "rss": 2348388352
+          },
+          "db_generated": {
+            "peak": 1883496448,
+            "rss": 1883496448
+          },
+          "server_built": {
+            "peak": 2806755328,
+            "rss": 2606764032
+          },
+          "server_built_trimmed": {
+            "peak": 2806755328,
+            "rss": 2345865216
+          },
+          "start": {
+            "peak": 2600960,
+            "rss": 2600960
+          },
+          "trimmed": true
+        },
+        "offline_hint_block_s": 29.445430348,
+        "offline_layout_s": 0.240392574,
+        "offline_packing_block_s": 13.551759704,
+        "offline_s": 43.605916878,
+        "pbits": 16,
+        "prepare_decode_ms": 7.041039,
+        "published_bytes": 237604,
+        "published_mask_bits": 29,
+        "query_bits": 49,
+        "query_bytes": 175616,
+        "query_mask_bytes": 229376,
+        "request_bytes": 203300,
+        "response_bits": 22,
+        "response_bytes": 90180,
+        "rows": 28672,
+        "scan_skipped_digits": 0,
+        "setup_id": "ab5b44513d72cbfc5eff42fec5f176bf7c4d5b6a5a45f50f7c3226ae4f26cb01",
+        "storage": "u16",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "8": {
+          "samples": 20,
+          "server_ms": {
+            "median": 47.288913,
+            "p10": 45.740432,
+            "p90": 49.327306
+          },
+          "matvec_ms": {
+            "median": 38.0865245,
+            "p10": 36.785832,
+            "p90": 39.788365
+          },
+          "packing_ms": {
+            "median": 6.920615,
+            "p10": 6.7569099999999995,
+            "p90": 7.2344100000000005
+          },
+          "parse_ms": {
+            "median": 1.1037785,
+            "p10": 1.0988479999999998,
+            "p90": 1.1095110000000001
+          },
+          "serialize_ms": {
+            "median": 1.157516,
+            "p10": 1.139991,
+            "p90": 1.1730550000000002
+          },
+          "client_ms": {
+            "median": 48.999280500000005,
+            "p10": 48.965675999999995,
+            "p90": 49.044458
+          },
+          "generate_ms": {
+            "median": 45.275485,
+            "p10": 45.244240999999995,
+            "p90": 45.318686
+          },
+          "prepare_ms": {
+            "median": 3.722962,
+            "p10": 3.697007,
+            "p90": 3.7390309999999998
+          },
+          "decode_ms": {
+            "median": 0.614285,
+            "p10": 0.6068990000000001,
+            "p90": 0.620586
+          }
+        }
+      },
+      "memory": {
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": 245760,
+          "rss": {
+            "peak": 2352869376,
+            "rss": 2352869376
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 203300,
+      "download_bytes": 90180,
+      "max_phase_error": 23387439104,
+      "time": {
+        "max_rss_bytes": 2352517120,
+        "exit_status": 0
+      }
+    },
+    "raw-xeon/b49": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 453509248,
+        "cols": 32768,
+        "concurrency": 4,
+        "database_bytes": 1879048192,
+        "decode_coeff_bytes": 1048576,
+        "dithered_query": false,
+        "ell": 2,
+        "gadget_bits": 19,
+        "key_bytes": 27648,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 27,
+          "min": 27
+        },
+        "matrix_storage": {
+          "packed27": 16
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 3098312704,
+            "rss": 2346033152
+          },
+          "db_generated": {
+            "peak": 1883361280,
+            "rss": 1883361280
+          },
+          "server_built": {
+            "peak": 3098312704,
+            "rss": 3004235776
+          },
+          "server_built_trimmed": {
+            "peak": 3098312704,
+            "rss": 2344202240
+          },
+          "start": {
+            "peak": 2527232,
+            "rss": 2527232
+          },
+          "trimmed": true
+        },
+        "offline_hint_block_s": 116.673863151,
+        "offline_layout_s": 0.240023145,
+        "offline_packing_block_s": 23.529100939,
+        "offline_s": 39.396679367,
+        "pbits": 16,
+        "prepare_decode_ms": 7.547942,
+        "published_bytes": 237604,
+        "published_mask_bits": 29,
+        "query_bits": 49,
+        "query_bytes": 175616,
+        "query_mask_bytes": 229376,
+        "request_bytes": 203300,
+        "response_bits": 22,
+        "response_bytes": 90180,
+        "rows": 28672,
+        "scan_skipped_digits": 0,
+        "setup_id": "ab5b44513d72cbfc5eff42fec5f176bf7c4d5b6a5a45f50f7c3226ae4f26cb01",
+        "storage": "u16",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "1": {
+          "samples": 20,
+          "server_ms": {
+            "median": 202.0578825,
+            "p10": 198.379771,
+            "p90": 204.45113800000001
+          },
+          "matvec_ms": {
+            "median": 171.99082900000002,
+            "p10": 168.516559,
+            "p90": 174.331255
+          },
+          "packing_ms": {
+            "median": 27.6691795,
+            "p10": 27.449938,
+            "p90": 27.854921
+          },
+          "parse_ms": {
+            "median": 1.115266,
+            "p10": 1.1104509999999999,
+            "p90": 1.120998
+          },
+          "serialize_ms": {
+            "median": 1.226203,
+            "p10": 1.2211349999999999,
+            "p90": 1.252848
+          },
+          "client_ms": {
+            "median": 49.044112,
+            "p10": 48.975453,
+            "p90": 49.173807
+          },
+          "generate_ms": {
+            "median": 45.3922325,
+            "p10": 45.321915999999995,
+            "p90": 45.514621
+          },
+          "prepare_ms": {
+            "median": 3.6557684999999998,
+            "p10": 3.647291,
+            "p90": 3.664256
+          },
+          "decode_ms": {
+            "median": 0.647077,
+            "p10": 0.6363500000000001,
+            "p90": 0.65613
+          },
+          "cold_decode_ms": {
+            "median": 11.447505499999998,
+            "p10": 11.396863999999999,
+            "p90": 11.499431
+          }
+        },
+        "2": {
+          "samples": 20,
+          "server_ms": {
+            "median": 111.143012,
+            "p10": 110.178037,
+            "p90": 112.579994
+          },
+          "matvec_ms": {
+            "median": 94.15001000000001,
+            "p10": 93.283654,
+            "p90": 95.531256
+          },
+          "packing_ms": {
+            "median": 14.4941005,
+            "p10": 14.372912,
+            "p90": 14.712297
+          },
+          "parse_ms": {
+            "median": 1.1004085,
+            "p10": 1.097602,
+            "p90": 1.107251
+          },
+          "serialize_ms": {
+            "median": 1.346098,
+            "p10": 1.333396,
+            "p90": 1.39144
+          },
+          "client_ms": {
+            "median": 49.161533000000006,
+            "p10": 49.118896,
+            "p90": 49.220016
+          },
+          "generate_ms": {
+            "median": 45.493602499999994,
+            "p10": 45.4636,
+            "p90": 45.551735
+          },
+          "prepare_ms": {
+            "median": 3.661741,
+            "p10": 3.6552960000000003,
+            "p90": 3.673297
+          },
+          "decode_ms": {
+            "median": 0.59736,
+            "p10": 0.588748,
+            "p90": 0.606029
+          },
+          "cold_decode_ms": {
+            "median": 11.505628999999999,
+            "p10": 11.431624,
+            "p90": 11.549156
+          }
+        },
+        "4": {
+          "samples": 20,
+          "server_ms": {
+            "median": 63.511322500000006,
+            "p10": 57.766185,
+            "p90": 66.762337
+          },
+          "matvec_ms": {
+            "median": 53.1010285,
+            "p10": 47.536812999999995,
+            "p90": 55.1355
+          },
+          "packing_ms": {
+            "median": 7.983993999999999,
+            "p10": 7.834097999999999,
+            "p90": 9.535819
+          },
+          "parse_ms": {
+            "median": 1.1136735,
+            "p10": 1.109317,
+            "p90": 1.1236009999999998
+          },
+          "serialize_ms": {
+            "median": 1.351715,
+            "p10": 1.335613,
+            "p90": 1.358588
+          },
+          "client_ms": {
+            "median": 49.119798,
+            "p10": 49.043162,
+            "p90": 49.221119
+          },
+          "generate_ms": {
+            "median": 45.4611345,
+            "p10": 45.390562,
+            "p90": 45.560729
+          },
+          "prepare_ms": {
+            "median": 3.659254,
+            "p10": 3.6526,
+            "p90": 3.666642
+          },
+          "decode_ms": {
+            "median": 0.598246,
+            "p10": 0.591736,
+            "p90": 0.608601
+          },
+          "cold_decode_ms": {
+            "median": 11.4692445,
+            "p10": 11.432194999999998,
+            "p90": 11.563642000000002
+          }
+        },
+        "8": {
+          "samples": 20,
+          "server_ms": {
+            "median": 47.5472345,
+            "p10": 45.948943,
+            "p90": 48.32231
+          },
+          "matvec_ms": {
+            "median": 38.10268,
+            "p10": 36.58762900000001,
+            "p90": 38.801968
+          },
+          "packing_ms": {
+            "median": 6.9234515,
+            "p10": 6.793699,
+            "p90": 7.052530000000001
+          },
+          "parse_ms": {
+            "median": 1.1056780000000002,
+            "p10": 1.1017270000000001,
+            "p90": 1.116831
+          },
+          "serialize_ms": {
+            "median": 1.401126,
+            "p10": 1.389396,
+            "p90": 1.413696
+          },
+          "client_ms": {
+            "median": 49.022139,
+            "p10": 48.958805000000005,
+            "p90": 49.066948999999994
+          },
+          "generate_ms": {
+            "median": 45.367713,
+            "p10": 45.306295000000006,
+            "p90": 45.411442
+          },
+          "prepare_ms": {
+            "median": 3.6547185,
+            "p10": 3.650407,
+            "p90": 3.662299
+          },
+          "decode_ms": {
+            "median": 0.5947344999999999,
+            "p10": 0.589949,
+            "p90": 0.6043189999999999
+          },
+          "cold_decode_ms": {
+            "median": 11.577435999999999,
+            "p10": 11.500276,
+            "p90": 11.737117999999999
+          }
+        }
+      },
+      "memory": {
+        "1": {
+          "kind": "memory",
+          "respond_peak_delta": 262144,
+          "rss": {
+            "peak": 2348306432,
+            "rss": 2348187648
+          },
+          "threads": 1
+        },
+        "2": {
+          "kind": "memory",
+          "respond_peak_delta": 704512,
+          "rss": {
+            "peak": 2348871680,
+            "rss": 2348154880
+          },
+          "threads": 2
+        },
+        "4": {
+          "kind": "memory",
+          "respond_peak_delta": 663552,
+          "rss": {
+            "peak": 2349572096,
+            "rss": 2348867584
+          },
+          "threads": 4
+        },
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": 811008,
+          "rss": {
+            "peak": 2350518272,
+            "rss": 2349965312
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 203300,
+      "download_bytes": 90180,
+      "max_phase_error": 23957864448,
+      "time": {
+        "max_rss_bytes": 2350518272,
+        "exit_status": 0
+      }
+    },
+    "raw-xeon/base-b43": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 453509248,
+        "cols": 32768,
+        "concurrency": 4,
+        "decode_coeff_bytes": 1048576,
+        "dithered_query": true,
+        "ell": 2,
+        "kh_bits": 0,
+        "kind": "setup",
+        "offline_s": 38.889766955,
+        "pbits": 16,
+        "prepare_decode_ms": 7.876345999999999,
+        "published_bytes": 237604,
+        "query_bits": 43,
+        "rows": 28672,
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "8": {
+          "samples": 20,
+          "server_ms": {
+            "median": 46.241872,
+            "p10": 45.615736,
+            "p90": 48.432254
+          },
+          "matvec_ms": {
+            "median": 37.07329300000001,
+            "p10": 36.652457,
+            "p90": 39.03031
+          },
+          "packing_ms": {
+            "median": 6.8996385,
+            "p10": 6.702993,
+            "p90": 7.121894
+          },
+          "parse_ms": {
+            "median": 0.998626,
+            "p10": 0.9970420000000001,
+            "p90": 1.0121749999999998
+          },
+          "serialize_ms": {
+            "median": 1.27575,
+            "p10": 1.157511,
+            "p90": 1.2970760000000001
+          },
+          "client_ms": {
+            "median": 49.046803,
+            "p10": 48.968398,
+            "p90": 49.204748
+          },
+          "decode_ms": {
+            "median": 0.6961759999999999,
+            "p10": 0.6883790000000001,
+            "p90": 0.703148
+          },
+          "cold_decode_ms": {
+            "median": 11.4872835,
+            "p10": 11.412959,
+            "p90": 11.912130999999999
+          }
+        }
+      },
+      "memory": {},
+      "upload_bytes": 181796,
+      "download_bytes": 90180,
+      "max_phase_error": 34628173824,
+      "time": {
+        "max_rss_bytes": 3201159168,
+        "exit_status": 0
+      }
+    },
+    "raw-xeon/base-b49": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 453509248,
+        "cols": 32768,
+        "concurrency": 4,
+        "decode_coeff_bytes": 1048576,
+        "dithered_query": false,
+        "ell": 2,
+        "kh_bits": 0,
+        "kind": "setup",
+        "offline_s": 38.287036081,
+        "pbits": 16,
+        "prepare_decode_ms": 7.397074,
+        "published_bytes": 237604,
+        "query_bits": 49,
+        "rows": 28672,
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "8": {
+          "samples": 20,
+          "server_ms": {
+            "median": 48.8095775,
+            "p10": 48.042876,
+            "p90": 49.316588
+          },
+          "matvec_ms": {
+            "median": 39.1189995,
+            "p10": 38.570445,
+            "p90": 39.769211999999996
+          },
+          "packing_ms": {
+            "median": 7.316962999999999,
+            "p10": 7.053081,
+            "p90": 7.4523410000000005
+          },
+          "parse_ms": {
+            "median": 1.097192,
+            "p10": 1.09479,
+            "p90": 1.102219
+          },
+          "serialize_ms": {
+            "median": 1.218585,
+            "p10": 1.196679,
+            "p90": 1.259444
+          },
+          "client_ms": {
+            "median": 48.9376425,
+            "p10": 48.876536,
+            "p90": 49.022082
+          },
+          "decode_ms": {
+            "median": 0.69096,
+            "p10": 0.630828,
+            "p90": 0.703252
+          },
+          "cold_decode_ms": {
+            "median": 11.4513885,
+            "p10": 11.338553,
+            "p90": 11.905221000000001
+          }
+        }
+      },
+      "memory": {},
+      "upload_bytes": 203300,
+      "download_bytes": 90180,
+      "max_phase_error": 23387439104,
+      "time": {
+        "max_rss_bytes": 3229892608,
+        "exit_status": 0
+      }
+    },
+    "raw-xeon/p1-c1": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 1074790400,
+        "cols": 65536,
+        "concurrency": 1,
+        "database_bytes": 1879048192,
+        "decode_coeff_bytes": 2097152,
+        "dithered_query": true,
+        "ell": 1,
+        "gadget_bits": 27,
+        "key_bytes": 13824,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 35,
+          "min": 34
+        },
+        "matrix_storage": {
+          "i64": 32
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 3205414912,
+            "rss": 2973958144
+          },
+          "db_generated": {
+            "peak": 1884254208,
+            "rss": 1884254208
+          },
+          "server_built": {
+            "peak": 3205414912,
+            "rss": 3124297728
+          },
+          "server_built_trimmed": {
+            "peak": 3205414912,
+            "rss": 2970161152
+          },
+          "start": {
+            "peak": 2625536,
+            "rss": 2625536
+          },
+          "trimmed": true
+        },
+        "offline_hint_block_s": 39.346625196,
+        "offline_layout_s": 0.286713579,
+        "offline_packing_block_s": 25.023679228,
+        "offline_s": 65.288192463,
+        "pbits": 8,
+        "prepare_decode_ms": 13.818569,
+        "published_bytes": 360484,
+        "published_mask_bits": 22,
+        "query_bits": 28,
+        "query_bytes": 100352,
+        "query_mask_bytes": 229376,
+        "request_bytes": 114212,
+        "response_bits": 10,
+        "response_bytes": 81988,
+        "rows": 28672,
+        "scan_skipped_digits": 3,
+        "setup_id": "61bea92cf99b31e73a0e80bdf6783a9f59088a6f6667949be2e13882a26a6606",
+        "storage": "u8",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "8": {
+          "samples": 20,
+          "server_ms": {
+            "median": 58.4289415,
+            "p10": 56.254022,
+            "p90": 60.144172000000005
+          },
+          "matvec_ms": {
+            "median": 35.959657500000006,
+            "p10": 34.622342,
+            "p90": 37.52829
+          },
+          "packing_ms": {
+            "median": 20.2959485,
+            "p10": 19.531735,
+            "p90": 20.609005
+          },
+          "parse_ms": {
+            "median": 0.7163855,
+            "p10": 0.7093200000000001,
+            "p90": 0.726297
+          },
+          "serialize_ms": {
+            "median": 1.361371,
+            "p10": 1.339004,
+            "p90": 1.3855149999999998
+          },
+          "client_ms": {
+            "median": 49.8327325,
+            "p10": 49.744671000000004,
+            "p90": 49.94294299999999
+          },
+          "generate_ms": {
+            "median": 42.5298605,
+            "p10": 42.479006,
+            "p90": 42.638957999999995
+          },
+          "prepare_ms": {
+            "median": 7.297626,
+            "p10": 7.21466,
+            "p90": 7.317597999999999
+          },
+          "decode_ms": {
+            "median": 0.8549445,
+            "p10": 0.838935,
+            "p90": 0.871421
+          }
+        }
+      },
+      "memory": {
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": 1679360,
+          "rss": {
+            "peak": 2978148352,
+            "rss": 2976133120
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 114212,
+      "download_bytes": 81988,
+      "max_phase_error": 13816909791232,
+      "time": {
+        "max_rss_bytes": 2978148352,
+        "exit_status": 0
+      }
+    },
+    "raw-xeon/p1": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 1074790400,
+        "cols": 65536,
+        "concurrency": 4,
+        "database_bytes": 1879048192,
+        "decode_coeff_bytes": 2097152,
+        "dithered_query": true,
+        "ell": 1,
+        "gadget_bits": 27,
+        "key_bytes": 13824,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 35,
+          "min": 34
+        },
+        "matrix_storage": {
+          "i64": 32
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 3664879616,
+            "rss": 2974019584
+          },
+          "db_generated": {
+            "peak": 1884196864,
+            "rss": 1884196864
+          },
+          "server_built": {
+            "peak": 3664879616,
+            "rss": 3551371264
+          },
+          "server_built_trimmed": {
+            "peak": 3664879616,
+            "rss": 2970554368
+          },
+          "start": {
+            "peak": 2592768,
+            "rss": 2592768
+          },
+          "trimmed": true
+        },
+        "offline_hint_block_s": 150.572513275,
+        "offline_layout_s": 0.28380562,
+        "offline_packing_block_s": 45.462189709,
+        "offline_s": 55.317193982,
+        "pbits": 8,
+        "prepare_decode_ms": 13.986028,
+        "published_bytes": 360484,
+        "published_mask_bits": 22,
+        "query_bits": 28,
+        "query_bytes": 100352,
+        "query_mask_bytes": 229376,
+        "request_bytes": 114212,
+        "response_bits": 10,
+        "response_bytes": 81988,
+        "rows": 28672,
+        "scan_skipped_digits": 3,
+        "setup_id": "61bea92cf99b31e73a0e80bdf6783a9f59088a6f6667949be2e13882a26a6606",
+        "storage": "u8",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "1": {
+          "samples": 20,
+          "server_ms": {
+            "median": 250.87309,
+            "p10": 247.95978799999997,
+            "p90": 253.849151
+          },
+          "matvec_ms": {
+            "median": 159.6521275,
+            "p10": 156.714084,
+            "p90": 160.719383
+          },
+          "packing_ms": {
+            "median": 89.7902575,
+            "p10": 88.623186,
+            "p90": 91.54623000000001
+          },
+          "parse_ms": {
+            "median": 0.715133,
+            "p10": 0.713579,
+            "p90": 0.7306520000000001
+          },
+          "serialize_ms": {
+            "median": 1.057407,
+            "p10": 1.045696,
+            "p90": 1.0664719999999999
+          },
+          "client_ms": {
+            "median": 49.4278845,
+            "p10": 49.339589000000004,
+            "p90": 49.563888
+          },
+          "generate_ms": {
+            "median": 42.19245599999999,
+            "p10": 42.097264,
+            "p90": 42.300383
+          },
+          "prepare_ms": {
+            "median": 7.2479855,
+            "p10": 7.238854,
+            "p90": 7.285812
+          },
+          "decode_ms": {
+            "median": 0.9936345,
+            "p10": 0.9833489999999999,
+            "p90": 1.008947
+          },
+          "cold_decode_ms": {
+            "median": 21.6501695,
+            "p10": 21.542627000000003,
+            "p90": 21.785228
+          }
+        },
+        "2": {
+          "samples": 20,
+          "server_ms": {
+            "median": 133.80843900000002,
+            "p10": 129.355827,
+            "p90": 134.906273
+          },
+          "matvec_ms": {
+            "median": 86.158344,
+            "p10": 84.194355,
+            "p90": 87.40713099999999
+          },
+          "packing_ms": {
+            "median": 45.328087999999994,
+            "p10": 43.896685,
+            "p90": 46.497959
+          },
+          "parse_ms": {
+            "median": 0.721516,
+            "p10": 0.717879,
+            "p90": 0.736641
+          },
+          "serialize_ms": {
+            "median": 0.986897,
+            "p10": 0.971468,
+            "p90": 1.0151080000000001
+          },
+          "client_ms": {
+            "median": 49.47981,
+            "p10": 49.394470999999996,
+            "p90": 49.623328
+          },
+          "generate_ms": {
+            "median": 42.308448999999996,
+            "p10": 42.244775999999995,
+            "p90": 42.440823
+          },
+          "prepare_ms": {
+            "median": 7.16148,
+            "p10": 7.1469000000000005,
+            "p90": 7.2402359999999994
+          },
+          "decode_ms": {
+            "median": 1.2070675,
+            "p10": 1.172011,
+            "p90": 1.220423
+          },
+          "cold_decode_ms": {
+            "median": 22.7918595,
+            "p10": 22.697867,
+            "p90": 22.983317
+          }
+        },
+        "4": {
+          "samples": 20,
+          "server_ms": {
+            "median": 77.90387799999999,
+            "p10": 67.40980300000001,
+            "p90": 81.250535
+          },
+          "matvec_ms": {
+            "median": 49.793175000000005,
+            "p10": 41.89538,
+            "p90": 51.221594
+          },
+          "packing_ms": {
+            "median": 26.2396115,
+            "p10": 23.133758,
+            "p90": 28.294781
+          },
+          "parse_ms": {
+            "median": 0.715367,
+            "p10": 0.707361,
+            "p90": 0.722361
+          },
+          "serialize_ms": {
+            "median": 0.9927995000000001,
+            "p10": 0.9865729999999999,
+            "p90": 1.007047
+          },
+          "client_ms": {
+            "median": 49.6862155,
+            "p10": 49.613246000000004,
+            "p90": 49.88738
+          },
+          "generate_ms": {
+            "median": 42.300664,
+            "p10": 42.214741000000004,
+            "p90": 42.467053
+          },
+          "prepare_ms": {
+            "median": 7.3864165,
+            "p10": 7.36378,
+            "p90": 7.420327
+          },
+          "decode_ms": {
+            "median": 1.2194805,
+            "p10": 1.199481,
+            "p90": 1.231845
+          },
+          "cold_decode_ms": {
+            "median": 22.695718499999998,
+            "p10": 22.528215,
+            "p90": 22.885101000000002
+          }
+        },
+        "8": {
+          "samples": 20,
+          "server_ms": {
+            "median": 56.086774999999996,
+            "p10": 55.590961,
+            "p90": 58.091500999999994
+          },
+          "matvec_ms": {
+            "median": 34.8667815,
+            "p10": 34.489778,
+            "p90": 36.427236
+          },
+          "packing_ms": {
+            "median": 19.527858000000002,
+            "p10": 19.319978000000003,
+            "p90": 19.835746
+          },
+          "parse_ms": {
+            "median": 0.713056,
+            "p10": 0.706658,
+            "p90": 0.719604
+          },
+          "serialize_ms": {
+            "median": 0.997052,
+            "p10": 0.985025,
+            "p90": 1.014307
+          },
+          "client_ms": {
+            "median": 49.3918805,
+            "p10": 49.356246999999996,
+            "p90": 49.486712999999995
+          },
+          "generate_ms": {
+            "median": 42.258963,
+            "p10": 42.19278,
+            "p90": 42.34918
+          },
+          "prepare_ms": {
+            "median": 7.13269,
+            "p10": 7.124936999999999,
+            "p90": 7.155843
+          },
+          "decode_ms": {
+            "median": 0.8505655,
+            "p10": 0.832183,
+            "p90": 0.864739
+          },
+          "cold_decode_ms": {
+            "median": 21.011030499999997,
+            "p10": 20.905462,
+            "p90": 21.133913
+          }
+        }
+      },
+      "memory": {
+        "1": {
+          "kind": "memory",
+          "respond_peak_delta": 163840,
+          "rss": {
+            "peak": 2977812480,
+            "rss": 2977058816
+          },
+          "threads": 1
+        },
+        "2": {
+          "kind": "memory",
+          "respond_peak_delta": 8192,
+          "rss": {
+            "peak": 2978361344,
+            "rss": 2977665024
+          },
+          "threads": 2
+        },
+        "4": {
+          "kind": "memory",
+          "respond_peak_delta": 16384,
+          "rss": {
+            "peak": 2979184640,
+            "rss": 2978537472
+          },
+          "threads": 4
+        },
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": 16384,
+          "rss": {
+            "peak": 2980941824,
+            "rss": 2980941824
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 114212,
+      "download_bytes": 81988,
+      "max_phase_error": 13816909791232,
+      "time": {
+        "max_rss_bytes": 2980089856,
+        "exit_status": 0
+      }
+    },
+    "raw-xeon/p2-c1": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 907018496,
+        "cols": 65536,
+        "concurrency": 1,
+        "database_bytes": 1879048192,
+        "decode_coeff_bytes": 2097152,
+        "dithered_query": true,
+        "ell": 2,
+        "gadget_bits": 19,
+        "key_bytes": 27648,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 27,
+          "min": 27
+        },
+        "matrix_storage": {
+          "packed27": 32
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 3362226176,
+            "rss": 2805620736
+          },
+          "db_generated": {
+            "peak": 1884332032,
+            "rss": 1884332032
+          },
+          "server_built": {
+            "peak": 3362226176,
+            "rss": 3175837696
+          },
+          "server_built_trimmed": {
+            "peak": 3362226176,
+            "rss": 2802167808
+          },
+          "start": {
+            "peak": 2674688,
+            "rss": 2674688
+          },
+          "trimmed": true
+        },
+        "offline_hint_block_s": 39.309236565,
+        "offline_layout_s": 0.287443634,
+        "offline_packing_block_s": 26.273893293,
+        "offline_s": 66.494505273,
+        "pbits": 8,
+        "prepare_decode_ms": 13.713311000000001,
+        "published_bytes": 360484,
+        "published_mask_bits": 22,
+        "query_bits": 28,
+        "query_bytes": 100352,
+        "query_mask_bytes": 229376,
+        "request_bytes": 128036,
+        "response_bits": 10,
+        "response_bytes": 81988,
+        "rows": 28672,
+        "scan_skipped_digits": 3,
+        "setup_id": "7c5b9c0fde5a1d9db2709baed9ff5994ab054e16fa60a902b00ba61d41485e9c",
+        "storage": "u8",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "8": {
+          "samples": 20,
+          "server_ms": {
+            "median": 52.679278499999995,
+            "p10": 50.870663,
+            "p90": 53.490564
+          },
+          "matvec_ms": {
+            "median": 36.63245,
+            "p10": 35.186782,
+            "p90": 37.423131
+          },
+          "packing_ms": {
+            "median": 13.728003,
+            "p10": 13.420364000000001,
+            "p90": 14.429218
+          },
+          "parse_ms": {
+            "median": 0.7818905,
+            "p10": 0.773745,
+            "p90": 0.80499
+          },
+          "serialize_ms": {
+            "median": 1.4242080000000001,
+            "p10": 1.4126029999999998,
+            "p90": 1.4335909999999998
+          },
+          "client_ms": {
+            "median": 52.5103875,
+            "p10": 52.421178000000005,
+            "p90": 52.631261
+          },
+          "generate_ms": {
+            "median": 45.2788635,
+            "p10": 45.207381999999996,
+            "p90": 45.400870000000005
+          },
+          "prepare_ms": {
+            "median": 7.213013,
+            "p10": 7.193131,
+            "p90": 7.236154
+          },
+          "decode_ms": {
+            "median": 0.863479,
+            "p10": 0.852811,
+            "p90": 0.878125
+          }
+        }
+      },
+      "memory": {
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": 1691648,
+          "rss": {
+            "peak": 2809876480,
+            "rss": 2807980032
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 128036,
+      "download_bytes": 81988,
+      "max_phase_error": 12060268167168,
+      "time": {
+        "max_rss_bytes": 2809876480,
+        "exit_status": 0
+      }
+    },
+    "raw-xeon/p2": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 907018496,
+        "cols": 65536,
+        "concurrency": 4,
+        "database_bytes": 1879048192,
+        "decode_coeff_bytes": 2097152,
+        "dithered_query": true,
+        "ell": 2,
+        "gadget_bits": 19,
+        "key_bytes": 27648,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 27,
+          "min": 27
+        },
+        "matrix_storage": {
+          "packed27": 32
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 3913527296,
+            "rss": 2806329344
+          },
+          "db_generated": {
+            "peak": 1884180480,
+            "rss": 1884180480
+          },
+          "server_built": {
+            "peak": 3913527296,
+            "rss": 3583795200
+          },
+          "server_built_trimmed": {
+            "peak": 3913527296,
+            "rss": 2802843648
+          },
+          "start": {
+            "peak": 2621440,
+            "rss": 2621440
+          },
+          "trimmed": true
+        },
+        "offline_hint_block_s": 154.28909698,
+        "offline_layout_s": 0.283880937,
+        "offline_packing_block_s": 50.852897056,
+        "offline_s": 55.896597812,
+        "pbits": 8,
+        "prepare_decode_ms": 14.002507000000001,
+        "published_bytes": 360484,
+        "published_mask_bits": 22,
+        "query_bits": 28,
+        "query_bytes": 100352,
+        "query_mask_bytes": 229376,
+        "request_bytes": 128036,
+        "response_bits": 10,
+        "response_bytes": 81988,
+        "rows": 28672,
+        "scan_skipped_digits": 3,
+        "setup_id": "7c5b9c0fde5a1d9db2709baed9ff5994ab054e16fa60a902b00ba61d41485e9c",
+        "storage": "u8",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "1": {
+          "samples": 20,
+          "server_ms": {
+            "median": 207.8861325,
+            "p10": 206.372784,
+            "p90": 210.672727
+          },
+          "matvec_ms": {
+            "median": 150.624571,
+            "p10": 149.04420299999998,
+            "p90": 152.94032099999998
+          },
+          "packing_ms": {
+            "median": 55.246539999999996,
+            "p10": 55.075005000000004,
+            "p90": 55.625023000000006
+          },
+          "parse_ms": {
+            "median": 0.7866195,
+            "p10": 0.780706,
+            "p90": 0.796325
+          },
+          "serialize_ms": {
+            "median": 1.347949,
+            "p10": 1.335444,
+            "p90": 1.3530250000000001
+          },
+          "client_ms": {
+            "median": 52.2638835,
+            "p10": 52.174227,
+            "p90": 52.377857
+          },
+          "generate_ms": {
+            "median": 44.998603,
+            "p10": 44.903869,
+            "p90": 45.119197
+          },
+          "prepare_ms": {
+            "median": 7.2656495,
+            "p10": 7.2555060000000005,
+            "p90": 7.290727
+          },
+          "decode_ms": {
+            "median": 1.208711,
+            "p10": 1.199484,
+            "p90": 1.229603
+          },
+          "cold_decode_ms": {
+            "median": 22.510483999999998,
+            "p10": 22.371278,
+            "p90": 22.720198
+          }
+        },
+        "2": {
+          "samples": 20,
+          "server_ms": {
+            "median": 116.06133550000001,
+            "p10": 114.153872,
+            "p90": 117.12916399999999
+          },
+          "matvec_ms": {
+            "median": 84.62945099999999,
+            "p10": 83.18262299999999,
+            "p90": 85.996567
+          },
+          "packing_ms": {
+            "median": 29.0160695,
+            "p10": 28.698461,
+            "p90": 29.666213
+          },
+          "parse_ms": {
+            "median": 0.7858095,
+            "p10": 0.7825599999999999,
+            "p90": 0.800685
+          },
+          "serialize_ms": {
+            "median": 1.4052419999999999,
+            "p10": 1.387103,
+            "p90": 1.423562
+          },
+          "client_ms": {
+            "median": 52.3710095,
+            "p10": 52.271017,
+            "p90": 52.981537
+          },
+          "generate_ms": {
+            "median": 45.067725499999995,
+            "p10": 44.970273,
+            "p90": 45.681191000000005
+          },
+          "prepare_ms": {
+            "median": 7.3033090000000005,
+            "p10": 7.290665,
+            "p90": 7.372081
+          },
+          "decode_ms": {
+            "median": 1.2244635000000001,
+            "p10": 1.2101359999999999,
+            "p90": 1.245672
+          },
+          "cold_decode_ms": {
+            "median": 22.664706,
+            "p10": 22.516548,
+            "p90": 22.841097
+          }
+        },
+        "4": {
+          "samples": 20,
+          "server_ms": {
+            "median": 80.74442549999999,
+            "p10": 69.106319,
+            "p90": 82.185418
+          },
+          "matvec_ms": {
+            "median": 59.634466,
+            "p10": 48.567507000000006,
+            "p90": 61.010854
+          },
+          "packing_ms": {
+            "median": 19.173977999999998,
+            "p10": 18.730971,
+            "p90": 19.51804
+          },
+          "parse_ms": {
+            "median": 0.789602,
+            "p10": 0.7820830000000001,
+            "p90": 0.799473
+          },
+          "serialize_ms": {
+            "median": 1.0473534999999998,
+            "p10": 1.0295320000000001,
+            "p90": 1.053546
+          },
+          "client_ms": {
+            "median": 52.455252,
+            "p10": 52.385882,
+            "p90": 52.645041
+          },
+          "generate_ms": {
+            "median": 45.020336,
+            "p10": 44.967817000000004,
+            "p90": 45.205162
+          },
+          "prepare_ms": {
+            "median": 7.4229135,
+            "p10": 7.405648,
+            "p90": 7.443098
+          },
+          "decode_ms": {
+            "median": 1.2166945,
+            "p10": 1.19671,
+            "p90": 1.228231
+          },
+          "cold_decode_ms": {
+            "median": 22.674505,
+            "p10": 22.545083,
+            "p90": 22.822918
+          }
+        },
+        "8": {
+          "samples": 20,
+          "server_ms": {
+            "median": 50.683972499999996,
+            "p10": 49.848728,
+            "p90": 51.922388
+          },
+          "matvec_ms": {
+            "median": 35.0893455,
+            "p10": 34.549009999999996,
+            "p90": 36.315146
+          },
+          "packing_ms": {
+            "median": 13.535836,
+            "p10": 13.365031,
+            "p90": 13.82024
+          },
+          "parse_ms": {
+            "median": 0.7762475,
+            "p10": 0.767323,
+            "p90": 0.780421
+          },
+          "serialize_ms": {
+            "median": 1.059573,
+            "p10": 1.042958,
+            "p90": 1.092374
+          },
+          "client_ms": {
+            "median": 52.2116135,
+            "p10": 52.136880000000005,
+            "p90": 52.337227
+          },
+          "generate_ms": {
+            "median": 45.0692465,
+            "p10": 44.987632,
+            "p90": 45.19012
+          },
+          "prepare_ms": {
+            "median": 7.1291335,
+            "p10": 7.108689,
+            "p90": 7.179741
+          },
+          "decode_ms": {
+            "median": 1.1719620000000002,
+            "p10": 1.1528479999999999,
+            "p90": 1.198159
+          },
+          "cold_decode_ms": {
+            "median": 22.480402,
+            "p10": 22.392617,
+            "p90": 22.693471
+          }
+        }
+      },
+      "memory": {
+        "1": {
+          "kind": "memory",
+          "respond_peak_delta": 1818624,
+          "rss": {
+            "peak": 2810347520,
+            "rss": 2807787520
+          },
+          "threads": 1
+        },
+        "2": {
+          "kind": "memory",
+          "respond_peak_delta": 1576960,
+          "rss": {
+            "peak": 2811756544,
+            "rss": 2809548800
+          },
+          "threads": 2
+        },
+        "4": {
+          "kind": "memory",
+          "respond_peak_delta": 36864,
+          "rss": {
+            "peak": 2812342272,
+            "rss": 2811707392
+          },
+          "threads": 4
+        },
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": 139264,
+          "rss": {
+            "peak": 2814394368,
+            "rss": 2813804544
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 128036,
+      "download_bytes": 81988,
+      "max_phase_error": 12537009537024,
+      "time": {
+        "max_rss_bytes": 2814394368,
+        "exit_status": 0
+      }
+    },
+    "raw-xeon/p2w-c1": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 907018496,
+        "cols": 65536,
+        "concurrency": 1,
+        "database_bytes": 3758096384,
+        "decode_coeff_bytes": 2097152,
+        "dithered_query": true,
+        "ell": 2,
+        "gadget_bits": 19,
+        "key_bytes": 27648,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 27,
+          "min": 27
+        },
+        "matrix_storage": {
+          "packed27": 32
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 5201485824,
+            "rss": 4685086720
+          },
+          "db_generated": {
+            "peak": 3763318784,
+            "rss": 3763318784
+          },
+          "server_built": {
+            "peak": 5201485824,
+            "rss": 5047762944
+          },
+          "server_built_trimmed": {
+            "peak": 5201485824,
+            "rss": 4681629696
+          },
+          "start": {
+            "peak": 2625536,
+            "rss": 2625536
+          },
+          "trimmed": true
+        },
+        "offline_hint_block_s": 39.290382458,
+        "offline_layout_s": 0.478646196,
+        "offline_packing_block_s": 25.64438054,
+        "offline_s": 66.106023046,
+        "pbits": 8,
+        "prepare_decode_ms": 13.616099,
+        "published_bytes": 360484,
+        "published_mask_bits": 22,
+        "query_bits": 28,
+        "query_bytes": 100352,
+        "query_mask_bytes": 229376,
+        "request_bytes": 128036,
+        "response_bits": 10,
+        "response_bytes": 81988,
+        "rows": 28672,
+        "scan_skipped_digits": 3,
+        "setup_id": "7c5b9c0fde5a1d9db2709baed9ff5994ab054e16fa60a902b00ba61d41485e9c",
+        "storage": "u16",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "8": {
+          "samples": 20,
+          "server_ms": {
+            "median": 84.828213,
+            "p10": 83.998952,
+            "p90": 88.515935
+          },
+          "matvec_ms": {
+            "median": 69.22720949999999,
+            "p10": 68.322023,
+            "p90": 72.545755
+          },
+          "packing_ms": {
+            "median": 13.461884999999999,
+            "p10": 13.317247,
+            "p90": 13.742722
+          },
+          "parse_ms": {
+            "median": 0.7797544999999999,
+            "p10": 0.7767120000000001,
+            "p90": 0.786265
+          },
+          "serialize_ms": {
+            "median": 1.4380175,
+            "p10": 1.421835,
+            "p90": 1.4504380000000001
+          },
+          "client_ms": {
+            "median": 52.41408200000001,
+            "p10": 52.362390000000005,
+            "p90": 52.505926
+          },
+          "generate_ms": {
+            "median": 45.2122385,
+            "p10": 45.165097,
+            "p90": 45.298727
+          },
+          "prepare_ms": {
+            "median": 7.2061980000000005,
+            "p10": 7.1833849999999995,
+            "p90": 7.2182319999999995
+          },
+          "decode_ms": {
+            "median": 0.8661220000000001,
+            "p10": 0.854156,
+            "p90": 0.8761319999999999
+          }
+        }
+      },
+      "memory": {
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": 1675264,
+          "rss": {
+            "peak": 4689379328,
+            "rss": 4687548416
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 128036,
+      "download_bytes": 81988,
+      "max_phase_error": 12060268167168,
+      "time": {
+        "max_rss_bytes": 4689379328,
+        "exit_status": 0
+      }
+    },
+    "raw-xeon/p2w": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 907018496,
+        "cols": 65536,
+        "concurrency": 4,
+        "database_bytes": 3758096384,
+        "decode_coeff_bytes": 2097152,
+        "dithered_query": true,
+        "ell": 2,
+        "gadget_bits": 19,
+        "key_bytes": 27648,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 27,
+          "min": 27
+        },
+        "matrix_storage": {
+          "packed27": 32
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 5813874688,
+            "rss": 4685549568
+          },
+          "db_generated": {
+            "peak": 3763261440,
+            "rss": 3763261440
+          },
+          "server_built": {
+            "peak": 5813874688,
+            "rss": 5468762112
+          },
+          "server_built_trimmed": {
+            "peak": 5813874688,
+            "rss": 4682084352
+          },
+          "start": {
+            "peak": 2613248,
+            "rss": 2613248
+          },
+          "trimmed": true
+        },
+        "offline_hint_block_s": 152.023317261,
+        "offline_layout_s": 0.482268884,
+        "offline_packing_block_s": 48.821535313,
+        "offline_s": 57.25335654,
+        "pbits": 8,
+        "prepare_decode_ms": 13.929986,
+        "published_bytes": 360484,
+        "published_mask_bits": 22,
+        "query_bits": 28,
+        "query_bytes": 100352,
+        "query_mask_bytes": 229376,
+        "request_bytes": 128036,
+        "response_bits": 10,
+        "response_bytes": 81988,
+        "rows": 28672,
+        "scan_skipped_digits": 3,
+        "setup_id": "7c5b9c0fde5a1d9db2709baed9ff5994ab054e16fa60a902b00ba61d41485e9c",
+        "storage": "u16",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "1": {
+          "samples": 20,
+          "server_ms": {
+            "median": 387.46189649999997,
+            "p10": 383.947699,
+            "p90": 390.307051
+          },
+          "matvec_ms": {
+            "median": 328.22851149999997,
+            "p10": 324.905655,
+            "p90": 330.775065
+          },
+          "packing_ms": {
+            "median": 57.203994,
+            "p10": 56.750864,
+            "p90": 57.739485
+          },
+          "parse_ms": {
+            "median": 0.785098,
+            "p10": 0.7812319999999999,
+            "p90": 0.790277
+          },
+          "serialize_ms": {
+            "median": 1.35712,
+            "p10": 1.339282,
+            "p90": 1.364648
+          },
+          "client_ms": {
+            "median": 52.448375999999996,
+            "p10": 52.375327999999996,
+            "p90": 52.553290000000004
+          },
+          "generate_ms": {
+            "median": 45.131919499999995,
+            "p10": 45.080165,
+            "p90": 45.265325000000004
+          },
+          "prepare_ms": {
+            "median": 7.304475500000001,
+            "p10": 7.266936,
+            "p90": 7.325825999999999
+          },
+          "decode_ms": {
+            "median": 1.2285745000000001,
+            "p10": 1.2086869999999998,
+            "p90": 1.239852
+          },
+          "cold_decode_ms": {
+            "median": 22.456891499999998,
+            "p10": 22.412965,
+            "p90": 22.575247
+          }
+        },
+        "2": {
+          "samples": 20,
+          "server_ms": {
+            "median": 197.9901035,
+            "p10": 196.5844,
+            "p90": 199.410942
+          },
+          "matvec_ms": {
+            "median": 166.71182249999998,
+            "p10": 165.637501,
+            "p90": 168.131424
+          },
+          "packing_ms": {
+            "median": 29.041981,
+            "p10": 28.748829,
+            "p90": 29.331596
+          },
+          "parse_ms": {
+            "median": 0.7792825000000001,
+            "p10": 0.776156,
+            "p90": 0.7869269999999999
+          },
+          "serialize_ms": {
+            "median": 1.3744425,
+            "p10": 1.354074,
+            "p90": 1.388428
+          },
+          "client_ms": {
+            "median": 52.5208565,
+            "p10": 52.453484,
+            "p90": 52.615374
+          },
+          "generate_ms": {
+            "median": 45.312152499999996,
+            "p10": 45.277935,
+            "p90": 45.417273
+          },
+          "prepare_ms": {
+            "median": 7.170161,
+            "p10": 7.151853,
+            "p90": 7.302525
+          },
+          "decode_ms": {
+            "median": 1.184222,
+            "p10": 1.1639199999999998,
+            "p90": 1.20614
+          },
+          "cold_decode_ms": {
+            "median": 21.700878,
+            "p10": 21.558,
+            "p90": 22.146028
+          }
+        },
+        "4": {
+          "samples": 20,
+          "server_ms": {
+            "median": 105.6432715,
+            "p10": 100.125118,
+            "p90": 111.037545
+          },
+          "matvec_ms": {
+            "median": 88.21283350000002,
+            "p10": 82.78816599999999,
+            "p90": 93.474919
+          },
+          "packing_ms": {
+            "median": 15.661023,
+            "p10": 15.493771,
+            "p90": 16.027053
+          },
+          "parse_ms": {
+            "median": 0.7799925,
+            "p10": 0.7771129999999999,
+            "p90": 0.78679
+          },
+          "serialize_ms": {
+            "median": 1.0409454999999999,
+            "p10": 1.027724,
+            "p90": 1.0619379999999998
+          },
+          "client_ms": {
+            "median": 52.139506,
+            "p10": 52.059599000000006,
+            "p90": 52.247315
+          },
+          "generate_ms": {
+            "median": 45.0200665,
+            "p10": 44.935517000000004,
+            "p90": 45.129838
+          },
+          "prepare_ms": {
+            "median": 7.1180900000000005,
+            "p10": 7.105768,
+            "p90": 7.135517
+          },
+          "decode_ms": {
+            "median": 1.167468,
+            "p10": 1.153671,
+            "p90": 1.189397
+          },
+          "cold_decode_ms": {
+            "median": 22.540294000000003,
+            "p10": 22.450028,
+            "p90": 22.645833
+          }
+        },
+        "8": {
+          "samples": 20,
+          "server_ms": {
+            "median": 86.56725850000001,
+            "p10": 84.880771,
+            "p90": 91.50556399999999
+          },
+          "matvec_ms": {
+            "median": 70.7100035,
+            "p10": 69.303627,
+            "p90": 75.343198
+          },
+          "packing_ms": {
+            "median": 13.723194,
+            "p10": 13.421129,
+            "p90": 13.981171
+          },
+          "parse_ms": {
+            "median": 0.7817649999999999,
+            "p10": 0.772463,
+            "p90": 0.7921980000000001
+          },
+          "serialize_ms": {
+            "median": 1.393544,
+            "p10": 1.383149,
+            "p90": 1.401851
+          },
+          "client_ms": {
+            "median": 52.411936,
+            "p10": 52.348485999999994,
+            "p90": 52.470123
+          },
+          "generate_ms": {
+            "median": 45.071667,
+            "p10": 45.02171,
+            "p90": 45.126487
+          },
+          "prepare_ms": {
+            "median": 7.3355735,
+            "p10": 7.322502,
+            "p90": 7.34943
+          },
+          "decode_ms": {
+            "median": 1.2332385000000001,
+            "p10": 1.224277,
+            "p90": 1.2491169999999998
+          },
+          "cold_decode_ms": {
+            "median": 22.498088000000003,
+            "p10": 22.43767,
+            "p90": 22.618475999999998
+          }
+        }
+      },
+      "memory": {
+        "1": {
+          "kind": "memory",
+          "respond_peak_delta": 1818624,
+          "rss": {
+            "peak": 4689502208,
+            "rss": 4687007744
+          },
+          "threads": 1
+        },
+        "2": {
+          "kind": "memory",
+          "respond_peak_delta": 1691648,
+          "rss": {
+            "peak": 4690059264,
+            "rss": 4686942208
+          },
+          "threads": 2
+        },
+        "4": {
+          "kind": "memory",
+          "respond_peak_delta": 32768,
+          "rss": {
+            "peak": 4691406848,
+            "rss": 4690640896
+          },
+          "threads": 4
+        },
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": 1593344,
+          "rss": {
+            "peak": 4695040000,
+            "rss": 4692852736
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 128036,
+      "download_bytes": 81988,
+      "max_phase_error": 12537009537024,
+      "time": {
+        "max_rss_bytes": 4695040000,
+        "exit_status": 0
+      }
+    },
+    "raw-mac/mac-b49": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 537395200,
+        "cols": 32768,
+        "concurrency": 4,
+        "database_bytes": 1879048192,
+        "decode_coeff_bytes": 1048576,
+        "dithered_query": false,
+        "ell": 2,
+        "gadget_bits": 19,
+        "key_bytes": 27648,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 27,
+          "min": 27
+        },
+        "matrix_storage": {
+          "i32": 16
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 3996254208,
+            "rss": null
+          },
+          "db_generated": {
+            "peak": 1882177536,
+            "rss": null
+          },
+          "server_built": {
+            "peak": 3995254784,
+            "rss": null
+          },
+          "server_built_trimmed": {
+            "peak": 3995254784,
+            "rss": null
+          },
+          "start": {
+            "peak": 1540096,
+            "rss": null
+          },
+          "trimmed": false
+        },
+        "offline_hint_block_s": 25.348047581,
+        "offline_layout_s": 4.1e-08,
+        "offline_packing_block_s": 7.366080625,
+        "offline_s": 9.397647125,
+        "pbits": 16,
+        "prepare_decode_ms": 3.4537080000000002,
+        "published_bytes": 237604,
+        "published_mask_bits": 29,
+        "query_bits": 49,
+        "query_bytes": 175616,
+        "query_mask_bytes": 229376,
+        "request_bytes": 203300,
+        "response_bits": 22,
+        "response_bytes": 90180,
+        "rows": 28672,
+        "scan_skipped_digits": 0,
+        "setup_id": "ab5b44513d72cbfc5eff42fec5f176bf7c4d5b6a5a45f50f7c3226ae4f26cb01",
+        "storage": "u16",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "8": {
+          "samples": 10,
+          "server_ms": {
+            "median": 26.6427295,
+            "p10": 26.473,
+            "p90": 26.812833
+          },
+          "matvec_ms": {
+            "median": 22.4254375,
+            "p10": 22.297333,
+            "p90": 22.635625
+          },
+          "packing_ms": {
+            "median": 3.260438,
+            "p10": 3.238375,
+            "p90": 3.3584169999999998
+          },
+          "parse_ms": {
+            "median": 0.373271,
+            "p10": 0.367125,
+            "p90": 0.37887499999999996
+          },
+          "serialize_ms": {
+            "median": 0.496708,
+            "p10": 0.48416699999999996,
+            "p90": 0.5377500000000001
+          },
+          "client_ms": {
+            "median": 20.326999999999998,
+            "p10": 19.873874999999998,
+            "p90": 20.57625
+          },
+          "generate_ms": {
+            "median": 18.0754795,
+            "p10": 17.504875,
+            "p90": 18.263542
+          },
+          "prepare_ms": {
+            "median": 2.2880835,
+            "p10": 2.1648330000000002,
+            "p90": 2.331667
+          },
+          "decode_ms": {
+            "median": 0.201063,
+            "p10": 0.181833,
+            "p90": 0.212583
+          },
+          "cold_decode_ms": {
+            "median": 5.6668544999999995,
+            "p10": 5.396708,
+            "p90": 5.933624999999999
+          }
+        }
+      },
+      "memory": {
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": null,
+          "rss": {
+            "peak": 3998892032,
+            "rss": null
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 203300,
+      "download_bytes": 90180,
+      "max_phase_error": 23186112512,
+      "time": {
+        "max_rss_bytes": 3998908416,
+        "exit_status": null
+      }
+    },
+    "raw-mac/mac-p1": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 1074790400,
+        "cols": 65536,
+        "concurrency": 4,
+        "database_bytes": 1879048192,
+        "decode_coeff_bytes": 2097152,
+        "dithered_query": true,
+        "ell": 1,
+        "gadget_bits": 27,
+        "key_bytes": 13824,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 35,
+          "min": 34
+        },
+        "matrix_storage": {
+          "i64": 32
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 3981393920,
+            "rss": null
+          },
+          "db_generated": {
+            "peak": 1882931200,
+            "rss": null
+          },
+          "server_built": {
+            "peak": 3977969664,
+            "rss": null
+          },
+          "server_built_trimmed": {
+            "peak": 3977969664,
+            "rss": null
+          },
+          "start": {
+            "peak": 1540096,
+            "rss": null
+          },
+          "trimmed": false
+        },
+        "offline_hint_block_s": 40.125447043,
+        "offline_layout_s": 4.2e-08,
+        "offline_packing_block_s": 15.656650459,
+        "offline_s": 16.916972542,
+        "pbits": 8,
+        "prepare_decode_ms": 5.8267500000000005,
+        "published_bytes": 360484,
+        "published_mask_bits": 22,
+        "query_bits": 28,
+        "query_bytes": 100352,
+        "query_mask_bytes": 229376,
+        "request_bytes": 114212,
+        "response_bits": 10,
+        "response_bytes": 81988,
+        "rows": 28672,
+        "scan_skipped_digits": 0,
+        "setup_id": "61bea92cf99b31e73a0e80bdf6783a9f59088a6f6667949be2e13882a26a6606",
+        "storage": "u8",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "8": {
+          "samples": 10,
+          "server_ms": {
+            "median": 53.5284585,
+            "p10": 51.917249999999996,
+            "p90": 53.719667
+          },
+          "matvec_ms": {
+            "median": 48.0665625,
+            "p10": 46.666,
+            "p90": 48.423
+          },
+          "packing_ms": {
+            "median": 4.7942085,
+            "p10": 4.55125,
+            "p90": 4.9044170000000005
+          },
+          "parse_ms": {
+            "median": 0.2093125,
+            "p10": 0.204708,
+            "p90": 0.21804199999999999
+          },
+          "serialize_ms": {
+            "median": 0.41770850000000004,
+            "p10": 0.410083,
+            "p90": 0.42824999999999996
+          },
+          "client_ms": {
+            "median": 21.692375,
+            "p10": 21.379917,
+            "p90": 21.994791
+          },
+          "generate_ms": {
+            "median": 17.110916500000002,
+            "p10": 16.756209000000002,
+            "p90": 17.332333
+          },
+          "prepare_ms": {
+            "median": 4.646062499999999,
+            "p10": 4.418625,
+            "p90": 4.735958999999999
+          },
+          "decode_ms": {
+            "median": 0.2679585,
+            "p10": 0.253791,
+            "p90": 0.27391699999999997
+          },
+          "cold_decode_ms": {
+            "median": 11.118041999999999,
+            "p10": 10.830834,
+            "p90": 11.252041
+          }
+        }
+      },
+      "memory": {
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": null,
+          "rss": {
+            "peak": 3984523264,
+            "rss": null
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 114212,
+      "download_bytes": 81988,
+      "max_phase_error": 12768937771008,
+      "time": {
+        "max_rss_bytes": 3984539648,
+        "exit_status": null
+      }
+    },
+    "raw-mac/mac-p2": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 1074790400,
+        "cols": 65536,
+        "concurrency": 4,
+        "database_bytes": 1879048192,
+        "decode_coeff_bytes": 2097152,
+        "dithered_query": true,
+        "ell": 2,
+        "gadget_bits": 19,
+        "key_bytes": 27648,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 27,
+          "min": 27
+        },
+        "matrix_storage": {
+          "i32": 32
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 4573970432,
+            "rss": null
+          },
+          "db_generated": {
+            "peak": 1882865664,
+            "rss": null
+          },
+          "server_built": {
+            "peak": 4570873856,
+            "rss": null
+          },
+          "server_built_trimmed": {
+            "peak": 4570873856,
+            "rss": null
+          },
+          "start": {
+            "peak": 1540096,
+            "rss": null
+          },
+          "trimmed": false
+        },
+        "offline_hint_block_s": 36.568546169,
+        "offline_layout_s": 0.0,
+        "offline_packing_block_s": 15.595193125,
+        "offline_s": 15.8115955,
+        "pbits": 8,
+        "prepare_decode_ms": 5.5625,
+        "published_bytes": 360484,
+        "published_mask_bits": 22,
+        "query_bits": 28,
+        "query_bytes": 100352,
+        "query_mask_bytes": 229376,
+        "request_bytes": 128036,
+        "response_bits": 10,
+        "response_bytes": 81988,
+        "rows": 28672,
+        "scan_skipped_digits": 0,
+        "setup_id": "7c5b9c0fde5a1d9db2709baed9ff5994ab054e16fa60a902b00ba61d41485e9c",
+        "storage": "u8",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "8": {
+          "samples": 10,
+          "server_ms": {
+            "median": 51.2014165,
+            "p10": 50.901333,
+            "p90": 51.833709
+          },
+          "matvec_ms": {
+            "median": 43.996125,
+            "p10": 43.744959,
+            "p90": 44.225667
+          },
+          "packing_ms": {
+            "median": 6.540729499999999,
+            "p10": 6.470625,
+            "p90": 6.657875
+          },
+          "parse_ms": {
+            "median": 0.238354,
+            "p10": 0.227792,
+            "p90": 0.24733300000000003
+          },
+          "serialize_ms": {
+            "median": 0.428375,
+            "p10": 0.419417,
+            "p90": 0.437708
+          },
+          "client_ms": {
+            "median": 22.617667,
+            "p10": 21.902749999999997,
+            "p90": 22.760334
+          },
+          "generate_ms": {
+            "median": 18.1513335,
+            "p10": 17.589292,
+            "p90": 18.191208
+          },
+          "prepare_ms": {
+            "median": 4.5535,
+            "p10": 4.254333,
+            "p90": 4.59175
+          },
+          "decode_ms": {
+            "median": 0.26049999999999995,
+            "p10": 0.241625,
+            "p90": 0.283625
+          },
+          "cold_decode_ms": {
+            "median": 10.7781455,
+            "p10": 10.419334000000001,
+            "p90": 10.986832999999999
+          }
+        }
+      },
+      "memory": {
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": null,
+          "rss": {
+            "peak": 4578213888,
+            "rss": null
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 128036,
+      "download_bytes": 81988,
+      "max_phase_error": 12060268167168,
+      "time": {
+        "max_rss_bytes": 4578230272,
+        "exit_status": null
+      }
+    },
+    "raw-mac/mac-p2w": {
+      "setup": {
+        "backend": "native",
+        "coeff_bytes": 1074790400,
+        "cols": 65536,
+        "concurrency": 4,
+        "database_bytes": 3758096384,
+        "decode_coeff_bytes": 2097152,
+        "dithered_query": true,
+        "ell": 2,
+        "gadget_bits": 19,
+        "key_bytes": 27648,
+        "kh_bits": 0,
+        "kind": "setup",
+        "matrix_magnitude_bits": {
+          "max": 27,
+          "min": 27
+        },
+        "matrix_storage": {
+          "i32": 32
+        },
+        "memory": {
+          "client_prepared": {
+            "peak": 6306856960,
+            "rss": null
+          },
+          "db_generated": {
+            "peak": 3762028544,
+            "rss": null
+          },
+          "server_built": {
+            "peak": 6304776192,
+            "rss": null
+          },
+          "server_built_trimmed": {
+            "peak": 6304776192,
+            "rss": null
+          },
+          "start": {
+            "peak": 1540096,
+            "rss": null
+          },
+          "trimmed": false
+        },
+        "offline_hint_block_s": 37.265418875,
+        "offline_layout_s": 0.0,
+        "offline_packing_block_s": 15.874606999000001,
+        "offline_s": 16.404459458,
+        "pbits": 8,
+        "prepare_decode_ms": 5.738,
+        "published_bytes": 360484,
+        "published_mask_bits": 22,
+        "query_bits": 28,
+        "query_bytes": 100352,
+        "query_mask_bytes": 229376,
+        "request_bytes": 128036,
+        "response_bits": 10,
+        "response_bytes": 81988,
+        "rows": 28672,
+        "scan_skipped_digits": 0,
+        "setup_id": "7c5b9c0fde5a1d9db2709baed9ff5994ab054e16fa60a902b00ba61d41485e9c",
+        "storage": "u16",
+        "threads": 8,
+        "two_mask": true
+      },
+      "timing": {
+        "8": {
+          "samples": 10,
+          "server_ms": {
+            "median": 56.748875,
+            "p10": 55.602582999999996,
+            "p90": 57.784917
+          },
+          "matvec_ms": {
+            "median": 48.87747949999999,
+            "p10": 47.920708,
+            "p90": 49.634249999999994
+          },
+          "packing_ms": {
+            "median": 7.2733125,
+            "p10": 7.060667,
+            "p90": 7.580291
+          },
+          "parse_ms": {
+            "median": 0.2262085,
+            "p10": 0.214959,
+            "p90": 0.229542
+          },
+          "serialize_ms": {
+            "median": 0.460375,
+            "p10": 0.45670900000000003,
+            "p90": 0.487667
+          },
+          "client_ms": {
+            "median": 22.419687500000002,
+            "p10": 21.543792,
+            "p90": 22.568458999999997
+          },
+          "generate_ms": {
+            "median": 17.806271000000002,
+            "p10": 17.063959,
+            "p90": 17.980667
+          },
+          "prepare_ms": {
+            "median": 4.589104000000001,
+            "p10": 4.432167,
+            "p90": 4.671375
+          },
+          "decode_ms": {
+            "median": 0.2581455,
+            "p10": 0.252292,
+            "p90": 0.269125
+          },
+          "cold_decode_ms": {
+            "median": 11.271875,
+            "p10": 11.03775,
+            "p90": 11.509042
+          }
+        }
+      },
+      "memory": {
+        "8": {
+          "kind": "memory",
+          "respond_peak_delta": null,
+          "rss": {
+            "peak": 6310985728,
+            "rss": null
+          },
+          "threads": 8
+        }
+      },
+      "upload_bytes": 128036,
+      "download_bytes": 81988,
+      "max_phase_error": 12060268167168,
+      "time": {
+        "max_rss_bytes": 6311002112,
+        "exit_status": null
+      }
+    }
+  },
+  "dot": {
+    "raw-xeon/dot-p16-q43": {
+      "setup": {
+        "cols": 32768,
+        "database_bytes": 1879048192,
+        "interleaved": true,
+        "kind": "setup",
+        "pbits": 16,
+        "query_bits": 43,
+        "rows": 28672,
+        "scan_skipped_digits": 1,
+        "storage": "u16"
+      },
+      "word-t1": 226.62276549999999,
+      "byte-t1": 205.22362550000003,
+      "word-t8": 47.514869,
+      "byte-t8": 41.640154499999994,
+      "interleaved-t1": 170.31046,
+      "interleaved-t8": 36.391545
+    },
+    "raw-xeon/dot-p16-q49": {
+      "setup": {
+        "cols": 32768,
+        "database_bytes": 1879048192,
+        "interleaved": true,
+        "kind": "setup",
+        "pbits": 16,
+        "query_bits": 49,
+        "rows": 28672,
+        "scan_skipped_digits": 0,
+        "storage": "u16"
+      },
+      "word-t1": 227.681569,
+      "byte-t1": 224.60087800000002,
+      "word-t8": 47.6229175,
+      "byte-t8": 44.994062,
+      "interleaved-t1": 177.57275349999998,
+      "interleaved-t8": 37.255590999999995
+    },
+    "raw-xeon/dot-p8-u16-q28": {
+      "setup": {
+        "cols": 65536,
+        "database_bytes": 3758096384,
+        "interleaved": true,
+        "kind": "setup",
+        "pbits": 8,
+        "query_bits": 28,
+        "rows": 28672,
+        "scan_skipped_digits": 3,
+        "storage": "u16"
+      },
+      "word-t1": 446.127487,
+      "byte-t1": 367.68012050000004,
+      "word-t8": 89.6621395,
+      "byte-t8": 73.870495,
+      "interleaved-t1": 322.570608,
+      "interleaved-t8": 68.904911
+    },
+    "raw-xeon/dot-p8-u8-q28": {
+      "setup": {
+        "cols": 65536,
+        "database_bytes": 1879048192,
+        "interleaved": true,
+        "kind": "setup",
+        "pbits": 8,
+        "query_bits": 28,
+        "rows": 28672,
+        "scan_skipped_digits": 3,
+        "storage": "u8"
+      },
+      "word-t1": 347.057465,
+      "word-t8": 69.7809595,
+      "interleaved-t1": 136.05170199999998,
+      "interleaved-t8": 33.471222
+    },
+    "raw-xeon/dot-p8-u8-q49": {
+      "setup": {
+        "cols": 65536,
+        "database_bytes": 1879048192,
+        "interleaved": true,
+        "kind": "setup",
+        "pbits": 8,
+        "query_bits": 49,
+        "rows": 28672,
+        "scan_skipped_digits": 0,
+        "storage": "u8"
+      },
+      "word-t1": 346.2126535,
+      "word-t8": 70.26157850000001,
+      "interleaved-t1": 163.0435435,
+      "interleaved-t8": 34.926231
+    }
+  }
+}
