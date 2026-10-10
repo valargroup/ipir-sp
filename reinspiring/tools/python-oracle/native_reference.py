@@ -103,13 +103,18 @@ def run(v):
         result = dict(a=slots[0], a_other=slots[d//2], b=body,
                       noise=envelope(secret_weights, []), one_limb=[], kh_l1=0)
         result['public_mask_screens'] = []
-        for precision in range(27,min(32,q.bit_length()-1)+1):
+        for precision in range(v.get('min_mask_bits', 27),min(32,q.bit_length()-1)+1):
             step = q >> precision
             combined = [row[:] for row in secret_weights]
             for mask,exponent in [(slots[0],1),(slots[d//2],2*d-1)]:
                 delta = [(((x+step//2)//step*step)-x)%q for x in mask]
                 add_product(combined,delta,exponent)
             result['public_mask_screens'].append(dict(bits=precision,noise=envelope(combined,[])))
+        if v.get('weights_as_strings'):
+            # Exact decimal norms: squared weights can exceed 64 bits for coarse masks.
+            result['noise'] = [str(x) for x in result['noise']]
+            for screen in result['public_mask_screens']:
+                screen['noise'] = [str(x) for x in screen['noise']]
         if v.get('include_weights'):
             result.update(secret_weights=secret_weights, kg_weights=kg_weights)
         return result

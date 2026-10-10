@@ -107,6 +107,34 @@ def validate_native_sampler(report):
     return digest
 
 
+# Plaintext widths the two-mask checker supports. p = 2^16 values are the
+# recorded profile; p = 2^8 is the small-plaintext research profile. Floors
+# bound the screened/accepted dithered query and rounded public-mask widths.
+PROFILES = {
+    16: {'query_floor': 40, 'mask_floor': 27},
+    8: {'query_floor': 24, 'mask_floor': 16},
+}
+LEGACY_GADGET = {'ell': 2, 'gadget_bits': 19}
+
+
+def two_mask_profile(report):
+    """Validated (p_bits, profile, ell, gadget_bits, response_bits) of a two-mask report."""
+    pb = int(report['p_bits'])
+    if pb not in PROFILES:
+        raise ValueError('unsupported two-mask profile')
+    ell = int(report.get('ell', LEGACY_GADGET['ell']))
+    gadget = int(report.get('gadget_bits', LEGACY_GADGET['gadget_bits']))
+    qb = int(report['q_bits'])
+    if not 1 <= ell <= 8 or not 1 <= gadget <= 27 or not 0 <= qb - ell*gadget <= 27:
+        raise ValueError('unsupported gadget')
+    if 'dropped_bits' in report and int(report['dropped_bits']) != max(0, qb - ell*gadget):
+        raise ValueError('inconsistent gadget')
+    rb = int(report['response_bits'])
+    if rb not in range(pb + 1, pb + 7):
+        raise ValueError('unsupported transport')
+    return pb, PROFILES[pb], ell, gadget, rb
+
+
 # Format -> (two_mask, rounded public masks, dithered query). Dithered reports
 # have their own formats, so checkers that predate dithering reject them.
 REPORT_FORMATS = {f'native-noise{m}{r}{q}-v1': (bool(m), bool(r), bool(q))
@@ -123,17 +151,17 @@ def report_format(report):
     return two_mask, rounded
 
 
-def query_transport(report):
+def query_transport(report, floor=40):
     """Validated (bits, dithered) query transport; 49-bit nearest is legacy."""
     bits, rounding = report['query_bits'], report.get('query_rounding', 'nearest')
     if (bits, rounding) == (49, 'nearest'):
         return bits, False
-    if rounding == 'dithered' and bits in range(40, 50):
+    if rounding == 'dithered' and bits in range(floor, 50):
         return bits, True
     raise ValueError('unsupported transport')
 
 
-def query_terms(block, rows, bits, dithered):
+def query_terms(block, rows, bits, dithered, entry_max=65535):
     """Deterministic budget and variance proxy for query-body transport.
 
     Nearest rounding reserves its worst case, 2^(53-bits) times the column L1,
@@ -142,33 +170,35 @@ def query_terms(block, rows, bits, dithered):
     lemma adds 2^(2(54-bits))/4 times the column squared L2 to the variance.
     """
     l1 = int(block['query_l1'])
-    if not 0 <= l1 <= rows*65535:
+    if not 0 <= l1 <= rows*entry_max:
         raise ValueError('invalid deterministic weight budget')
     if not dithered:
         return l1 << (53-bits), 0
     if 'query_l2_squared' not in block:
         raise ValueError('missing query weights')
     s2 = int(block['query_l2_squared'])
-    if not l1 <= s2 <= l1*65535:
+    if not l1 <= s2 <= l1*entry_max:
         raise ValueError('invalid query weights')
     return 0, F(s2 << (2*(54-bits)), 4)
 
 
-def query_screen(report, assess):
+def query_screen(report, assess, floor=40):
     """Counterfactual query precisions on this report's weights and setup."""
     if not all('query_l2_squared' in block for block in report['blocks']):
         return None  # legacy reports cannot screen dithered transport
     rows = int(report['rows'])
     return [{'query_bits':bits, 'query_rounding':'dithered' if dithered else 'nearest',
              'query_bytes':(rows*bits+7)//8, **assess((bits, dithered))}
-            for bits, dithered in [(49, False)] + [(b, True) for b in range(49, 39, -1)]]
+            for bits, dithered in [(49, False)] + [(b, True) for b in range(49, floor - 1, -1)]]
 
 
-def evaluate(report):
+def evaluate(report, screens=False):
     validate_native_sampler(report)
     two_mask, rounded = report_format(report)
     if two_mask:
-        return evaluate_two_mask(report, rounded)
+        return evaluate_two_mask(report, rounded, screens)
+    if screens:
+        raise ValueError('--screens supports two-mask reports only')
     d, qb, pb = (int(report[k]) for k in ('d', 'q_bits', 'p_bits'))
     cols = int(report['cols'])
     mask_bits = int(report.get('published_mask_bits', 64))
@@ -242,18 +272,22 @@ def evaluate(report):
             'smallest_screened_query_bits_128':min((v['query_bits'] for v in screen or [] if v['meets_128']),default=None)}
 
 
-def evaluate_two_mask(report, rounded):
+def evaluate_two_mask(report, rounded, screens=False):
+    pb, profile, ell, gadget, rb = two_mask_profile(report)
+    legacy = (pb, ell, gadget, rb) == (16, 2, 19, 22)
+    mask_floor, query_floor = profile['mask_floor'], profile['query_floor']
     mask_bits = report.get('published_mask_bits',64)
     # 54 is lossless bit-packing: same weights as exact publication.
-    if (rounded and mask_bits != 54 and mask_bits not in range(27,33)) or (not rounded and mask_bits!=64):
+    if (rounded and mask_bits != 54 and mask_bits not in range(mask_floor,33)) or (not rounded and mask_bits!=64):
         raise ValueError('invalid public-mask precision or format')
-    d, qb, pb = (int(report[k]) for k in ('d', 'q_bits', 'p_bits'))
+    d, qb = (int(report[k]) for k in ('d', 'q_bits'))
     cols, rows = int(report['cols']), int(report['rows'])
-    if (d, qb, pb) != (2048, 54, 16) or cols <= 0 or cols % d or rows <= 0 or rows % d:
+    if (d, qb) != (2048, 54) or cols <= 0 or cols % d or rows <= 0 or rows % d:
         raise ValueError('unsupported two-mask profile')
-    query = query_transport(report)
-    if len(report['blocks']) != cols // d or report['response_bits'] != 22 or report['kh_bits'] != 54:
+    query = query_transport(report, query_floor)
+    if len(report['blocks']) != cols // d or report['kh_bits'] != qb:
         raise ValueError('incomplete two-mask report')
+    entry_max = (1 << pb) - 1
     published_bytes=36+((2*cols*mask_bits+7)//8)
     if rounded and report.get('published_bytes')!=published_bytes:
         raise ValueError('public-mask byte count mismatch')
@@ -263,30 +297,85 @@ def evaluate_two_mask(report, rounded):
         if int(block['kh_l1']) != 0 or block['one_limb']:
             raise ValueError('invalid two-mask block')
         if rounded:
-            screens=block.get('public_mask_screens',[])
-            if sorted(v['bits'] for v in screens)!=list(range(27,33)) or (mask_bits!=54 and next(v['weights'] for v in screens if v['bits']==mask_bits)!=block['weights']):
+            screens_present=block.get('public_mask_screens',[])
+            if sorted(v['bits'] for v in screens_present)!=list(range(mask_floor,33)) or (mask_bits!=54 and next(v['weights'] for v in screens_present if v['bits']==mask_bits)!=block['weights']):
                 raise ValueError('rounded mask weights/precision mismatch')
-    def assess(query):
+    radius = 1 << (qb-pb-1)
+    def assess(query, response=rb, weights_of=lambda block: block['weights'], worst=False):
         scores, max_deterministic = [], 0
         for block in report['blocks']:
-            query_budget, dither = query_terms(block, rows, *query)
-            deterministic = support*d*d + query_budget + (1 << 31)
+            if worst:
+                # Data-independent column norms: every entry at p-1.
+                block = dict(block, query_l1=str(rows*entry_max), query_l2_squared=str(rows*entry_max**2))
+            query_budget, dither = query_terms(block, rows, *query, entry_max=entry_max)
+            deterministic = support*d*d + query_budget + (1 << (qb-1-response))
             max_deterministic = max(max_deterministic, deterministic)
-            scores.append(certified_bits(block['weights'], 1 << (qb-pb-1), deterministic, cols, mean, bounds, dither))
+            scores.append(certified_bits(weights_of(block), radius, deterministic, cols, mean, bounds, dither))
         score = None if any(x is None for x in scores) else min(scores)
         return {'certified_failure_bits':score,
                 'meets_78':score is not None and score >= 78,
                 'meets_128':score is not None and score >= 128,
                 'max_deterministic_error':str(max_deterministic)}
-    actual = {'key_bytes':d*2*qb//8, **assess(query), 'query_bits':query[0],
+    actual = {'key_bytes':ell*d*qb//8, **assess(query), 'query_bits':query[0],
               'query_rounding':report.get('query_rounding','nearest'), 'query_bytes':(rows*query[0]+7)//8}
-    screen = query_screen(report, assess)
+    screen = query_screen(report, assess, query_floor)
     if rounded:
         actual.update(published_mask_bits=mask_bits,published_bytes=published_bytes,no_extra_download=published_bytes<=36+cols*8)
-    return {'format':'native-certificate-two-mask-rounded-v1' if rounded else 'native-certificate-two-mask-v1','setup_id':report['setup_id'],
+    if not legacy:
+        actual.update(p_bits=pb, ell=ell, gadget_bits=gadget, response_bits=rb,
+                      response_bytes=68+(cols*rb+7)//8)
+    result = {'format':'native-certificate-two-mask-rounded-v1' if rounded else 'native-certificate-two-mask-v1','setup_id':report['setup_id'],
             'database_sha256':report['database_sha256'],'sampler_sha256':validate_native_sampler(report),'actual_profile':actual,
             'query_screen':screen,
             'smallest_screened_query_bits_128':min((v['query_bits'] for v in screen or [] if v['meets_128']),default=None)}
+    if screens:
+        result['screens'] = width_screens(report, assess, query, rb, mask_bits, mask_floor, query_floor,
+                                          ell*d*qb//8, rows, cols, pb)
+    return result
+
+
+def width_screens(report, assess, query, rb, mask_bits, mask_floor, query_floor, key_bytes, rows, cols, pb):
+    """Counterfactual widths on this report's weights. Every width is bound into
+    the setup ID, so a chosen combination must be regenerated and certified."""
+    if not all('query_l2_squared' in b and 'public_mask_screens' in b for b in report['blocks']):
+        raise ValueError('screens need dithered query weights and public-mask screens')
+    def mask_weights(bits):
+        return lambda block: next(v['weights'] for v in block['public_mask_screens'] if v['bits'] == bits)
+    masks = list(range(mask_floor, 33))
+    responses = list(range(pb + 1, pb + 7))
+    def smallest_query(response, mask):
+        lo, hi = query_floor, 49
+        if not assess((hi, True), response, mask_weights(mask))['meets_128']:
+            return None
+        while lo < hi:  # certified bits increase with query precision
+            mid = (lo + hi) // 2
+            if assess((mid, True), response, mask_weights(mask))['meets_128']:
+                hi = mid
+            else:
+                lo = mid + 1
+        return lo
+    frontier = []
+    for response in responses:
+        for mask in masks:
+            bits = smallest_query(response, mask)
+            if bits is None:
+                continue
+            request = 36 + key_bytes + (rows*bits+7)//8
+            response_bytes = 68 + (cols*response+7)//8
+            published = 36 + (2*cols*mask+7)//8
+            frontier.append({'response_bits': response, 'published_mask_bits': mask, 'query_bits': bits,
+                             'request_bytes': request, 'response_bytes': response_bytes,
+                             'published_bytes': published,
+                             'certified_failure_bits': assess((bits, True), response, mask_weights(mask))['certified_failure_bits']})
+    actual_mask = mask_bits if mask_bits in masks else None
+    return {
+        'counterfactual': True,
+        'mask_screen': [{'published_mask_bits': m, **assess(query, rb, mask_weights(m))} for m in masks],
+        'response_screen': [{'response_bits': r, **assess(query, r, mask_weights(actual_mask) if actual_mask else (lambda b: b['weights']))}
+                            for r in responses],
+        'width_frontier': frontier,
+        'worst_case_query': assess(query, rb, worst=True),
+    }
 
 
 if __name__ == '__main__':
@@ -294,9 +383,12 @@ if __name__ == '__main__':
     parser.add_argument('report')
     parser.add_argument('--require-bits', type=int, default=128,
                         help='exit unsuccessfully unless the actual profile meets this target (default: 128)')
+    parser.add_argument('--screens', action='store_true',
+                        help='two-mask only: add counterfactual mask/response screens, the width frontier '
+                             'and a data-independent worst-case query bound')
     args = parser.parse_args()
     with open(args.report) as f:
-        result = evaluate(json.load(f))
+        result = evaluate(json.load(f), screens=args.screens)
     print(json.dumps(result,indent=2))
     score = result['actual_profile']['certified_failure_bits']
     if score is None or score < args.require_bits:
