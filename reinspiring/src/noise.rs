@@ -260,6 +260,7 @@ pub(crate) fn analyze_two_mask(
     residues: Vec<Vec<u64>>,
     kg_exponents: &[u64],
     masks: [&[u64]; 2],
+    screens: std::ops::RangeInclusive<u32>,
 ) -> Result<NativeNoiseAnalysis, ReinspiringError> {
     let d = kg.rows;
     let q = kg.q;
@@ -273,7 +274,7 @@ pub(crate) fn analyze_two_mask(
         compile_fast(&residues, &exps, q)?
     };
     let mut public_mask_screens = Vec::new();
-    for bits in 27..=32.min(q.trailing_zeros()) {
+    for bits in *screens.start()..=(*screens.end()).min(q.trailing_zeros()) {
         let shift = q.trailing_zeros() - bits;
         let step = 1u64 << shift;
         let deltas: Vec<Vec<u64>> = masks

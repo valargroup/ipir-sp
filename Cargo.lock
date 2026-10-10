@@ -1229,6 +1229,7 @@ dependencies = [
  "env_logger",
  "fastrand",
  "inspiring",
+ "libc",
  "log",
  "rand 0.9.4",
  "rand_chacha 0.3.1",

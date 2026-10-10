@@ -1,0 +1,19 @@
+Analyzing 28672x32768 public snapshot, Kh transport 54 bits, nearest 49-bit query
+       27.72 real        88.07 user         1.01 sys
+          3323363328  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              223497  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+               78320  involuntary context switches
+       2039989022258  instructions retired
+        330392257690  cycles elapsed
+          2719992496  peak memory footprint

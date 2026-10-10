@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- Experimental 8-bit native profile (opt-in, `native-reinspiring`). Plaintext-
+  dependent transport floors: at p = 2^8 dithered queries go down to 27 bits
+  and two-mask published masks to 21 bits (screens cover 16..=32); the
+  p = 2^16 floors (43 / 27 / 28)
+  and every existing setup ID, wire layout and recorded certificate are
+  unchanged. `NativeProfile::with_response_bits` sets p_bits+1..=p_bits+6
+  response bits (the default keeps setup IDs). The size guard counts storage
+  bytes, so p <= 2^8 shapes may hold 2^31 entries.
+- 8-bit database storage: `NativeServer::build_u8_with_concurrency` /
+  `build_u8_analyzed` store one byte per entry (half the database memory) and
+  scan it with a new AVX-512 VNNI byte-tile kernel (portable fallback), with
+  responses identical to u16 storage. The byte kernels skip all-zero low query
+  digits, so 27-28-bit queries scan with 4 radix-256 digits instead of 7.
+- One-digit `K_g` gadgets: `NativeParams` accepts digit widths and dropped bits
+  up to 27 (`MAX_GADGET_BITS`), e.g. one base-2^27 digit at q = 2^54, which
+  halves the packing-key upload. Its compiled matrices need about 35 bits per
+  entry and are stored as i64, so it does not reduce server packing memory.
+  `NativeParams::gadget_bits`, `NativeServer::matrix_storage`,
+  `matrix_magnitude_bits`, `database_bytes` and `offline_timing` report what
+  was built.
+- Two-mask analysis screens caller-chosen published-mask precisions
+  (`NativePreprocessed::build_two_mask_analyzed_with_screens`; 16..=32 at
+  p = 2^8). `native_noise` takes `--p-bits --ell --gadget-bits --response-bits
+  --storage`, `native_e2e` takes `--gadget-bits --response-bits --storage
+  --threads --no-cold-decode` and reports storage, memory checkpoints and an
+  offline split, and `native_dot` takes `--rows --cols --pbits --query-bits
+  --storage`. `certify_native.py` certifies two-mask reports at p = 2^8 with
+  any gadget and response width (legacy certificates byte-identical) and adds
+  `--screens` (mask/response screens, width frontier, data-independent query
+  bound). Evidence: `bench-results/2026-10-09-p8-native/`.
 - Guard the mask derivations without changing them. `inspiring` exposes the
   fixed `K_g`/`K_h` mask coefficients (`reference_mask_coeffs`), and
   `ipir_sp::server::verify_query_masks_distinct_from_key_masks` rejects a

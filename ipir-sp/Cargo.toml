@@ -40,6 +40,7 @@ http_client = ["dep:reqwest"]
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
+libc = "0.2"
 
 [[bench]]
 name = "end_to_end"

@@ -33,7 +33,10 @@ only on the public masks and parameters, not on the query secret or key bodies.
 ## Native transform and decomposition
 
 `NativeParams` bounds d to powers of two in 2..=2048, q to 2^k with
-16<=k<=56, p to a smaller power of two, base bits to 1..=24, and limbs to 1..=8.
+16<=k<=56, p to a smaller power of two, base bits to 1..=27, dropped bits to at
+most 27, and limbs to 1..=8. One base-2^27 digit at q = 2^54 is admitted for
+small-plaintext research profiles; its compiled matrices exceed 32-bit entries
+and use i64 storage.
 These are arithmetic/allocation limits, not security approval for every tuple.
 The paper research configuration is d=2048, q=2^54, p=2^14, base=2^19.
 

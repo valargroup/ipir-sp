@@ -9,7 +9,9 @@ review, computational-security estimate, or approval of native KDM-RLWE.
 
 The supported profile is Gaussian, d=2048, q=2^54, p=2^16, two base-2^19 limbs
 with 16 dropped bits, 49-bit query bodies (or dithered 40..=49-bit bodies, see
-below) and 22-bit response bodies. Keys are
+below) and 22-bit response bodies. Two-mask reports may instead use the p = 2^8
+research profile (any gadget with at most 27 digit and 27 dropped bits, see the
+last section). Keys are
 fresh per request. The passive-server threat model in `SECURITY.md` applies.
 The probability covers a complete response for the recorded database/setup,
 over fresh request randomness, for any selected row. It does not bound
@@ -242,3 +244,28 @@ Dithered reports use their own formats, `native-noise[-two-mask][-rounded]-dithe
 The checker requires `query_rounding: dithered` exactly for those formats, so a
 checker that predates dithering rejects a dithered report instead of budgeting
 it as nearest rounding.
+
+## Small-plaintext two-mask reports
+
+Two-mask reports may set `p_bits` to 8 and declare `ell`, `gadget_bits` and
+`dropped_bits` (absent keys mean the legacy 2 x 19 gadget). The checker accepts
+`response_bits` in p_bits+1..=p_bits+6 and budgets response rounding as
+`2^(53-response_bits)` instead of the legacy `2^31`. The decoding radius is
+`q/(2p) = 2^45` at p = 2^8. Database entries are canonical values below p, so
+query-transport bounds use `p-1` instead of 65535 (`query_l1 <= rows*(p-1)`,
+`query_l2_squared <= (p-1)*query_l1`). The checker screens dithered query
+bodies down to 24 bits and rounded public masks down to 16 bits; the API floors
+are 27 and 21, the minima on the recorded p = 2^8 fixture.
+Key bytes are `ell*d*log2(q)/8`.
+
+The weights themselves need no change: a one-digit gadget only changes the
+digits and residues the exporter already combines on the original secret and
+key-error variables. Its residues reach 2^26, so the collapse-secret weights
+grow by about 2^11 against the two-digit gadget. The certificate absorbs that
+because the radius is 2^8 times larger.
+
+`--screens` adds counterfactual mask and response screens, a width frontier
+(the smallest certified dithered query for each response and mask width) and
+a data-independent query bound that replaces the column norms by `rows*(p-1)`
+and `rows*(p-1)^2`. Widths are bound into the setup ID: regenerate and certify
+the selected widths before relying on them.

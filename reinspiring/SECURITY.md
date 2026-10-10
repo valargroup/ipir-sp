@@ -222,3 +222,16 @@ The native production review and per-snapshot correctness requirements continue
 to apply; the rounded transport is opt-in and does not enforce a certificate at
 runtime. Decode-state mask digests bind the actual encoded public masks as well
 as the profile, preventing reuse of products prepared from different masks.
+
+## Small-plaintext and one-digit profiles
+
+p = 2^8 profiles and one-digit K_g gadgets change no lattice instance: the
+secret, key and query samples are the same n = 2048, q = 2^54, sigma = 6.4
+Gaussian RLWE samples, p does not enter the estimate, and a one-digit key sends
+half the key samples (a subset of the two-digit key's view). They change only
+correctness margins, which the per-snapshot certificate covers; the recorded
+p = 2^8 certificates are fixture-only, as before. The u8 database storage is a
+layout change with responses identical to u16 storage. One-digit residues are
+2^11 larger and stay correlated with the secret; the exporter keeps combining
+them on the original variables. These profiles remain experimental and subject
+to the release gates above.

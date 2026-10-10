@@ -594,3 +594,156 @@ fn dithered_queries_reject_padding() {
         }
     }
 }
+
+fn p8_db<T: From<u8>>(rows: usize, cols: usize) -> Vec<T> {
+    (0..cols)
+        .flat_map(|c| (0..rows).map(move |r| T::from(((r * 19 + c * 31 + 7) % 256) as u8)))
+        .collect()
+}
+
+#[test]
+fn p8_transport_floors_and_response_knob() {
+    let p8 = NativeParams::new(16, 54, 8, 19, 2, SecretDistribution::Gaussian).unwrap();
+    let p16 = NativeParams::new(16, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+    let base8 = NativeProfile::new(p8.clone(), 32, 48).unwrap();
+    let base16 = NativeProfile::new(p16.clone(), 32, 48).unwrap();
+    // Dithered query floor: 27 at p8, unchanged 43 at p16.
+    assert!(base8.clone().with_dithered_query_bits(27).is_ok());
+    assert!(base8.clone().with_dithered_query_bits(26).is_err());
+    assert!(base16.clone().with_dithered_query_bits(43).is_ok());
+    assert!(base16.clone().with_dithered_query_bits(42).is_err());
+    // Two-mask mask floor: 21 at p8, unchanged 27 at p16; one-mask stays 28.
+    let two8 = base8.clone().with_two_mask_output().unwrap();
+    assert!(two8.clone().with_published_mask_bits(21).is_ok());
+    assert!(two8.clone().with_published_mask_bits(20).is_err());
+    let two16 = base16.clone().with_two_mask_output().unwrap();
+    assert!(two16.clone().with_published_mask_bits(27).is_ok());
+    assert!(two16.clone().with_published_mask_bits(26).is_err());
+    assert!(base8.clone().with_published_mask_bits(28).is_ok());
+    assert!(base8.clone().with_published_mask_bits(27).is_err());
+    // Response precision: p_bits+1 ..= p_bits+6; the default keeps setup IDs.
+    assert_eq!(base8.response_bits(), 14);
+    assert_eq!(base16.response_bits(), 22);
+    assert!(base8.clone().with_response_bits(8).is_err());
+    assert!(base8.clone().with_response_bits(15).is_err());
+    let r10 = base8.clone().with_response_bits(10).unwrap();
+    assert_eq!(r10.response_bits(), 10);
+    let default_id = NativePublicSetup::new(base8.clone(), [1; 32], [2; 32]).id();
+    let same_id = NativePublicSetup::new(
+        base8.clone().with_response_bits(14).unwrap(),
+        [1; 32],
+        [2; 32],
+    )
+    .id();
+    assert_eq!(default_id, same_id);
+    assert_ne!(
+        NativePublicSetup::new(r10, [1; 32], [2; 32]).id(),
+        default_id
+    );
+    // Size guard counts entries per storage byte: 2^31 entries at p <= 2^8.
+    let big8 = NativeParams::new(2048, 54, 8, 19, 2, SecretDistribution::Gaussian).unwrap();
+    let big16 = NativeParams::new(2048, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+    assert!(NativeProfile::new(big8, 28672, 65536).is_ok());
+    assert!(NativeProfile::new(big16, 28672, 65536).is_err());
+}
+
+#[test]
+fn p8_u8_and_u16_storage_respond_identically_for_both_gadgets() {
+    for (gadget, ell) in [(19, 2), (27, 1)] {
+        let params =
+            NativeParams::new(16, 54, 8, gadget, ell, SecretDistribution::Gaussian).unwrap();
+        let profile = NativeProfile::new(params, 32, 64)
+            .unwrap()
+            .with_two_mask_output()
+            .unwrap()
+            .with_published_mask_bits(22)
+            .unwrap()
+            .with_dithered_query_bits(28)
+            .unwrap()
+            .with_response_bits(10)
+            .unwrap();
+        let wide = NativeServer::build(
+            NativePublicSetup::new(profile.clone(), [5; 32], [6; 32]),
+            p8_db::<u16>(32, 64),
+        )
+        .unwrap();
+        let narrow = NativeServer::build_u8_with_concurrency(
+            NativePublicSetup::new(profile.clone(), [5; 32], [6; 32]),
+            p8_db::<u8>(32, 64),
+            2,
+        )
+        .unwrap();
+        assert!(narrow.is_u8_storage() && !wide.is_u8_storage());
+        assert_eq!(narrow.database_bytes() * 2, wide.database_bytes());
+        assert_eq!(wide.published().to_bytes(), narrow.published().to_bytes());
+        let published = narrow.published();
+        let mut rng = ChaCha20Rng::seed_from_u64(77 + gadget as u64);
+        for row in [0, 13, 31] {
+            let req = NativeRequest::generate_with_rng(narrow.setup(), row, &mut rng).unwrap();
+            let (from_narrow, _) = narrow.respond(req.bytes()).unwrap();
+            let (from_wide, _) = wide.respond(req.bytes()).unwrap();
+            assert_eq!(from_narrow, from_wide, "gadget={gadget} row={row}");
+            let expected: Vec<u64> = (0..64)
+                .map(|c| ((row * 19 + c * 31 + 7) % 256) as u64)
+                .collect();
+            assert_eq!(req.decode(&published, &from_narrow).unwrap(), expected);
+            assert_eq!(from_narrow.len(), 68 + 64 * 10 / 8);
+        }
+        assert_eq!(narrow.matrix_storage().len(), 64 / 16);
+        assert!(narrow.matrix_magnitude_bits().iter().all(|&b| b > 0));
+    }
+    // Rejections: entries must be below p, and u8 storage needs p <= 2^8.
+    let p7 = NativeParams::new(16, 54, 7, 19, 2, SecretDistribution::Gaussian).unwrap();
+    let setup = NativePublicSetup::new(NativeProfile::new(p7, 32, 64).unwrap(), [5; 32], [6; 32]);
+    assert!(NativeServer::build_u8_with_concurrency(setup, vec![200; 32 * 64], 1).is_err());
+    let p16 = NativeParams::new(16, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+    let setup = NativePublicSetup::new(NativeProfile::new(p16, 32, 64).unwrap(), [5; 32], [6; 32]);
+    assert!(NativeServer::build_u8_with_concurrency(setup, vec![1; 32 * 64], 1).is_err());
+}
+
+#[test]
+fn p8_analyzed_build_screens_coarse_masks_and_tiny_shapes_use_columns() {
+    let params = NativeParams::new(16, 54, 8, 19, 2, SecretDistribution::Gaussian).unwrap();
+    let profile = NativeProfile::new(params, 32, 64)
+        .unwrap()
+        .with_two_mask_output()
+        .unwrap()
+        .with_published_mask_bits(21)
+        .unwrap();
+    let (server, blocks) = NativeServer::build_u8_analyzed(
+        NativePublicSetup::new(profile, [8; 32], [9; 32]),
+        p8_db::<u8>(32, 64),
+    )
+    .unwrap();
+    assert_eq!(blocks.len(), 4);
+    for block in &blocks {
+        let bits: Vec<u32> = block
+            .packing
+            .public_mask_screens
+            .iter()
+            .map(|(b, _)| *b)
+            .collect();
+        assert_eq!(bits, (16..=32).collect::<Vec<_>>());
+        let selected = block
+            .packing
+            .public_mask_screens
+            .iter()
+            .find(|(b, _)| *b == 21)
+            .unwrap()
+            .1;
+        assert_eq!(block.packing.weights, selected);
+    }
+    // d = 2 shapes (rows not divisible into 16-column bands) use column storage.
+    let tiny = NativeParams::new(2, 54, 8, 19, 2, SecretDistribution::Gaussian).unwrap();
+    let setup = NativePublicSetup::new(NativeProfile::new(tiny, 2, 2).unwrap(), [3; 32], [4; 32]);
+    let server2 = NativeServer::build_u8_with_concurrency(setup, vec![7, 200, 13, 255], 1).unwrap();
+    let published = server2.published();
+    let mut rng = ChaCha20Rng::seed_from_u64(5);
+    for row in 0..2 {
+        let req = NativeRequest::generate_with_rng(server2.setup(), row, &mut rng).unwrap();
+        let (response, _) = server2.respond(req.bytes()).unwrap();
+        let expected = [[7u64, 13], [200, 255]][row];
+        assert_eq!(req.decode(&published, &response).unwrap(), expected);
+    }
+    drop(server);
+}

@@ -28,6 +28,16 @@ pub enum SecretDistribution {
     TernaryResearch,
 }
 
+/// Widest gadget digit, and most discarded low bits, a profile may use. 27
+/// admits a one-digit K_g at q = 2^54 (27 retained, 27 discarded bits) for
+/// small-plaintext research profiles. Wider digits grow key-switching noise and
+/// can push compiled matrices into 64-bit storage; each profile needs its own
+/// correctness certificate.
+pub const MAX_GADGET_BITS: u32 = 27;
+
+/// Rounded public-mask precisions screened by default in two-mask analysis.
+pub const DEFAULT_TWO_MASK_SCREENS: std::ops::RangeInclusive<u32> = 27..=32;
+
 /// Validated immutable native profile. All native profiles remain experimental.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NativeParams {
@@ -55,7 +65,7 @@ impl NativeParams {
             || p_bits == 0
             || p_bits >= q_bits
             || bits == 0
-            || bits > 24
+            || bits > MAX_GADGET_BITS
             || ell == 0
             || ell > 8
         {
@@ -66,7 +76,7 @@ impl NativeParams {
         let q = 1u64 << q_bits;
         let p = 1u64 << p_bits;
         let dropped = q_bits.saturating_sub(bits * ell as u32);
-        if dropped > 24 {
+        if dropped > MAX_GADGET_BITS {
             return Err(ReinspiringError::InvalidParams(
                 "too many discarded gadget bits".into(),
             ));
@@ -101,6 +111,10 @@ impl NativeParams {
     /// Gadget limb count.
     pub fn ell(&self) -> usize {
         self.ell
+    }
+    /// Bits per retained gadget digit (the base is 2^gadget_bits).
+    pub fn gadget_bits(&self) -> u32 {
+        self.bits
     }
     /// Number of low bits rounded away before signed decomposition.
     pub fn dropped_bits(&self) -> u32 {
@@ -763,11 +777,27 @@ impl NativePreprocessed {
         Self::build_internal(setup, masks, false, true, None).map(|(pre, _, _)| pre)
     }
     /// Compile the two-mask mode and collect its original-sample noise weights.
+    /// Rounded public-mask screens cover the recorded 27..=32-bit range.
     pub fn build_two_mask_analyzed(
         setup: &NativeSetup,
         masks: &[Vec<u64>],
     ) -> Result<(Self, crate::noise::NativeNoiseAnalysis), ReinspiringError> {
-        Self::build_internal(setup, masks, true, true, None)
+        Self::build_two_mask_analyzed_with_screens(setup, masks, DEFAULT_TWO_MASK_SCREENS)
+    }
+    /// Two-mask analysis with caller-chosen rounded public-mask screens, for
+    /// plaintext moduli whose larger decoding radius tolerates coarser masks.
+    /// Screens are counterfactual weights; a selected precision still needs its
+    /// own regenerated setup and certificate.
+    pub fn build_two_mask_analyzed_with_screens(
+        setup: &NativeSetup,
+        masks: &[Vec<u64>],
+        screens: std::ops::RangeInclusive<u32>,
+    ) -> Result<(Self, crate::noise::NativeNoiseAnalysis), ReinspiringError> {
+        let q_bits = setup.params.q.trailing_zeros();
+        if *screens.start() == 0 || screens.start() > screens.end() || *screens.end() > q_bits {
+            return Err(invalid("invalid public-mask screen range"));
+        }
+        Self::build_internal_screened(setup, masks, true, true, None, screens)
             .map(|(pre, _, analysis)| (pre, analysis.unwrap()))
     }
     /// Build ordered independent packing blocks with bounded scratch concurrency.
@@ -823,6 +853,31 @@ impl NativePreprocessed {
         analyze: bool,
         two_mask: bool,
         research_widths: Option<[u32; 2]>,
+    ) -> Result<
+        (
+            Self,
+            NativeBuildTiming,
+            Option<crate::noise::NativeNoiseAnalysis>,
+        ),
+        ReinspiringError,
+    > {
+        Self::build_internal_screened(
+            setup,
+            masks,
+            analyze,
+            two_mask,
+            research_widths,
+            DEFAULT_TWO_MASK_SCREENS,
+        )
+    }
+    #[allow(clippy::type_complexity)]
+    fn build_internal_screened(
+        setup: &NativeSetup,
+        masks: &[Vec<u64>],
+        analyze: bool,
+        two_mask: bool,
+        research_widths: Option<[u32; 2]>,
+        two_mask_screens: std::ops::RangeInclusive<u32>,
     ) -> Result<
         (
             Self,
@@ -954,6 +1009,7 @@ impl NativePreprocessed {
                     residues,
                     &exponents,
                     [&slots[0], &slots[d / 2]],
+                    two_mask_screens,
                 )?
             })
         } else {
@@ -1053,6 +1109,15 @@ impl NativePreprocessed {
                 .ok_or_else(|| invalid("no leftover in two-mask mode"))?,
             &keys.kh,
         )
+    }
+    /// Storage width chosen for the compiled key-switching matrix.
+    pub fn matrix_storage(&self) -> crate::native_matrix::NativeMatrixStorage {
+        self.h.storage()
+    }
+    /// Smallest signed width holding every compiled matrix entry. Diagnostic:
+    /// scans the retained matrix once.
+    pub fn matrix_magnitude_bits(&self) -> u32 {
+        self.h.magnitude_bits()
     }
     /// Retained coefficient storage, excluding auxiliary NTT tables and headers.
     pub fn coefficient_bytes(&self) -> usize {
@@ -1232,6 +1297,25 @@ mod oracle_tests {
         process::{Command, Stdio},
     };
     #[test]
+    fn one_digit_gadget_is_admitted_and_bound_into_encoding() {
+        let one = NativeParams::new(2048, 54, 8, 27, 1, SecretDistribution::Gaussian).unwrap();
+        assert_eq!(
+            (one.gadget_bits(), one.ell(), one.dropped_bits()),
+            (27, 1, 27)
+        );
+        let two = NativeParams::new(2048, 54, 8, 19, 2, SecretDistribution::Gaussian).unwrap();
+        assert_eq!(
+            (two.gadget_bits(), two.ell(), two.dropped_bits()),
+            (19, 2, 16)
+        );
+        assert_ne!(one.encoding(), two.encoding());
+        // Digit width and discarded bits are both capped at MAX_GADGET_BITS.
+        assert!(NativeParams::new(2048, 54, 8, 28, 1, SecretDistribution::Gaussian).is_err());
+        assert!(NativeParams::new(2048, 54, 8, 26, 1, SecretDistribution::Gaussian).is_err());
+        assert!(NativeParams::new(2048, 54, 8, 13, 2, SecretDistribution::Gaussian).is_err());
+        assert!(NativeParams::new(2048, 54, 8, 14, 2, SecretDistribution::Gaussian).is_ok());
+    }
+    #[test]
     fn mixed_width_aggregation_matches_direct_integer_definition() {
         for d in [8, 256] {
             for q in [1u64 << 16, 1u64 << 56] {
@@ -1322,8 +1406,15 @@ mod oracle_tests {
 
     #[test]
     fn python_integer_trace_matches_fft_compiled_pack() {
-        for (ell, wire_bits) in [(2, 54), (3, 54), (2, 48), (2, 46)] {
-            let p = NativeParams::new(8, 54, 14, 19, ell, SecretDistribution::Gaussian).unwrap();
+        for (ell, gadget, wire_bits) in [
+            (2, 19, 54),
+            (3, 19, 54),
+            (2, 19, 48),
+            (2, 19, 46),
+            (1, 27, 54),
+        ] {
+            let p =
+                NativeParams::new(8, 54, 14, gadget, ell, SecretDistribution::Gaussian).unwrap();
             let setup = NativeSetup::new(p.clone(), [8; 32]);
             let mut rng = ChaCha20Rng::seed_from_u64(91);
             let masks: Vec<Vec<_>> = (0..p.d)
@@ -1499,90 +1590,106 @@ mod oracle_tests {
     }
     #[test]
     fn python_integer_trace_matches_two_mask_pack_and_weights() {
-        let p = NativeParams::new(8, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
-        let setup = NativeSetup::new(p.clone(), [81; 32]);
-        let mut rng = ChaCha20Rng::seed_from_u64(918);
-        let masks: Vec<Vec<_>> = (0..p.d)
-            .map(|_| (0..p.d).map(|_| rng.next_u64() & (p.q - 1)).collect())
-            .collect();
-        let secret = NativeSecret::sample(&p, &mut rng);
-        let keys = NativeKeys::generate_one_key(&setup, &secret, &mut rng).unwrap();
-        let b: Vec<_> = (0..p.d).map(|_| rng.next_u64() & (p.q - 1)).collect();
-        let (pre, analysis) = NativePreprocessed::build_two_mask_analyzed(&setup, &masks).unwrap();
-        let ct = pre.pack_two_mask(&b, &keys).unwrap();
-        let input = serde_json::json!({"d":p.d,"q":p.q,"bits":p.bits,"ell":p.ell,"dropped":p.dropped,"masks":masks,"w":setup.w,"kg":keys.kg,"b":b,"two_mask":true,"include_weights":true});
-        let mut child = Command::new("python3")
-            .arg(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tools/python-oracle/native_reference.py"
-            ))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(input.to_string().as_bytes())
-            .unwrap();
-        let output = child.wait_with_output().unwrap();
-        assert!(output.status.success());
-        let got: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(got["a"], serde_json::json!(ct.a));
-        assert_eq!(got["a_other"], serde_json::json!(ct.a_other));
-        assert_eq!(got["b"], serde_json::json!(ct.b));
-        assert_eq!(got["noise"][0], serde_json::json!(analysis.weights.l1));
-        assert_eq!(
-            got["noise"][1],
-            serde_json::json!(analysis.weights.l2_squared)
-        );
-        assert_eq!(got["noise"][2], serde_json::json!(analysis.weights.max));
-        for (i, (bits, w)) in analysis.public_mask_screens.iter().enumerate() {
-            assert_eq!(got["public_mask_screens"][i]["bits"], *bits);
-            assert_eq!(
-                got["public_mask_screens"][i]["noise"],
-                serde_json::json!([w.l1, w.l2_squared, w.max])
-            );
-            let step = p.q >> bits;
-            let round = |mask: &[u64]| {
-                mask.iter()
-                    .map(|&x| ((x + step / 2) / step * step) & (p.q - 1))
-                    .collect::<Vec<_>>()
-            };
-            let rounded = NativeTwoMaskCiphertext::from_rows(
-                &p,
-                round(&ct.a),
-                round(&ct.a_other),
-                ct.b.clone(),
+        // Default p16 screens, then a p8 one-digit gadget with wider screens.
+        for (p_bits, gadget, ell, screens) in
+            [(16, 19, 2, DEFAULT_TWO_MASK_SCREENS), (8, 27, 1, 16..=32)]
+        {
+            let p = NativeParams::new(8, 54, p_bits, gadget, ell, SecretDistribution::Gaussian)
+                .unwrap();
+            let setup = NativeSetup::new(p.clone(), [81; 32]);
+            let mut rng = ChaCha20Rng::seed_from_u64(918);
+            let masks: Vec<Vec<_>> = (0..p.d)
+                .map(|_| (0..p.d).map(|_| rng.next_u64() & (p.q - 1)).collect())
+                .collect();
+            let secret = NativeSecret::sample(&p, &mut rng);
+            let keys = NativeKeys::generate_one_key(&setup, &secret, &mut rng).unwrap();
+            let b: Vec<_> = (0..p.d).map(|_| rng.next_u64() & (p.q - 1)).collect();
+            let (pre, analysis) = NativePreprocessed::build_two_mask_analyzed_with_screens(
+                &setup,
+                &masks,
+                screens.clone(),
             )
             .unwrap();
-            let difference = |a: &[u64], b: &[u64]| {
-                a.iter()
-                    .zip(b)
-                    .map(|(&x, &y)| x.wrapping_sub(y) & (p.q - 1))
-                    .collect::<Vec<_>>()
+            let ct = pre.pack_two_mask(&b, &keys).unwrap();
+            let input = serde_json::json!({"d":p.d,"q":p.q,"bits":p.bits,"ell":p.ell,"dropped":p.dropped,"masks":masks,"w":setup.w,"kg":keys.kg,"b":b,"two_mask":true,"include_weights":true,"min_mask_bits":screens.start(),"weights_as_strings":true});
+            let mut child = Command::new("python3")
+                .arg(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tools/python-oracle/native_reference.py"
+                ))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(input.to_string().as_bytes())
+                .unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(output.status.success());
+            let got: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(got["a"], serde_json::json!(ct.a));
+            assert_eq!(got["a_other"], serde_json::json!(ct.a_other));
+            assert_eq!(got["b"], serde_json::json!(ct.b));
+            let exact = |w: crate::noise::WeightNorms| {
+                serde_json::json!([
+                    w.l1.to_string(),
+                    w.l2_squared.to_string(),
+                    w.max.to_string()
+                ])
             };
-            let lift = LiftContext::new(p.d, p.q).unwrap();
-            let extra = lift
-                .sum(
-                    &[
-                        difference(&rounded.a, &ct.a),
-                        difference(&rounded.a_other, &ct.a_other),
-                    ],
-                    &[
-                        secret.coeffs.clone(),
-                        tau_coeffs(&secret.coeffs, (2 * p.d - 1) as u64, p.q),
-                    ],
+            assert_eq!(got["noise"], exact(analysis.weights));
+            let expected_screens = (*screens.end() - *screens.start() + 1) as usize;
+            assert_eq!(analysis.public_mask_screens.len(), expected_screens);
+            assert_eq!(
+                got["public_mask_screens"].as_array().unwrap().len(),
+                expected_screens
+            );
+            for (i, (bits, w)) in analysis.public_mask_screens.iter().enumerate() {
+                assert_eq!(got["public_mask_screens"][i]["bits"], *bits);
+                assert_eq!(got["public_mask_screens"][i]["noise"], exact(*w));
+                let step = p.q >> bits;
+                let round = |mask: &[u64]| {
+                    mask.iter()
+                        .map(|&x| ((x + step / 2) / step * step) & (p.q - 1))
+                        .collect::<Vec<_>>()
+                };
+                let rounded = NativeTwoMaskCiphertext::from_rows(
+                    &p,
+                    round(&ct.a),
+                    round(&ct.a_other),
+                    ct.b.clone(),
                 )
                 .unwrap();
-            assert_eq!(
-                difference(
-                    &secret.phase_two_mask(&rounded).unwrap(),
-                    &secret.phase_two_mask(&ct).unwrap()
-                ),
-                extra
-            );
+                let difference = |a: &[u64], b: &[u64]| {
+                    a.iter()
+                        .zip(b)
+                        .map(|(&x, &y)| x.wrapping_sub(y) & (p.q - 1))
+                        .collect::<Vec<_>>()
+                };
+                let lift = LiftContext::new(p.d, p.q).unwrap();
+                let extra = lift
+                    .sum(
+                        &[
+                            difference(&rounded.a, &ct.a),
+                            difference(&rounded.a_other, &ct.a_other),
+                        ],
+                        &[
+                            secret.coeffs.clone(),
+                            tau_coeffs(&secret.coeffs, (2 * p.d - 1) as u64, p.q),
+                        ],
+                    )
+                    .unwrap();
+                assert_eq!(
+                    difference(
+                        &secret.phase_two_mask(&rounded).unwrap(),
+                        &secret.phase_two_mask(&ct).unwrap()
+                    ),
+                    extra
+                );
+            }
         }
     }
 }
