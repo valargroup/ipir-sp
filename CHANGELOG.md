@@ -6,12 +6,17 @@
   output at p = 2^8 with the two-digit (19, 2) or one-digit (27, 1) gadget
   accepts dithered queries down to 28 bits, published masks down to 22 bits
   and responses down to 10 bits (screens cover 16..=32-bit masks); every
-  combination at or above those floors was certified on the recorded fixture
-  for both gadgets. The certificates are data-dependent: with every entry at
-  255 the 28-bit query bound falls below 2^-128, so each snapshot needs its
-  own certificate. Other gadgets, one-mask output and other plaintext widths
-  keep the p = 2^16 floors (43-bit queries, 27 / 28-bit masks) and the
-  default response width. Every existing setup ID, wire layout and recorded
+  combination at or above those floors passed the width screen on the
+  recorded fixture for both gadgets. The certificates are data-dependent:
+  with every entry at 255 the 28-bit query bound falls below 2^-128 for the
+  one-digit gadget at 28,672 rows and for both gadgets at 65,536 rows, so
+  each snapshot needs its own certificate. The narrowed p = 2^16 floors
+  (43-bit queries, 27 / 28-bit masks) now apply only to the (19, 2) gadget
+  they were certified for. Every other pair, including one-mask output at
+  p = 2^8, other plaintext widths and other gadgets at p = 2^16, accepts only
+  the default transport (49-bit queries, 54 / 64-bit masks, default
+  response): the one-digit and wide-digit gadgets at p = 2^16 certify 2^0 on
+  a full-height block even at the defaults. Every existing setup ID, wire layout and recorded
   certificate is unchanged. `NativeProfile::with_response_bits` narrows
   two-mask responses only for the certified p = 2^8 gadgets (10 to 14 bits,
   q = 2^54); elsewhere it accepts only the default, which keeps setup IDs.

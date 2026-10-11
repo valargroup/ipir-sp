@@ -257,8 +257,13 @@ query-transport bounds use `p-1` instead of 65535 (`query_l1 <= rows*(p-1)`,
 bodies down to 24 bits and rounded public masks down to 16 bits. The API
 floors for two-mask p = 2^8 output with the (19, 2) or (27, 1) gadget are
 28-bit queries, 22-bit masks and 10-bit responses: every combination at or
-above all three was certified on the recorded fixture for both gadgets. Other
-gadgets keep the p = 2^16 floors. These certificates are data-dependent in
+above all three passed the width screen on the recorded fixture for both
+gadgets, and 28 / 10 / 22 was regenerated and certified. The narrowed
+p = 2^16 floors apply only to its (19, 2) gadget. Every other pair, including
+one-mask output at p = 2^8, accepts only the default transport: on a
+full-height p = 2^16 block the one-digit (27, 1) gadget and wide-digit
+gadgets such as (24, 2) certify 2^0 even at default widths, while (17, 2)
+misses 2^-128 at 27-bit masks. These certificates are data-dependent in
 the query term; with every entry at p - 1, 28-bit queries reach only 2^-126
 (one-digit, 28,672 rows) and 2^-82 / 2^-69 (65,536 rows), while 29-bit
 queries clear 2^-128. Narrower widths certify only in some

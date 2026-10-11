@@ -627,53 +627,69 @@ fn p8_transport_floors_and_response_knob() {
             .and_then(|p| p.with_response_bits(10))
             .is_ok());
     }
-    // Dithered query floor: 28 for two-mask p8; 43 for one-mask at every
-    // plaintext, since one-mask output has no p8 certificate path.
+    // Dithered query floor: 28 for two-mask p8; one-mask p8 has no
+    // certificate at a narrowed width, so it accepts only 49.
     assert!(two8.clone().with_dithered_query_bits(28).is_ok());
-    assert!(base8.clone().with_dithered_query_bits(43).is_ok());
-    assert!(base8.clone().with_dithered_query_bits(42).is_err());
+    assert!(base8.clone().with_dithered_query_bits(48).is_err());
+    assert!(base8.clone().with_dithered_query_bits(49).is_ok());
     assert!(two16.clone().with_dithered_query_bits(43).is_ok());
     assert!(two16.clone().with_dithered_query_bits(42).is_err());
     assert!(base16.clone().with_dithered_query_bits(42).is_err());
-    // Two-mask mask floor: 22 at p8, unchanged 27 at p16; one-mask stays 28.
+    // Two-mask mask floor: 22 at p8, unchanged 27 at p16; one-mask p16 stays
+    // 28 and one-mask p8 accepts only lossless or exact masks.
     assert!(two8.clone().with_published_mask_bits(22).is_ok());
     assert!(two16.clone().with_published_mask_bits(27).is_ok());
     assert!(two16.clone().with_published_mask_bits(26).is_err());
-    assert!(base8.clone().with_published_mask_bits(28).is_ok());
-    assert!(base8.clone().with_published_mask_bits(27).is_err());
-    // Other plaintext widths get the p16 floors.
-    let p7 = NativeParams::new(16, 54, 7, 19, 2, SecretDistribution::Gaussian).unwrap();
-    let two7 = NativeProfile::new(p7, 32, 48)
-        .unwrap()
-        .with_two_mask_output()
-        .unwrap();
-    assert!(two7.clone().with_dithered_query_bits(42).is_err());
-    assert!(two7.clone().with_dithered_query_bits(43).is_ok());
-    assert!(two7.with_published_mask_bits(26).is_err());
-    // p8 floors belong to the two certified gadgets only; any other admitted
-    // gadget keeps the default floors.
-    for (gadget, ell) in [(27, 2), (20, 2), (9, 6)] {
+    assert!(base16.clone().with_published_mask_bits(28).is_ok());
+    assert!(base16.clone().with_published_mask_bits(27).is_err());
+    assert!(base8.clone().with_published_mask_bits(32).is_err());
+    assert!(base8.clone().with_published_mask_bits(54).is_ok());
+    // Narrowed widths belong only to the (plaintext, gadget) pairs with a
+    // recorded certificate: p16 with (19, 2), p8 two-mask with (19, 2) or
+    // (27, 1). Every other admitted pair, including other plaintext widths,
+    // wider or narrower digits and the one-digit gadget at p16 (which
+    // certifies 2^0 on a full-height block even at default widths), accepts
+    // only the default transport, in either output mode.
+    for (p_bits, gadget, ell) in [
+        (7, 19, 2),
+        (12, 19, 2),
+        (14, 19, 2),
+        (8, 27, 2),
+        (8, 20, 2),
+        (8, 9, 6),
+        (16, 27, 1),
+        (16, 27, 2),
+        (16, 17, 2),
+        (16, 15, 2),
+        (16, 10, 3),
+    ] {
         let params =
-            NativeParams::new(16, 54, 8, gadget, ell, SecretDistribution::Gaussian).unwrap();
-        let two = NativeProfile::new(params, 32, 48)
-            .unwrap()
-            .with_two_mask_output()
-            .unwrap();
-        assert!(two.clone().with_dithered_query_bits(42).is_err());
-        assert!(two.clone().with_dithered_query_bits(43).is_ok());
-        assert!(two.clone().with_published_mask_bits(26).is_err());
-        assert!(two.clone().with_published_mask_bits(27).is_ok());
-        assert!(two.clone().with_response_bits(13).is_err());
-        assert!(two.with_response_bits(14).is_ok());
+            NativeParams::new(16, 54, p_bits, gadget, ell, SecretDistribution::Gaussian).unwrap();
+        let one = NativeProfile::new(params, 32, 48).unwrap();
+        let two = one.clone().with_two_mask_output().unwrap();
+        let default_response = p_bits as usize + 6;
+        for p in [one, two] {
+            let at = (p_bits, gadget, ell, p.is_two_mask());
+            assert!(p.clone().with_dithered_query_bits(48).is_err(), "{at:?}");
+            assert!(p.clone().with_dithered_query_bits(49).is_ok(), "{at:?}");
+            assert!(p.clone().with_published_mask_bits(32).is_err(), "{at:?}");
+            assert!(p.clone().with_published_mask_bits(54).is_ok(), "{at:?}");
+            assert!(p.clone().with_published_mask_bits(64).is_ok(), "{at:?}");
+            assert!(
+                p.clone().with_response_bits(default_response - 1).is_err(),
+                "{at:?}"
+            );
+            assert!(p.with_response_bits(default_response).is_ok(), "{at:?}");
+        }
     }
     // Response precision: two-mask floor ..= p_bits+6; one-mask accepts only
     // the default, which keeps setup IDs.
     assert_eq!(base8.response_bits(), 14);
     assert_eq!(base16.response_bits(), 22);
     assert!(two8.clone().with_response_bits(15).is_err());
-    // The recorded p16 fixture certifies no two-mask response below 22 bits
-    // (17 bits gives 2^-28), so only the default is accepted there and at
-    // other uncertified plaintexts.
+    // No two-mask response below 22 bits was regenerated and certified on the
+    // recorded p16 fixture (the 17-bit screen gives 2^-28), so only the
+    // default is accepted there and at other uncertified plaintexts.
     assert!(two16.clone().with_response_bits(22).is_ok());
     assert!(two16.clone().with_response_bits(21).is_err());
     assert!(two16.clone().with_response_bits(17).is_err());

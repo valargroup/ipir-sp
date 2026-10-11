@@ -14,57 +14,78 @@ use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
 
 /// Smallest transport precisions accepted for a profile and output mode.
-/// Floors are pinned only to recorded evidence. The default floors are the
-/// values certified (query) or screened (masks) on the recorded 28,672-row
-/// p = 2^16 fixture; that fixture certifies no two-mask response narrower than
-/// the default p_bits+6 (17 bits gives 2^-28), so no narrower response is
-/// admitted. They apply to every plaintext and gadget not listed below.
+/// Floors are pinned only to recorded evidence, per (plaintext, gadget) pair.
 ///
-/// At p = 2^8, for the two-digit (19, 2) and one-digit (27, 1) gadgets only,
-/// the two-mask floors (28-bit dithered queries, 22-bit masks, 10-bit
-/// responses) hold jointly: every combination at or above all three was
-/// certified on the recorded 28,672 x 65,536 fixture for both gadgets
+/// p = 2^16 with the (19, 2) gadget: the values certified (query) or screened
+/// (masks) on the recorded 28,672-row fixture, 43-bit dithered queries,
+/// 27-bit two-mask and 28-bit one-mask published masks. No narrower two-mask
+/// response was regenerated and certified there (the 17-bit screen gives
+/// 2^-28), so only the default p_bits+6 response is admitted.
+///
+/// p = 2^8 with the two-digit (19, 2) or one-digit (27, 1) gadget, two-mask
+/// output only: 28-bit dithered queries, 22-bit masks and 10-bit responses.
+/// Every combination at or above all three passed the width screen on the
+/// recorded 28,672 x 65,536 fixture for both gadgets
 /// (bench-results/2026-10-09-p8-native, `width_frontier`), and 28/10/22 was
-/// also certified at 65,536 rows. Those certificates are data-dependent in the
-/// query term. With every database entry at p - 1 the 28-bit query bound drops
-/// to 2^-126 (one-digit) at 28,672 rows and to 2^-82 / 2^-69 (two- / one-digit)
-/// at 65,536 rows, so a database heavy in 0xFF entries can fall short of
-/// 2^-128 at the floors; 29-bit queries clear 2^-128 for any database on both
-/// fixtures. Narrower widths certify only in some combinations and stay
-/// reachable through analysis screens alone. Other gadgets were never
-/// certified at these widths and keep the default floors. One-mask output has
-/// no p = 2^8 certificate path, so it keeps the default floors at every
-/// plaintext. Every served snapshot still needs its own certificate.
+/// regenerated and certified for both gadgets at 28,672 and 65,536 rows.
+/// Those certificates are data-dependent in the query term. With every
+/// database entry at p - 1 the 28-bit query bound drops to 2^-126 (one-digit)
+/// at 28,672 rows and to 2^-82 / 2^-69 (two- / one-digit) at 65,536 rows, so
+/// a database heavy in 0xFF entries can fall short of 2^-128 at the floors;
+/// 29-bit queries clear 2^-128 for any database on both fixtures. Narrower
+/// widths certify only in some combinations and stay reachable through
+/// analysis screens alone.
+///
+/// Every other pair, including one-mask output at p = 2^8, has no recorded
+/// certificate at any narrowed width, so it accepts only the default
+/// transport: 49-bit queries (dithering at 49 keeps the wire), lossless 54-bit
+/// or exact 64-bit masks and the default response. Wider digits and the
+/// one-digit gadget at p = 2^16 certify 2^0 on a full-height block even at the
+/// default widths, so these pairs are arithmetic limits, not approved
+/// profiles. Every served snapshot still needs its own certificate.
 struct TransportFloors {
     two_mask_dithered_query: usize,
     one_mask_dithered_query: usize,
-    two_mask_mask_bits: usize,
-    one_mask_mask_bits: usize,
+    /// Smallest rounded mask width, or None when only 54 and 64 are accepted.
+    two_mask_mask_bits: Option<usize>,
+    one_mask_mask_bits: Option<usize>,
     two_mask_response_bits: usize,
     two_mask_screens: std::ops::RangeInclusive<u32>,
 }
 fn floors(pack: &NativeParams) -> TransportFloors {
-    let p_bits = pack.p().trailing_zeros();
-    let certified_p8 = p_bits == 8 && matches!((pack.gadget_bits(), pack.ell()), (19, 2) | (27, 1));
-    if certified_p8 {
-        TransportFloors {
-            two_mask_dithered_query: 28,
-            one_mask_dithered_query: 43,
-            two_mask_mask_bits: 22,
-            one_mask_mask_bits: 28,
-            two_mask_response_bits: 10,
-            two_mask_screens: 16..=32,
-        }
-    } else {
-        TransportFloors {
+    let gadget = (pack.p().trailing_zeros(), pack.gadget_bits(), pack.ell());
+    let default_response = default_response_bits(pack);
+    match gadget {
+        (16, 19, 2) => TransportFloors {
             two_mask_dithered_query: 43,
             one_mask_dithered_query: 43,
-            two_mask_mask_bits: 27,
-            one_mask_mask_bits: 28,
-            two_mask_response_bits: default_response_bits(pack),
+            two_mask_mask_bits: Some(27),
+            one_mask_mask_bits: Some(28),
+            two_mask_response_bits: default_response,
             two_mask_screens: DEFAULT_TWO_MASK_SCREENS,
-        }
+        },
+        (8, 19, 2) | (8, 27, 1) => TransportFloors {
+            two_mask_dithered_query: 28,
+            one_mask_dithered_query: 49,
+            two_mask_mask_bits: Some(22),
+            one_mask_mask_bits: None,
+            two_mask_response_bits: 10,
+            two_mask_screens: 16..=32,
+        },
+        _ => TransportFloors {
+            two_mask_dithered_query: 49,
+            one_mask_dithered_query: 49,
+            two_mask_mask_bits: None,
+            one_mask_mask_bits: None,
+            two_mask_response_bits: default_response,
+            two_mask_screens: DEFAULT_TWO_MASK_SCREENS,
+        },
     }
+}
+/// Whether `bits` is an accepted published-mask width under `floor`: exact
+/// 64-bit, lossless 54-bit, or a rounded width between the floor and 32.
+fn mask_width_allowed(bits: usize, floor: Option<usize>) -> bool {
+    bits == 64 || bits == 54 || floor.is_some_and(|f| (f..=32).contains(&bits))
 }
 /// Default response-body width, p_bits+6 (capped at log2 q).
 fn default_response_bits(pack: &NativeParams) -> usize {
@@ -134,15 +155,14 @@ impl NativeProfile {
         self.kh_bits
     }
     /// Experimental one-key output decoded under two public masks. Call this
-    /// before the transport knobs: two-mask output unlocks the narrower
-    /// query, mask and response floors.
+    /// before the transport knobs: for profiles with recorded certificates,
+    /// two-mask output unlocks the narrower query, mask and response floors.
     pub fn with_two_mask_output(mut self) -> Result<Self, ReinspiringError> {
         if self.kh_bits != self.pack.q().trailing_zeros() as usize {
             return Err(err("two-mask mode has no K_h precision"));
         }
         let floor = floors(&self.pack).two_mask_mask_bits;
-        let bits = self.published_mask_bits;
-        if !(bits == 64 || bits == 54 || (floor..=32).contains(&bits)) {
+        if !mask_width_allowed(self.published_mask_bits, floor) {
             return Err(err(
                 "two-mask mode requires a certified-range or lossless mask precision",
             ));
@@ -151,10 +171,11 @@ impl NativeProfile {
         Ok(self)
     }
     /// Experimental rounded public-mask transport, down to the profile's floor
-    /// (27 two-mask / 28 one-mask by default; 22 two-mask for the certified
-    /// p = 2^8 gadgets) and up to 32 bits. 54 is lossless bit-packing; 64
-    /// selects the legacy exact u64 encoding. Requires q = 2^54 and a snapshot
-    /// certificate.
+    /// and up to 32 bits. The floor is 27 two-mask / 28 one-mask at p = 2^16
+    /// with the (19, 2) gadget and 22 two-mask for the certified p = 2^8
+    /// gadgets; every other profile accepts no rounded width. 54 is lossless
+    /// bit-packing; 64 selects the legacy exact u64 encoding. Requires
+    /// q = 2^54 and a snapshot certificate.
     pub fn with_published_mask_bits(mut self, bits: usize) -> Result<Self, ReinspiringError> {
         let floors = floors(&self.pack);
         let floor = if self.two_mask {
@@ -162,9 +183,7 @@ impl NativeProfile {
         } else {
             floors.one_mask_mask_bits
         };
-        if bits != 64
-            && (self.pack.q() != 1u64 << 54 || (bits != 54 && !(floor..=32).contains(&bits)))
-        {
+        if bits != 64 && (self.pack.q() != 1u64 << 54 || !mask_width_allowed(bits, floor)) {
             return Err(err(
                 "rounded public masks require native q54 and 54 or a certified-range precision",
             ));
@@ -186,10 +205,11 @@ impl NativeProfile {
     /// independent and zero-mean given the query. Requires a snapshot
     /// certificate; 49-bit nearest rounding remains the default. Dithering
     /// at 49 bits keeps the request length and tightens the certificate.
-    /// The 43-bit floor was certified on the recorded 28,672-row fixture only;
-    /// larger tables can need more (a 65,536-row two-mask screen needs 44).
-    /// Two-mask output with a certified p = 2^8 gadget goes down to 28 bits;
-    /// every other profile keeps 43.
+    /// The 43-bit floor at p = 2^16 with the (19, 2) gadget was certified on
+    /// the recorded 28,672-row fixture only; larger tables can need more (a
+    /// 65,536-row two-mask screen needs 44). Two-mask output with a certified
+    /// p = 2^8 gadget goes down to 28 bits; every other profile, including
+    /// one-mask output at p = 2^8, accepts only 49.
     pub fn with_dithered_query_bits(mut self, bits: usize) -> Result<Self, ReinspiringError> {
         // The floor is the smallest precision certified on the recorded
         // full-size snapshot for this plaintext width and output mode;
@@ -214,9 +234,10 @@ impl NativeProfile {
         self.query_bits
     }
     /// Experimental two-mask response-body precision between the profile's
-    /// floor and the default p_bits+6 bits. Only the certified p = 2^8 gadgets
-    /// (19, 2) and (27, 1) have a narrower floor (10 bits); every other
-    /// profile, and one-mask output, accepts only the default. Each choice
+    /// floor and the default p_bits+6 bits. Only two-mask output with the
+    /// certified p = 2^8 gadgets (19, 2) and (27, 1) has a narrower floor
+    /// (10 bits); every other profile, and one-mask output, accepts only the
+    /// default. Each choice
     /// needs a snapshot certificate. Requires q = 2^54 unless the width is the
     /// default. The width is already part of the setup hash, so the default
     /// keeps the existing setup identifiers.

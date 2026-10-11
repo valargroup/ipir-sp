@@ -54,11 +54,14 @@ Three findings:
   - transport floors depend on the plaintext width, gadget and output mode:
     two-mask output at p = 2^8 with the (19, 2) or (27, 1) gadget accepts
     dithered queries ≥ 28 bits, masks ≥ 22 bits and responses ≥ 10 bits, a box
-    certified at every point for both gadgets on this fixture; other gadgets,
-    one-mask output and other plaintexts keep the p = 2^16 floors;
+    that passed the width screen at every point for both gadgets on this
+    fixture; the p = 2^16 floors (43 / 27 / 28) apply only to its (19, 2)
+    gadget; every other pair, including one-mask output at p = 2^8, accepts
+    only the default transport (49-bit queries, 54 / 64-bit masks);
   - `with_response_bits` (two-mask at a certified p = 2^8 gadget: 10..=14;
-    everywhere else: the default p_bits+6 only, since the p = 2^16 fixture
-    certifies 17-bit responses at only 2^-28);
+    everywhere else: the default p_bits+6 only, since no narrower p = 2^16
+    response was regenerated and certified and its 17-bit screen gives
+    2^-28);
   - a size guard that counts storage bytes (2^31 entries only with 8-bit
     storage).
 - `NativeServer::build_u8_*` stores one byte per entry and scans with a new
