@@ -26,8 +26,9 @@ use std::time::{Duration, Instant};
 /// output only: 28-bit dithered queries, 22-bit masks and 10-bit responses.
 /// Every combination at or above all three passed the width screen on the
 /// recorded 28,672 x 65,536 fixture for both gadgets
-/// (bench-results/2026-10-09-p8-native, `width_frontier`), and 28/10/22 was
-/// regenerated and certified for both gadgets at 28,672 and 65,536 rows.
+/// (bench-results/2026-10-09-p8-native/certificates, `width_frontier`), and
+/// 28/10/22 was regenerated and certified for both gadgets at 28,672 and
+/// 65,536 rows.
 /// Those certificates are data-dependent in the query term. With every
 /// database entry at p - 1 the 28-bit query bound drops to 2^-126 (one-digit)
 /// at 28,672 rows and to 2^-82 / 2^-69 (two- / one-digit) at 65,536 rows, so
@@ -1443,7 +1444,7 @@ mod transport_tests {
     #[test]
     fn recorded_p8_setup_ids() {
         // Setup IDs of the 28-bit query, 10-bit response, 22-bit mask reports
-        // in bench-results/2026-10-09-p8-native/raw-mac, for both gadgets.
+        // in bench-results/2026-10-09-p8-native/certificates, for both gadgets.
         for (ell, gadget_bits, rows, cols, id) in [
             (
                 2,

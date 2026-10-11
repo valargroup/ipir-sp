@@ -226,7 +226,7 @@ class SmallPlaintextTests(unittest.TestCase):
         self.assertEqual(pairs, 7)
 
     def test_recorded_p8_certificates_are_byte_identical(self):
-        evidence = self.root / '2026-10-09-p8-native' / 'raw-mac'
+        evidence = self.root / '2026-10-09-p8-native' / 'certificates'
         pairs = 0
         for cert in sorted(evidence.glob('certificate-p8-*.json')):
             report = json.loads((evidence / cert.name.replace('certificate-', 'noise-')).read_text())
@@ -235,7 +235,7 @@ class SmallPlaintextTests(unittest.TestCase):
         self.assertEqual(pairs, 6)
 
     def test_p8_checker_width_boundaries(self):
-        recorded = self.load('2026-10-09-p8-native/raw-mac/noise-p8-g19-q28-r10-m22.json')
+        recorded = self.load('2026-10-09-p8-native/certificates/noise-p8-g19-q28-r10-m22.json')
 
         def certified(mask_bits=None, query_bits=None, response_bits=None):
             report = copy.deepcopy(recorded)
@@ -264,7 +264,7 @@ class SmallPlaintextTests(unittest.TestCase):
         # database. At the 28-bit floor that bound misses 2^-128 for the
         # one-digit gadget at 28,672 rows and for both gadgets at 65,536 rows;
         # 29 bits clears it everywhere. The API floors document this.
-        evidence = '2026-10-09-p8-native/raw-mac/'
+        evidence = '2026-10-09-p8-native/certificates/'
         expected = {'noise-p8-g19-q28-r10-m22.json': (187, None),
                     'noise-p8-g27-q28-r10-m22.json': (126, 221),
                     'noise-p8-g19-q28-r10-m22-rows65536.json': (82, 299),

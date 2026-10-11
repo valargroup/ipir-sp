@@ -48,7 +48,7 @@
   non-(2, 19) gadget under a `2^(53-response_bits)` budget, and adds
   `--screens` (mask/response screens, width frontier, and a bound whose
   query-transport term is data-independent). Evidence:
-  `bench-results/2026-10-09-p8-native/`.
+  `bench-results/2026-10-09-p8-native/certificates/`.
 - Guard the mask derivations without changing them. `inspiring` exposes the
   fixed `K_g`/`K_h` mask coefficients (`reference_mask_coeffs`), and
   `ipir_sp::server::verify_query_masks_distinct_from_key_masks` rejects a
