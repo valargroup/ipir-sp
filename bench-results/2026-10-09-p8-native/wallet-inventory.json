@@ -1,0 +1,76 @@
+{
+  "_source": "valargroup/wallet-pir origin/main a317455e, read 2026-10-09. Paths are wallet-pir paths. Counts marked unconfirmed are not stated in the repository.",
+  "tables": [
+    {
+      "name": "enhance-domain",
+      "host": "enhance-router",
+      "rows": 32768,
+      "row_bytes": 21549,
+      "count": null,
+      "count_note": "resident domains per router not stated; projected per domain",
+      "masks_refresh": "sealed domains immutable; active domain changes per publication",
+      "source": "enhance/docs/protocol.md (653-byte records, 33 per row, domains 4,096..32,768 rows); enhance/evidence/reinspiring-production-trial-2026-09-25/README.md (6 blocks, 170,360,880 retained bytes at 4,096 rows)"
+    },
+    {
+      "name": "status",
+      "host": "status-p4000",
+      "rows": 8192,
+      "row_bytes": 10240,
+      "count": 1,
+      "masks_refresh": "new generation about every 20 s",
+      "source": "enhance/docs/architecture_status.md (8,192 rows, 256 slots of 40 bytes, 6,144 u16 columns padded)"
+    },
+    {
+      "name": "transparent-archive-directory",
+      "host": "transparent-archive",
+      "rows": 32768,
+      "row_bytes": 4096,
+      "count": 82,
+      "masks_refresh": "immutable until republication",
+      "source": "transparent/crates/transparent-shard/src/layout.rs:131-136; transparent/docs/status.md:245,904 (82 archive shards in v11)"
+    },
+    {
+      "name": "transparent-archive-pages",
+      "host": "transparent-archive",
+      "rows": 65536,
+      "row_bytes": 4096,
+      "count": 82,
+      "masks_refresh": "immutable until republication",
+      "source": "transparent/crates/transparent-shard/src/layout.rs:131-136"
+    },
+    {
+      "name": "transparent-recent-directory",
+      "host": "transparent-recent",
+      "rows": 4096,
+      "row_bytes": 4096,
+      "count": 9,
+      "masks_refresh": "tail shard rebuilt every block",
+      "source": "transparent/docs/deployment.md:96-110; transparent/docs/status.md:30-36 (about 9 recent shards)"
+    },
+    {
+      "name": "transparent-recent-pages",
+      "host": "transparent-recent",
+      "rows": 8192,
+      "row_bytes": 4096,
+      "count": 9,
+      "masks_refresh": "tail shard rebuilt every block",
+      "source": "transparent/docs/deployment.md:96-110"
+    },
+    {
+      "name": "txid-display",
+      "host": "txid-display",
+      "rows": 2048,
+      "row_bytes": 4096,
+      "count": 426,
+      "masks_refresh": "archives immutable; recent shard rebuilt every block",
+      "source": "transparent/docs/status.md:45-66 (425 archives plus recent); transparent/crates/transparent-shard/src/txid.rs:14-19"
+    }
+  ],
+  "hosts": {
+    "enhance-router": {"ram_bytes": 8589934592, "observed_peak_bytes": 4771106816, "note": "4 vCPU Xeon Platinum 8168; memory gate failing (enhance/docs/qualification.md)"},
+    "status-p4000": {"ram_bytes": null, "note": "dedicated P4000 GPU host; router CPU + CUDA worker (enhance/docs/architecture_status.md)"},
+    "transparent-archive": {"ram_bytes": 68719476736, "cache_bytes": 51539607552, "reserved_bytes": 44400000000, "reserved_note": "41.35 GiB reserved for 77 shards (transparent/docs/deployment.md:198)", "note": "m-8vcpu-64gb, 48 GiB RAM cache, 56 GiB MemoryMax"},
+    "transparent-recent": {"ram_bytes": 8589934592, "cache_bytes": 5368709120, "note": "s-4vcpu-8gb, 5 GiB RAM cache, 176.1 MiB reserved per shard (transparent/docs/status.md:31-36)"},
+    "txid-display": {"ram_bytes": 68719476736, "cache_bytes": 25769803776, "note": "m-8vcpu-64gb, 24 GiB cache, 72.05 MiB reserved and 40.05 MiB built per runtime (transparent/docs/deployment.md:3268-3271)"}
+  }
+}
