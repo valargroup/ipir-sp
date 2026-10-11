@@ -24,9 +24,13 @@ On the production CPU (Xeon Platinum 8358, 8 workers):
 | Packing matrices | 454 MB (packed 27-bit) | 907 MB (packed 27-bit) | 1,075 MB (i64) |
 
 Against production InspiRING (236,544 B upload), the two-digit profile is
-**1.85×** smaller and the one-digit profile **2.07×**. Lattice security is
-unchanged: same n = 2048, q = 2^54, σ = 6.4 instances. p and the gadget do not
-enter the estimate, and the one-digit key sends half the key samples.
+**1.85×** smaller and the one-digit profile **2.07×**. Both keep the RLWE
+parameters (n = 2048, q = 2^54, σ = 6.4, same sampler), and p does not enter
+the estimate. The one-digit key is not a subset of the two-digit key's view: it
+sends one sample encrypting 2^27·τ5(s), a message the two-digit key (2^16·τ5(s)
+and 2^35·τ5(s)) never sends. Whether that scalar matters for the circular/KDM
+assumption is in scope for the pending native KDM review
+([SECURITY.md](../../reinspiring/SECURITY.md#small-plaintext-and-one-digit-profiles)).
 
 Three findings:
 
@@ -47,10 +51,16 @@ Three findings:
 - `NativeParams` admits digit widths and dropped bits up to 27. A one-digit
   base-2^27 K_g is valid at q = 2^54, and storage width and magnitude are reported.
 - `NativeProfile`:
-  - transport floors depend on the plaintext width: at p = 2^8, dithered queries
-    ≥ 27 bits and two-mask masks ≥ 21 bits; p = 2^16 is unchanged;
-  - `with_response_bits` (p+1..=p+6);
-  - a size guard that counts storage bytes.
+  - transport floors depend on the plaintext width, gadget and output mode:
+    two-mask output at p = 2^8 with the (19, 2) or (27, 1) gadget accepts
+    dithered queries ≥ 28 bits, masks ≥ 22 bits and responses ≥ 10 bits, a box
+    certified at every point for both gadgets on this fixture; other gadgets,
+    one-mask output and other plaintexts keep the p = 2^16 floors;
+  - `with_response_bits` (two-mask at a certified p = 2^8 gadget: 10..=14;
+    everywhere else: the default p_bits+6 only, since the p = 2^16 fixture
+    certifies 17-bit responses at only 2^-28);
+  - a size guard that counts storage bytes (2^31 entries only with 8-bit
+    storage).
 - `NativeServer::build_u8_*` stores one byte per entry and scans with a new
   AVX-512 VNNI byte-tile kernel (portable fallback). Responses are identical to
   u16 storage.
@@ -60,7 +70,8 @@ Three findings:
 - `certify_native.py`:
   - certifies p = 2^8 two-mask reports with any gadget and response width;
   - recorded certificates stay byte-identical;
-  - `--screens` adds the width frontier and a data-independent query bound.
+  - `--screens` adds the width frontier and a bound whose query-transport
+    term is data-independent.
 - Examples:
   - `native_e2e` gains gadget, response, storage and worker flags, memory
     checkpoints and an offline split;
@@ -79,7 +90,10 @@ the frontier:
 | One-digit | 28 / 10 / 22 (2^-209); 29 / 9 / 23 (2^-155) |
 
 Both gadgets were measured at **28 / 10 / 22** so that the key is the only
-difference. `certify.sh` regenerated each chosen width set with its own setup
+difference, and those widths are the API floors. The frontier is not a box:
+27-bit queries, 9-bit responses and 21-bit masks certify only in some
+combinations and for one gadget, so the API does not accept them. The 27/10/22
+and 28/9/22 certificates below are fixture-only frontier results. `certify.sh` regenerated each chosen width set with its own setup
 ID (`raw-mac/certificate-*.json`):
 
 | Profile | Request | Response | Published | Certified |
@@ -94,9 +108,16 @@ ID (`raw-mac/certificate-*.json`):
 Notes:
 
 - **Large tables.** The 65,536-row checks show tables that large need no extra
-  query bit at p = 2^8. At p = 2^16 they needed one.
-- **Data-independent bound.** The two-digit screen certifies the query term even
-  with every entry at 255: 2^-222, against 2^-147 for one digit.
+  query bit at p = 2^8 for this data. At p = 2^16 they needed one.
+- **Data-independent query term.** With the query-transport term computed for
+  every entry at 255, the lossless-mask screens certify 2^-222 (two-digit) and
+  2^-147 (one-digit). At the pinned 28 / 10 / 22 floors that bound is 2^-187
+  and 2^-126 at 28,672 rows, and 2^-82 and 2^-69 at 65,536 rows, so a database
+  heavy in 255 entries can miss 2^-128 at the floors; 29-bit queries clear
+  2^-128 for any database on both fixtures. Only the query term is
+  data-independent: the key-error and secret-residue terms still come from this
+  snapshot's masks, which is why every served snapshot needs its own
+  certificate.
 - **p = 2^16 regression.** `raw-mac/noise-p16-regression-two-mask29-n49.json`
   equals the recorded 2026-10-09 report apart from three added keys
   (`ell`, `gadget_bits`, `dropped_bits`), and still certifies at 2^-228.
@@ -194,9 +215,10 @@ What the projection means per product:
 - **Fixture-only certificates.** Certificates cover these synthetic uniform
   fixtures only. Every served snapshot still needs its own report and
   certificate, and the floors are fixture minima.
-- **Margins.** The p = 2^8 response uses 2^43 of the 2^45 decoding radius
-  deterministically. The largest measured phase error was 1.25·10^13 (36% of the
-  radius) with two digits.
+- **Margins.** The p = 2^8 10-bit response rounding alone uses 2^43 of the
+  2^45 decoding radius deterministically, and dominates the measured error.
+  The largest measured phase error was 1.25·10^13 (36% of the radius) with two
+  digits and 1.38·10^13 (39%, 80 Xeon samples) with one digit.
 - **Review.** One-digit residues are 2^11 larger and remain correlated with the
   secret; the certificate combines them exactly, but the profile is unreviewed.
   The native KDM review gate still applies to all of this.

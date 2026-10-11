@@ -17,8 +17,11 @@ run() {  # name rows cols gadget ell query response mask
 }
 run p8-g19-q28-r10-m22 28672 65536 19 2 28 10 22   # P2
 run p8-g27-q28-r10-m22 28672 65536 27 1 28 10 22   # P1
-run p8-g19-q27-r10-m22 28672 65536 19 2 27 10 22   # smallest two-digit upload
-run p8-g19-q28-r9-m22 28672 65536 19 2 28 9 22     # smallest two-digit total
+# The next two are frontier points below the pinned API floors (28 / 10 / 22);
+# they were recorded before the floors were pinned and native_noise now
+# rejects them.
+# run p8-g19-q27-r10-m22 28672 65536 19 2 27 10 22   # smallest two-digit upload
+# run p8-g19-q28-r9-m22 28672 65536 19 2 28 9 22     # smallest two-digit total
 run p8-g19-q28-r10-m22-rows65536 65536 32768 19 2 28 10 22
 run p8-g27-q28-r10-m22-rows65536 65536 32768 27 1 28 10 22
 # p = 2^16 regression: must equal the recorded 2026-10-09 report apart from new keys.

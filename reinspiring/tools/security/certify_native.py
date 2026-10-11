@@ -305,7 +305,8 @@ def evaluate_two_mask(report, rounded, screens=False):
         scores, max_deterministic = [], 0
         for block in report['blocks']:
             if worst:
-                # Data-independent column norms: every entry at p-1.
+                # Data-independent query column norms (every entry at p-1).
+                # The key-error and secret-residue weights stay per-snapshot.
                 block = dict(block, query_l1=str(rows*entry_max), query_l2_squared=str(rows*entry_max**2))
             query_budget, dither = query_terms(block, rows, *query, entry_max=entry_max)
             deterministic = support*d*d + query_budget + (1 << (qb-1-response))
@@ -385,7 +386,7 @@ if __name__ == '__main__':
                         help='exit unsuccessfully unless the actual profile meets this target (default: 128)')
     parser.add_argument('--screens', action='store_true',
                         help='two-mask only: add counterfactual mask/response screens, the width frontier '
-                             'and a data-independent worst-case query bound')
+                             'and a bound with a data-independent query-transport term')
     args = parser.parse_args()
     with open(args.report) as f:
         result = evaluate(json.load(f), screens=args.screens)

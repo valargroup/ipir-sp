@@ -118,9 +118,11 @@ IPIR-SP row recovery. Refer to the report for exact test and fuzz coverage.
 Still required before production activation:
 
 1. An independent cryptographic review of the power-of-two/KDM composition,
-   sampler and approximate-decomposition profile. The runbook requires a second
-   reviewer for changes to key material; the implementation author's tests do
-   not satisfy that requirement.
+   sampler and approximate-decomposition profile, including the one-digit K_g
+   gadget, whose single key sample encrypts 2^27 times an automorphic image of
+   the secret. The runbook requires a second reviewer for changes to key
+   material; the implementation author's tests do not satisfy that
+   requirement.
 2. A conservative correctness certificate for each served snapshot/profile, or
    a reviewed general failure bound, including the correlated rounding terms.
    Statistical smoke tests cannot certify cryptographic failure probabilities.
@@ -225,13 +227,24 @@ as the profile, preventing reuse of products prepared from different masks.
 
 ## Small-plaintext and one-digit profiles
 
-p = 2^8 profiles and one-digit K_g gadgets change no lattice instance: the
-secret, key and query samples are the same n = 2048, q = 2^54, sigma = 6.4
-Gaussian RLWE samples, p does not enter the estimate, and a one-digit key sends
-half the key samples (a subset of the two-digit key's view). They change only
-correctness margins, which the per-snapshot certificate covers; the recorded
-p = 2^8 certificates are fixture-only, as before. The u8 database storage is a
-layout change with responses identical to u16 storage. One-digit residues are
-2^11 larger and stay correlated with the secret; the exporter keeps combining
-them on the original variables. These profiles remain experimental and subject
+p = 2^8 profiles keep every sample the client sends unchanged: the secret,
+key and query samples are the same n = 2048, q = 2^54, sigma = 6.4 Gaussian
+RLWE samples from the same sampler, and p does not enter the estimate.
+
+The one-digit K_g gadget keeps those RLWE parameters but is not a subset of the
+two-digit key's view. Each K_g limb encrypts 2^(dropped + bits*j) times the
+automorphic image tau_5(s) of the secret. Two digits send 2^16 tau_5(s) and
+2^35 tau_5(s); one digit sends a single 2^27 tau_5(s), a message the two-digit
+key never sends, under its own public mask (the gadget is part of the setup
+hash). The key-dependent message class is the same: a public power-of-two
+scalar times an automorphic image of the secret, with one sample instead of
+two. Whether the scalar matters for the circular/KDM assumption is part of the
+open review in release gate 1; no attack exploiting it is known, but no review
+has signed off on it either.
+
+Both change correctness margins, which the per-snapshot certificate covers;
+the recorded p = 2^8 certificates are fixture-only, as before. The u8 database
+storage is a layout change with responses identical to u16 storage. One-digit
+residues are 2^11 larger and stay correlated with the secret; the exporter
+keeps combining them on the original variables. These profiles remain experimental and subject
 to the release gates above.

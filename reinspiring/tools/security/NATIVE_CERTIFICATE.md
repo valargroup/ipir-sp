@@ -254,8 +254,19 @@ Two-mask reports may set `p_bits` to 8 and declare `ell`, `gadget_bits` and
 `q/(2p) = 2^45` at p = 2^8. Database entries are canonical values below p, so
 query-transport bounds use `p-1` instead of 65535 (`query_l1 <= rows*(p-1)`,
 `query_l2_squared <= (p-1)*query_l1`). The checker screens dithered query
-bodies down to 24 bits and rounded public masks down to 16 bits; the API floors
-are 27 and 21, the minima on the recorded p = 2^8 fixture.
+bodies down to 24 bits and rounded public masks down to 16 bits. The API
+floors for two-mask p = 2^8 output with the (19, 2) or (27, 1) gadget are
+28-bit queries, 22-bit masks and 10-bit responses: every combination at or
+above all three was certified on the recorded fixture for both gadgets. Other
+gadgets keep the p = 2^16 floors. These certificates are data-dependent in
+the query term; with every entry at p - 1, 28-bit queries reach only 2^-126
+(one-digit, 28,672 rows) and 2^-82 / 2^-69 (65,536 rows), while 29-bit
+queries clear 2^-128. Narrower widths certify only in some
+combinations (the frontier below is not a box), so they are left to explicit
+per-snapshot certification. The checker also accepts two-mask p = 2^16 reports
+with 17..=21-bit responses or a non-legacy gadget, under the same
+`2^(53-response_bits)` budget; one-mask reports are still p = 2^16 with 22-bit
+responses only.
 Key bytes are `ell*d*log2(q)/8`.
 
 The weights themselves need no change: a one-digit gadget only changes the
@@ -266,6 +277,9 @@ because the radius is 2^8 times larger.
 
 `--screens` adds counterfactual mask and response screens, a width frontier
 (the smallest certified dithered query for each response and mask width) and
-a data-independent query bound that replaces the column norms by `rows*(p-1)`
-and `rows*(p-1)^2`. Widths are bound into the setup ID: regenerate and certify
+`worst_case_query`, which replaces the query column norms by `rows*(p-1)` and
+`rows*(p-1)^2`. Only the query-transport term is then data-independent: the
+key-error and secret-residue matrices, including the mask-rounding deltas,
+still come from this snapshot's masks, so it is not a data-independent
+certificate. Widths are bound into the setup ID: regenerate and certify
 the selected widths before relying on them.
