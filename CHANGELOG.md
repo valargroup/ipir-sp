@@ -15,6 +15,8 @@
   certificate is unchanged. `NativeProfile::with_response_bits` narrows
   two-mask responses only for the certified p = 2^8 gadgets (10 to 14 bits,
   q = 2^54); elsewhere it accepts only the default, which keeps setup IDs.
+- Response, query and mask decoding returns exactly the expected word count
+  and rejects nonzero padding at every width.
   The size guard counts storage bytes: p <= 2^8 shapes may hold 2^31 entries
   with 8-bit storage, and the u16 builders keep the 2^30 limit.
 - 8-bit database storage: `NativeServer::build_u8_with_concurrency` /

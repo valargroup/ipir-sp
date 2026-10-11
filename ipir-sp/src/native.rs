@@ -1145,7 +1145,9 @@ fn decode(bytes: &[u8], n: usize, bits: usize) -> Result<Vec<u64>, ReinspiringEr
     if bytes.len() != packed_len(n, bits) {
         return Err(err("invalid payload length"));
     }
-    let words = contiguous_bytes_to_u64s(bytes, bits);
+    // Widths below 8 bits can unpack more than n words from the padding.
+    let mut words = contiguous_bytes_to_u64s(bytes, bits);
+    words.truncate(n);
     if encode(&words, bits) != bytes {
         return Err(err("noncanonical padding"));
     }
@@ -1535,5 +1537,14 @@ mod transport_tests {
                 assert_eq!(round, words);
             }
         }
+    }
+    #[test]
+    fn decode_returns_exactly_n_words() {
+        // One 3-bit word in one byte leaves 5 padding bits. Without the
+        // truncation these unpacked as a second word, re-encoded identically
+        // and so passed the padding check.
+        assert_eq!(decode(&[0b0000_0101], 1, 3).unwrap(), vec![0b101]);
+        assert!(decode(&[0b0010_1101], 1, 3).is_err());
+        assert!(decode(&[0b1000_0101], 1, 3).is_err());
     }
 }
