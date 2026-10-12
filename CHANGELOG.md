@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-rc.7 — 2026-10-12
 
 - Experimental 8-bit native profile (opt-in, `native-reinspiring`). Two-mask
   output at p = 2^8 with the two-digit (19, 2) or one-digit (27, 1) gadget
@@ -90,6 +90,12 @@
   previous runtime table on macOS ARM64 and Linux x86_64 (and the existing
   native table), so existing seeds decode unchanged. Non-default sigmas still
   build their table at runtime.
+- `reinspiring` is now 0.1.3 and `inspiring` 0.1.0-rc.3 (adds `gaussian` and
+  `reference_mask_coeffs`). `simplepir-kernel` is 0.1.0-rc.4 only because it
+  pins `inspiring` exactly; its code is unchanged.
+- Default profiles, setup IDs and wire formats are unchanged; the `ipir-sp`
+  client API break is the secret-hygiene change above. Native profiles remain
+  experimental, and every served snapshot still needs its own certificate.
 
 ## 0.1.0-rc.6 — 2026-09-25
 
