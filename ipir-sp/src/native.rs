@@ -26,7 +26,8 @@ use std::time::{Duration, Instant};
 /// output only: 28-bit dithered queries, 22-bit masks and 10-bit responses.
 /// Every combination at or above all three passed the width screen on the
 /// recorded 28,672 x 65,536 fixture for both gadgets
-/// (bench-results/2026-10-09-p8-native/certificates, `width_frontier`), and
+/// (`certify_native.py --screens` on bench-results/2026-10-09-p8-native/
+/// certificates/screen-noise-*.json, `width_frontier`), and
 /// 28/10/22 was regenerated and certified for both gadgets at 28,672 and
 /// 65,536 rows.
 /// Those certificates are data-dependent in the query term. With every

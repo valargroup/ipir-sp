@@ -16,9 +16,9 @@ certificate.
 | `p8-g19-q27-r10-m22` | 28,672 × 65,536 | two-digit | 27 / 10 / 22 (below the floor) | ≤ 2^-138 |
 | `p8-g19-q28-r9-m22` | 28,672 × 65,536 | two-digit | 28 / 9 / 22 (below the floor) | ≤ 2^-187 |
 
-- `screen-*-p8-g{19,27}.json`: one report per gadget with lossless masks and
-  `certify_native.py --screens` output, giving the width frontier the floors
-  were chosen from. The frontier is not a box; the floors are set where every
+- `screen-noise-p8-g{19,27}.json`: one report per gadget with lossless masks.
+  `certify_native.py --screens` on each gives the width frontier the floors
+  were chosen from (`screen.sh` writes it next to the report). The frontier is not a box; the floors are set where every
   combination at or above them passed the screen for both gadgets.
 - `noise-p16-regression-two-mask29-n49.json`: the recorded 2026-10-09 p = 2^16
   report regenerated on this code. It differs only by three added keys (`ell`,
