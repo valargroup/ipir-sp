@@ -1,0 +1,26 @@
+{
+  "cpu": "Intel(R) Xeon(R) Platinum 8358 CPU @ 2.60GHz",
+  "vcpus": 8,
+  "memory_bytes": 33654898688,
+  "flags": {
+    "avx512f": true,
+    "avx512dq": true,
+    "avx512bw": true,
+    "avx512_vnni": true,
+    "avx512vbmi": true,
+    "avx512ifma": false
+  },
+  "kernel": "6.8.0-142-generic",
+  "rustc": "rustc 1.89.0 (29483883e 2025-08-04)",
+  "rayon_workers": 8,
+  "loadavg_start": [
+    "0.17",
+    "0.21",
+    "0.09"
+  ],
+  "loadavg_end": [
+    "2.44",
+    "3.85",
+    "3.10"
+  ]
+}

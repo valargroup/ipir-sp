@@ -39,6 +39,9 @@
 - Two-mask analysis screens caller-chosen published-mask precisions
   (`NativePreprocessed::build_two_mask_analyzed_with_screens`; 16..=32 at
   p = 2^8). `native_noise` takes `--p-bits --ell --gadget-bits --response-bits
+  --storage`, `native_e2e` takes `--gadget-bits --response-bits --storage
+  --threads --no-cold-decode` and reports storage, memory checkpoints and an
+  offline split, and `native_dot` takes `--rows --cols --pbits --query-bits
   --storage`. `certify_native.py` certifies two-mask reports at p = 2^8 with
   any gadget and response width (legacy certificates byte-identical), now
   also accepts two-mask p = 2^16 reports with 17..=21-bit responses or a

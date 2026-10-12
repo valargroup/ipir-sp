@@ -1,0 +1,23 @@
+	Command being timed: "/root/head/target-native/release/examples/native_e2e 28672 32768 16 2 20 4 0 29 0 --threads 1,2,4,8"
+	User time (seconds): 313.43
+	System time (seconds): 4.62
+	Percent of CPU this job got: 471%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:07.52
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 2295428
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 1275550
+	Voluntary context switches: 7817
+	Involuntary context switches: 2435
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 104
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
