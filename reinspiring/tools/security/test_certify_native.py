@@ -208,3 +208,147 @@ class CertificateTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SmallPlaintextTests(unittest.TestCase):
+    root = Path(__file__).resolve().parents[3] / 'bench-results'
+
+    def load(self, path):
+        return json.loads((self.root / path).read_text())
+
+    def test_recorded_certificates_are_byte_identical(self):
+        evidence = self.root / '2026-10-09-dithered-query'
+        pairs = 0
+        for cert in sorted(evidence.glob('certificate-*.json')):
+            report = json.loads((evidence / cert.name.replace('certificate-', 'noise-')).read_text())
+            self.assertEqual(json.dumps(evaluate(report), indent=2) + '\n', cert.read_text(), cert.name)
+            pairs += 1
+        self.assertEqual(pairs, 7)
+
+    def test_recorded_p8_certificates_are_byte_identical(self):
+        evidence = self.root / '2026-10-09-p8-native' / 'certificates'
+        pairs = 0
+        for cert in sorted(evidence.glob('certificate-p8-*.json')):
+            report = json.loads((evidence / cert.name.replace('certificate-', 'noise-')).read_text())
+            self.assertEqual(json.dumps(evaluate(report), indent=2) + '\n', cert.read_text(), cert.name)
+            pairs += 1
+        self.assertEqual(pairs, 6)
+
+    def test_p8_checker_width_boundaries(self):
+        recorded = self.load('2026-10-09-p8-native/certificates/noise-p8-g19-q28-r10-m22.json')
+
+        def certified(mask_bits=None, query_bits=None, response_bits=None):
+            report = copy.deepcopy(recorded)
+            if mask_bits is not None:
+                report['published_mask_bits'] = mask_bits
+                report['published_bytes'] = 36 + (2 * report['cols'] * mask_bits + 7) // 8
+                for block in report['blocks']:
+                    block['weights'] = next((v['weights'] for v in block['public_mask_screens']
+                                             if v['bits'] == mask_bits), block['weights'])
+            if query_bits is not None:
+                report['query_bits'] = query_bits
+            if response_bits is not None:
+                report['response_bits'] = response_bits
+            return evaluate(report)['actual_profile']['certified_failure_bits']
+
+        for accepted in (dict(mask_bits=16), dict(query_bits=24), dict(response_bits=9),
+                         dict(response_bits=14)):
+            self.assertIsNotNone(certified(**accepted), accepted)
+        for rejected in (dict(mask_bits=15), dict(query_bits=23), dict(response_bits=8),
+                         dict(response_bits=15)):
+            with self.assertRaises(ValueError, msg=str(rejected)):
+                certified(**rejected)
+
+    def test_p8_floor_query_term_for_any_database(self):
+        # With every entry at p - 1 the query term no longer depends on the
+        # database. At the 28-bit floor that bound misses 2^-128 for the
+        # one-digit gadget at 28,672 rows and for both gadgets at 65,536 rows;
+        # 29 bits clears it everywhere. The API floors document this.
+        evidence = '2026-10-09-p8-native/certificates/'
+        expected = {'noise-p8-g19-q28-r10-m22.json': (187, None),
+                    'noise-p8-g27-q28-r10-m22.json': (126, 221),
+                    'noise-p8-g19-q28-r10-m22-rows65536.json': (82, 299),
+                    'noise-p8-g27-q28-r10-m22-rows65536.json': (69, 177)}
+        for name, (at28, at29) in expected.items():
+            report = self.load(evidence + name)
+            rows, entry_max = report['rows'], (1 << report['p_bits']) - 1
+            for block in report['blocks']:
+                block['query_l1'] = str(rows * entry_max)
+                block['query_l2_squared'] = str(rows * entry_max ** 2)
+            self.assertEqual(evaluate(report)['actual_profile']['certified_failure_bits'], at28, name)
+            report['query_bits'] = 29
+            bits = evaluate(report)['actual_profile']['certified_failure_bits']
+            self.assertGreaterEqual(bits, 128, name)
+            if at29 is not None:
+                self.assertEqual(bits, at29, name)
+
+    def test_p16_two_mask_response_below_default_misses_target(self):
+        # The fixture behind the 43-bit p16 floor: 17-19-bit responses miss
+        # 2^-128, which is why the API admits only the default p16 response.
+        result = evaluate(self.load('2026-10-09-dithered-query/noise-two-mask29-d43.json'), screens=True)
+        bits = {v['response_bits']: v['certified_failure_bits'] for v in result['screens']['response_screen']}
+        self.assertEqual(bits, {17: 28, 18: 84, 19: 118, 20: 135, 21: 143, 22: 147})
+
+    def p8_report(self):
+        # Exact-mask two-mask report, retargeted to p = 2^8 with a one-digit
+        # gadget and 10-bit responses. Query weights are rescaled to entries < 2^8.
+        report = self.load('2026-09-25-two-mask/noise.json')
+        report.update(p_bits=8, ell=1, gadget_bits=27, dropped_bits=27, response_bits=10)
+        for block in report['blocks']:
+            block['query_l1'] = str(report['rows'] * 127)
+        return report
+
+    def test_p8_one_digit_profile_terms(self):
+        report = self.p8_report()
+        actual = evaluate(report)['actual_profile']
+        self.assertEqual(actual['key_bytes'], 13824)
+        self.assertEqual((actual['p_bits'], actual['ell'], actual['gadget_bits']), (8, 1, 27))
+        self.assertEqual(actual['response_bits'], 10)
+        self.assertEqual(actual['response_bytes'], 68 + report['cols'] * 10 // 8)
+        # Radius q/2^9 and response term 2^43: deterministic includes 2^43.
+        self.assertGreaterEqual(int(actual['max_deterministic_error']), 1 << 43)
+        self.assertIsNotNone(actual['certified_failure_bits'])
+
+    def test_p8_rejects_out_of_range_reports(self):
+        for mutation in ('entries', 'response_low', 'response_high', 'p12', 'gadget', 'dropped', 'query_floor'):
+            bad = self.p8_report()
+            if mutation == 'entries':
+                bad['blocks'][0]['query_l1'] = str(bad['rows'] * 255 + 1)
+            if mutation == 'response_low':
+                bad['response_bits'] = 8
+            if mutation == 'response_high':
+                bad['response_bits'] = 15
+            if mutation == 'p12':
+                bad['p_bits'] = 12
+            if mutation == 'gadget':
+                bad['gadget_bits'] = 28
+            if mutation == 'dropped':
+                bad['dropped_bits'] = 26
+            if mutation == 'query_floor':
+                bad['format'] = 'native-noise-two-mask-dithered-v1'
+                bad['query_rounding'] = 'dithered'
+                bad['query_bits'] = 23
+            with self.assertRaises(ValueError, msg=mutation):
+                evaluate(bad)
+
+    def test_screens_match_actual_and_bound_worst_case(self):
+        report = self.load('2026-10-09-dithered-query/noise-two-mask29-d43.json')
+        result = evaluate(report, screens=True)
+        screens = result['screens']
+        self.assertTrue(screens['counterfactual'])
+        self.assertEqual([v['published_mask_bits'] for v in screens['mask_screen']], list(range(27, 33)))
+        self.assertEqual([v['response_bits'] for v in screens['response_screen']], list(range(17, 23)))
+        actual = result['actual_profile']
+        at29 = next(v for v in screens['mask_screen'] if v['published_mask_bits'] == 29)
+        at22 = next(v for v in screens['response_screen'] if v['response_bits'] == 22)
+        self.assertEqual(at29['certified_failure_bits'], actual['certified_failure_bits'])
+        self.assertEqual(at22['certified_failure_bits'], actual['certified_failure_bits'])
+        worst = screens['worst_case_query']['certified_failure_bits']
+        self.assertTrue(worst is None or worst <= actual['certified_failure_bits'])
+        for point in screens['width_frontier']:
+            self.assertGreaterEqual(point['certified_failure_bits'], 128)
+            self.assertGreaterEqual(point['query_bits'], 40)
+        # Default output is unchanged by the flag apart from the added key.
+        plain = evaluate(report)
+        del result['screens']
+        self.assertEqual(result, plain)

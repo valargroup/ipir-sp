@@ -5,14 +5,19 @@ use ipir_sp::native::*;
 use reinspiring::native::*;
 use rand_chacha::{ChaCha20Rng,rand_core::SeedableRng};
 struct Fixture { server:NativeServer, request:NativeRequest, valid:Vec<u8>, response:Vec<u8> }
-fn fixtures()->&'static [Fixture;7] {
- static F:OnceLock<[Fixture;7]>=OnceLock::new();
- // (K_h or two-mask public-mask bits, dithered query bits; 0 = nearest 49).
- F.get_or_init(|| [(54,0),(47,0),(0,0),(29,0),(32,0),(47,43),(0,45)].map(|(bits,query)| {
-  let p=NativeParams::new(8,54,14,19,2,SecretDistribution::Gaussian).unwrap();
+fn fixtures()->&'static [Fixture;9] {
+ static F:OnceLock<[Fixture;9]>=OnceLock::new();
+ // p = 2^8 with the gadgets that have transport floors: (gadget bits, digits,
+ // K_h or two-mask public-mask bits, dithered query bits, response bits;
+ // 0 = default: nearest 49-bit queries, p_bits+6 responses). One-mask output
+ // accepts only 49-bit dithered queries; the last two use the narrowest
+ // two-mask widths.
+ F.get_or_init(|| [(19,2,54,0,0),(19,2,47,0,0),(19,2,0,0,0),(19,2,29,0,0),(19,2,32,0,0),(19,2,47,49,0),(19,2,0,45,0),(19,2,22,28,10),(27,1,22,28,10)].map(|(gadget,ell,bits,query,response)| {
+  let p=NativeParams::new(8,54,8,gadget,ell,SecretDistribution::Gaussian).unwrap();
   let profile=NativeProfile::new(p,8,8).unwrap();
   let profile=if bits==0 {profile.with_two_mask_output().unwrap()} else if bits<40 {profile.with_two_mask_output().unwrap().with_published_mask_bits(bits).unwrap()} else {profile.with_kh_bits(bits).unwrap()};
   let profile=if query==0 {profile} else {profile.with_dithered_query_bits(query).unwrap()};
+  let profile=if response==0 {profile} else {profile.with_response_bits(response).unwrap()};
   let setup=NativePublicSetup::new(profile,[1;32],[2;32]);
   let server=NativeServer::build(setup,vec![1;64]).unwrap();
   let request=NativeRequest::generate_with_rng(server.setup(),0,&mut ChaCha20Rng::seed_from_u64(9)).unwrap();

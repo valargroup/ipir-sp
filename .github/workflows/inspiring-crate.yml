@@ -127,8 +127,8 @@ jobs:
 
       - name: Verify CPU has AVX-512
         run: |
-          if ! grep -q avx512f /proc/cpuinfo; then
-            echo "::error::This runner lacks AVX-512; spiral-rs tests cannot run."
+          if ! grep -q avx512f /proc/cpuinfo || ! grep -q avx512_vnni /proc/cpuinfo; then
+            echo "::error::This runner lacks AVX-512F or AVX-512 VNNI; spiral-rs and byte-kernel tests cannot run."
             exit 1
           fi
           echo "AVX-512 detected on $(uname -m)"

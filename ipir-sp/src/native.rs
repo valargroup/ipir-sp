@@ -13,8 +13,86 @@ use reinspiring::{lift_ntt::LiftContext, native::*, ReinspiringError};
 use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
 
-/// Smallest dithered query precision certified on the recorded full-size snapshot.
-const MIN_DITHERED_QUERY_BITS: usize = 43;
+/// Smallest transport precisions accepted for a profile and output mode.
+/// Floors are pinned only to recorded evidence, per (plaintext, gadget) pair.
+///
+/// p = 2^16 with the (19, 2) gadget: the values certified (query) or screened
+/// (masks) on the recorded 28,672-row fixture, 43-bit dithered queries,
+/// 27-bit two-mask and 28-bit one-mask published masks. No narrower two-mask
+/// response was regenerated and certified there (the 17-bit screen gives
+/// 2^-28), so only the default p_bits+6 response is admitted.
+///
+/// p = 2^8 with the two-digit (19, 2) or one-digit (27, 1) gadget, two-mask
+/// output only: 28-bit dithered queries, 22-bit masks and 10-bit responses.
+/// Every combination at or above all three passed the width screen on the
+/// recorded 28,672 x 65,536 fixture for both gadgets
+/// (`certify_native.py --screens` on bench-results/2026-10-09-p8-native/
+/// certificates/screen-noise-*.json, `width_frontier`), and
+/// 28/10/22 was regenerated and certified for both gadgets at 28,672 and
+/// 65,536 rows.
+/// Those certificates are data-dependent in the query term. With every
+/// database entry at p - 1 the 28-bit query bound drops to 2^-126 (one-digit)
+/// at 28,672 rows and to 2^-82 / 2^-69 (two- / one-digit) at 65,536 rows, so
+/// a database heavy in 0xFF entries can fall short of 2^-128 at the floors;
+/// 29-bit queries clear 2^-128 for any database on both fixtures. Narrower
+/// widths certify only in some combinations and stay reachable through
+/// analysis screens alone.
+///
+/// Every other pair, including one-mask output at p = 2^8, has no recorded
+/// certificate at any narrowed width, so it accepts only the default
+/// transport: 49-bit queries (dithering at 49 keeps the wire), lossless 54-bit
+/// or exact 64-bit masks and the default response. Wider digits and the
+/// one-digit gadget at p = 2^16 certify 2^0 on a full-height block even at the
+/// default widths, so these pairs are arithmetic limits, not approved
+/// profiles. Every served snapshot still needs its own certificate.
+struct TransportFloors {
+    two_mask_dithered_query: usize,
+    one_mask_dithered_query: usize,
+    /// Smallest rounded mask width, or None when only 54 and 64 are accepted.
+    two_mask_mask_bits: Option<usize>,
+    one_mask_mask_bits: Option<usize>,
+    two_mask_response_bits: usize,
+    two_mask_screens: std::ops::RangeInclusive<u32>,
+}
+fn floors(pack: &NativeParams) -> TransportFloors {
+    let gadget = (pack.p().trailing_zeros(), pack.gadget_bits(), pack.ell());
+    let default_response = default_response_bits(pack);
+    match gadget {
+        (16, 19, 2) => TransportFloors {
+            two_mask_dithered_query: 43,
+            one_mask_dithered_query: 43,
+            two_mask_mask_bits: Some(27),
+            one_mask_mask_bits: Some(28),
+            two_mask_response_bits: default_response,
+            two_mask_screens: DEFAULT_TWO_MASK_SCREENS,
+        },
+        (8, 19, 2) | (8, 27, 1) => TransportFloors {
+            two_mask_dithered_query: 28,
+            one_mask_dithered_query: 49,
+            two_mask_mask_bits: Some(22),
+            one_mask_mask_bits: None,
+            two_mask_response_bits: 10,
+            two_mask_screens: 16..=32,
+        },
+        _ => TransportFloors {
+            two_mask_dithered_query: 49,
+            one_mask_dithered_query: 49,
+            two_mask_mask_bits: None,
+            one_mask_mask_bits: None,
+            two_mask_response_bits: default_response,
+            two_mask_screens: DEFAULT_TWO_MASK_SCREENS,
+        },
+    }
+}
+/// Whether `bits` is an accepted published-mask width under `floor`: exact
+/// 64-bit, lossless 54-bit, or a rounded width between the floor and 32.
+fn mask_width_allowed(bits: usize, floor: Option<usize>) -> bool {
+    bits == 64 || bits == 54 || floor.is_some_and(|f| (f..=32).contains(&bits))
+}
+/// Default response-body width, p_bits+6 (capped at log2 q).
+fn default_response_bits(pack: &NativeParams) -> usize {
+    (pack.p().trailing_zeros() as usize + 6).min(pack.q().trailing_zeros() as usize)
+}
 
 /// Validated profile and database shape. All fields are immutable.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,15 +116,17 @@ impl NativeProfile {
             || cols == 0
             || rows % pack.d() != 0
             || cols % pack.d() != 0
-            || rows.checked_mul(cols).filter(|&n| n <= 1 << 30).is_none()
+            || rows
+                .checked_mul(cols)
+                .filter(|&n| n <= if pack.p() <= 256 { 1 << 31 } else { 1 << 30 })
+                .is_none()
             || pack.sampler() != SecretDistribution::Gaussian
             || pack.p() > 65536
         {
             return Err(err("invalid native IPIR profile or database shape"));
         }
         let query_bits = 49.min(pack.q().trailing_zeros() as usize);
-        let response_bits =
-            (pack.p().trailing_zeros() as usize + 6).min(pack.q().trailing_zeros() as usize);
+        let response_bits = default_response_bits(&pack);
         Ok(Self {
             kh_bits: pack.q().trailing_zeros() as usize,
             pack,
@@ -76,27 +156,38 @@ impl NativeProfile {
     pub fn kh_bits(&self) -> usize {
         self.kh_bits
     }
-    /// Experimental one-key output decoded under two public masks.
+    /// Experimental one-key output decoded under two public masks. Call this
+    /// before the transport knobs: for profiles with recorded certificates,
+    /// two-mask output unlocks the narrower query, mask and response floors.
     pub fn with_two_mask_output(mut self) -> Result<Self, ReinspiringError> {
         if self.kh_bits != self.pack.q().trailing_zeros() as usize {
             return Err(err("two-mask mode has no K_h precision"));
         }
-        if !matches!(self.published_mask_bits, 64 | 54 | 27..=32) {
-            return Err(err("two-mask mode requires 27..=32 or lossless mask bits"));
+        let floor = floors(&self.pack).two_mask_mask_bits;
+        if !mask_width_allowed(self.published_mask_bits, floor) {
+            return Err(err(
+                "two-mask mode requires a certified-range or lossless mask precision",
+            ));
         }
         self.two_mask = true;
         Ok(self)
     }
-    /// Experimental two-mask transport at 27..=32 bits per coefficient.
-    /// 64 selects the legacy exact u64 encoding. Requires a snapshot certificate.
+    /// Experimental rounded public-mask transport, down to the profile's floor
+    /// and up to 32 bits. The floor is 27 two-mask / 28 one-mask at p = 2^16
+    /// with the (19, 2) gadget and 22 two-mask for the certified p = 2^8
+    /// gadgets; every other profile accepts no rounded width. 54 is lossless
+    /// bit-packing; 64 selects the legacy exact u64 encoding. Requires
+    /// q = 2^54 and a snapshot certificate.
     pub fn with_published_mask_bits(mut self, bits: usize) -> Result<Self, ReinspiringError> {
-        // 54 is lossless bit-packing. Lower values modulus-switch public data;
-        // the floors are the smallest precisions certified on the recorded
-        // full-size snapshot (28 one-mask, 27 two-mask screen). Both need q = 2^54.
-        let range = if self.two_mask { 27..=32 } else { 28..=32 };
-        if bits != 64 && (self.pack.q() != 1u64 << 54 || (bits != 54 && !range.contains(&bits))) {
+        let floors = floors(&self.pack);
+        let floor = if self.two_mask {
+            floors.two_mask_mask_bits
+        } else {
+            floors.one_mask_mask_bits
+        };
+        if bits != 64 && (self.pack.q() != 1u64 << 54 || !mask_width_allowed(bits, floor)) {
             return Err(err(
-                "rounded public masks require native q54 and 54 or 28..=32 (27..=32 two-mask) bits",
+                "rounded public masks require native q54 and 54 or a certified-range precision",
             ));
         }
         self.published_mask_bits = bits;
@@ -116,13 +207,25 @@ impl NativeProfile {
     /// independent and zero-mean given the query. Requires a snapshot
     /// certificate; 49-bit nearest rounding remains the default. Dithering
     /// at 49 bits keeps the request length and tightens the certificate.
-    /// The 43-bit floor was certified on the recorded 28,672-row fixture only;
-    /// larger tables can need more (a 65,536-row two-mask screen needs 44).
+    /// The 43-bit floor at p = 2^16 with the (19, 2) gadget was certified on
+    /// the recorded 28,672-row fixture only; larger tables can need more (a
+    /// 65,536-row two-mask screen needs 44). Two-mask output with a certified
+    /// p = 2^8 gadget goes down to 28 bits; every other profile, including
+    /// one-mask output at p = 2^8, accepts only 49.
     pub fn with_dithered_query_bits(mut self, bits: usize) -> Result<Self, ReinspiringError> {
         // The floor is the smallest precision certified on the recorded
-        // full-size snapshot; other snapshots need their own certificate.
-        if self.pack.q() != 1u64 << 54 || !(MIN_DITHERED_QUERY_BITS..=49).contains(&bits) {
-            return Err(err("dithered queries require native q54 and 43..=49 bits"));
+        // full-size snapshot for this plaintext width and output mode;
+        // other snapshots need their own certificate.
+        let floors = floors(&self.pack);
+        let floor = if self.two_mask {
+            floors.two_mask_dithered_query
+        } else {
+            floors.one_mask_dithered_query
+        };
+        if self.pack.q() != 1u64 << 54 || !(floor..=49).contains(&bits) {
+            return Err(err(
+                "dithered queries require native q54 and a certified-range precision",
+            ));
         }
         self.query_bits = bits;
         self.dithered_query = true;
@@ -131,6 +234,33 @@ impl NativeProfile {
     /// Bits transmitted per query coefficient.
     pub fn query_bits(&self) -> usize {
         self.query_bits
+    }
+    /// Experimental two-mask response-body precision between the profile's
+    /// floor and the default p_bits+6 bits. Only two-mask output with the
+    /// certified p = 2^8 gadgets (19, 2) and (27, 1) has a narrower floor
+    /// (10 bits); every other profile, and one-mask output, accepts only the
+    /// default. Each choice
+    /// needs a snapshot certificate. Requires q = 2^54 unless the width is the
+    /// default. The width is already part of the setup hash, so the default
+    /// keeps the existing setup identifiers.
+    pub fn with_response_bits(mut self, bits: usize) -> Result<Self, ReinspiringError> {
+        let default = default_response_bits(&self.pack);
+        let floor = if self.two_mask {
+            floors(&self.pack).two_mask_response_bits
+        } else {
+            default
+        };
+        if !(floor..=default).contains(&bits) || (bits != default && self.pack.q() != 1u64 << 54) {
+            return Err(err(
+                "response precision must be between the certified floor and p_bits+6",
+            ));
+        }
+        self.response_bits = bits;
+        Ok(self)
+    }
+    /// Bits transmitted per response body coefficient.
+    pub fn response_bits(&self) -> usize {
+        self.response_bits
     }
     /// Whether query coefficients use dithered rather than nearest rounding.
     pub fn is_dithered_query(&self) -> bool {
@@ -579,13 +709,57 @@ pub struct NativeTiming {
     pub serialization: Duration,
 }
 
+/// Offline build durations. Hint and packing are summed over output blocks
+/// (block-seconds, comparable across concurrency); layout and total are wall time.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NativeOfflineTiming {
+    /// Database-by-query-mask hint construction, summed over blocks.
+    pub hints: Duration,
+    /// Packing preprocessing (mask trace and matrix compilation), summed over blocks.
+    pub packing: Duration,
+    /// Conversion of the database into scan tiles.
+    pub layout: Duration,
+    /// Complete build.
+    pub total: Duration,
+}
+
+/// Database entries retained in their storage width. 8-bit plaintexts may use
+/// one byte per entry; wider plaintexts always use u16.
+enum NativeDatabase {
+    U16(Vec<u16>),
+    U8(Vec<u8>),
+}
+
+/// Plaintext word types the server can store and scan.
+trait DatabaseEntry: Copy + Send + Sync + Into<u64> + Into<i128> {
+    fn interleave(band: &mut [Self], rows: usize);
+    fn wrap(db: Vec<Self>) -> NativeDatabase;
+}
+impl DatabaseEntry for u16 {
+    fn interleave(band: &mut [Self], rows: usize) {
+        reinspiring::native_kernel::PreparedU16Query::interleave_columns(band, rows)
+    }
+    fn wrap(db: Vec<Self>) -> NativeDatabase {
+        NativeDatabase::U16(db)
+    }
+}
+impl DatabaseEntry for u8 {
+    fn interleave(band: &mut [Self], rows: usize) {
+        reinspiring::native_kernel::PreparedU16Query::interleave_u8_columns(band, rows)
+    }
+    fn wrap(db: Vec<Self>) -> NativeDatabase {
+        NativeDatabase::U8(db)
+    }
+}
+
 /// Immutable database and compiled public preprocessing. Supported SIMD hosts
 /// retain byte-plane tiles; other hosts retain the column-major input layout.
 pub struct NativeServer {
     setup: NativePublicSetup,
-    db: Vec<u16>,
+    db: NativeDatabase,
     interleaved: bool,
     pre: Vec<NativePreprocessed>,
+    offline: NativeOfflineTiming,
 }
 /// Offline public bounds for one response block. These are certificate inputs,
 /// not a claim of a particular failure probability.
@@ -658,6 +832,7 @@ impl NativeServer {
         db: Vec<u16>,
         concurrent_blocks: usize,
     ) -> Result<Self, ReinspiringError> {
+        Self::require_u16(&setup)?;
         Self::build_internal(setup, db, concurrent_blocks, false).map(|(server, _)| server)
     }
     /// Build with snapshot-specific noise statistics. Analyze blocks serially to
@@ -666,23 +841,61 @@ impl NativeServer {
         setup: NativePublicSetup,
         db: Vec<u16>,
     ) -> Result<(Self, Vec<NativeBlockNoise>), ReinspiringError> {
+        Self::require_u16(&setup)?;
         Self::build_internal(setup, db, 1, true)
     }
-    fn build_internal(
+    /// Build an 8-bit database stored one byte per entry (p <= 2^8). Same
+    /// arithmetic, setup and responses as the u16 builder for the same entries;
+    /// it halves database memory and scans one byte plane.
+    pub fn build_u8_with_concurrency(
         setup: NativePublicSetup,
-        mut db: Vec<u16>,
+        db: Vec<u8>,
+        concurrent_blocks: usize,
+    ) -> Result<Self, ReinspiringError> {
+        Self::require_u8(&setup)?;
+        Self::build_internal(setup, db, concurrent_blocks, false).map(|(server, _)| server)
+    }
+    /// 8-bit storage with snapshot-specific noise statistics.
+    pub fn build_u8_analyzed(
+        setup: NativePublicSetup,
+        db: Vec<u8>,
+    ) -> Result<(Self, Vec<NativeBlockNoise>), ReinspiringError> {
+        Self::require_u8(&setup)?;
+        Self::build_internal(setup, db, 1, true)
+    }
+    /// The profile admits 2^31 entries at p <= 2^8 because 8-bit storage
+    /// holds one byte per entry; two-byte storage keeps the 2^30 (2 GiB) limit.
+    fn require_u16(setup: &NativePublicSetup) -> Result<(), ReinspiringError> {
+        if setup.profile.rows * setup.profile.cols > 1 << 30 {
+            return Err(err(
+                "more than 2^30 entries require 8-bit storage (build_u8_*)",
+            ));
+        }
+        Ok(())
+    }
+    fn require_u8(setup: &NativePublicSetup) -> Result<(), ReinspiringError> {
+        if setup.profile.pack.p() > 256 {
+            return Err(err("8-bit storage requires p <= 2^8"));
+        }
+        Ok(())
+    }
+    fn build_internal<T: DatabaseEntry>(
+        setup: NativePublicSetup,
+        mut db: Vec<T>,
         concurrent_blocks: usize,
         analyze: bool,
     ) -> Result<(Self, Vec<NativeBlockNoise>), ReinspiringError> {
+        let total_start = Instant::now();
         if concurrent_blocks == 0 {
             return Err(err("zero preprocessing concurrency"));
         }
         let p = &setup.profile;
         let d = p.pack.d();
         let q = p.pack.q();
-        if db.len() != p.rows * p.cols || db.iter().any(|&x| x as u64 >= p.pack.p()) {
+        if db.len() != p.rows * p.cols || db.iter().any(|&x| Into::<u64>::into(x) >= p.pack.p()) {
             return Err(err("database shape or plaintext range mismatch"));
         }
+        let mut offline = NativeOfflineTiming::default();
         let lift = LiftContext::new(d, q)?;
         let public_polys = lift.prepare_public_dot(&setup.polys, (p.pack.p() - 1).min(q / 2))?;
         let mut pre = Vec::with_capacity(p.cols / d);
@@ -692,20 +905,28 @@ impl NativeServer {
             let batch: Result<Vec<_>, _> = (start..end)
                 .into_par_iter()
                 .map(|block| {
+                    let hint_start = Instant::now();
                     let masks: Result<Vec<_>, _> = (block * d..(block + 1) * d)
                         .into_par_iter()
                         .map(|col| {
                             let coeffs: Vec<Vec<u64>> = db[col * p.rows..(col + 1) * p.rows]
                                 .chunks_exact(d)
-                                .map(|poly| poly.iter().map(|&x| x as u64).collect())
+                                .map(|poly| poly.iter().map(|&x| x.into()).collect())
                                 .collect();
                             lift.public_dot(&public_polys, &coeffs)
                         })
                         .collect();
                     let masks = masks?;
+                    let hint = hint_start.elapsed();
+                    let pack_start = Instant::now();
+                    let timed = |(pre, analysis)| (pre, analysis, hint, pack_start.elapsed());
                     if analyze {
                         let (pre, mut packing) = if p.two_mask {
-                            NativePreprocessed::build_two_mask_analyzed(&setup.packing, &masks)?
+                            NativePreprocessed::build_two_mask_analyzed_with_screens(
+                                &setup.packing,
+                                &masks,
+                                floors(&p.pack).two_mask_screens,
+                            )?
                         } else {
                             NativePreprocessed::build_analyzed(&setup.packing, &masks)?
                         };
@@ -722,47 +943,76 @@ impl NativeServer {
                             .chunks_exact(p.rows)
                             .map(|col| {
                                 reinspiring::noise::WeightNorms::measure(
-                                    col.iter().map(|&x| x as i128),
+                                    col.iter().map(|&x| Into::<i128>::into(x)),
                                 )
                             })
                             .fold(reinspiring::noise::WeightNorms::default(), |a, b| {
                                 a.envelope(b)
                             });
-                        Ok((pre, Some(NativeBlockNoise { packing, query })))
+                        Ok(timed((pre, Some(NativeBlockNoise { packing, query }))))
                     } else {
                         (if p.two_mask {
                             NativePreprocessed::build_two_mask(&setup.packing, &masks)
                         } else {
                             NativePreprocessed::build(&setup.packing, &masks)
                         })
-                        .map(|pre| (pre, None))
+                        .map(|pre| timed((pre, None)))
                     }
                 })
                 .collect();
-            for (block, analysis) in batch? {
+            for (block, analysis, hint, packing) in batch? {
                 pre.push(block);
+                offline.hints += hint;
+                offline.packing += packing;
                 if let Some(analysis) = analysis {
                     analyses.push(analysis);
                 }
             }
         }
+        let layout_start = Instant::now();
         let interleaved = p.rows % 4 == 0
             && p.cols % 16 == 0
             && reinspiring::native_kernel::PreparedU16Query::supports_interleaved();
         if interleaved {
-            db.par_chunks_mut(p.rows * 16).for_each(|band| {
-                reinspiring::native_kernel::PreparedU16Query::interleave_columns(band, p.rows)
-            });
+            db.par_chunks_mut(p.rows * 16)
+                .for_each(|band| T::interleave(band, p.rows));
         }
+        offline.layout = layout_start.elapsed();
+        offline.total = total_start.elapsed();
         Ok((
             Self {
                 setup,
-                db,
+                db: T::wrap(db),
                 interleaved,
                 pre,
+                offline,
             },
             analyses,
         ))
+    }
+    /// Bytes retained for database entries (1 per entry for 8-bit storage, else 2).
+    pub fn database_bytes(&self) -> usize {
+        match &self.db {
+            NativeDatabase::U16(x) => x.len() * 2,
+            NativeDatabase::U8(x) => x.len(),
+        }
+    }
+    /// Whether entries are stored one byte each.
+    pub fn is_u8_storage(&self) -> bool {
+        matches!(self.db, NativeDatabase::U8(_))
+    }
+    /// Storage width chosen for each output block's compiled packing matrix.
+    pub fn matrix_storage(&self) -> Vec<reinspiring::native_matrix::NativeMatrixStorage> {
+        self.pre.iter().map(|p| p.matrix_storage()).collect()
+    }
+    /// Signed width of each block's compiled matrix entries. Diagnostic: scans
+    /// every retained matrix once.
+    pub fn matrix_magnitude_bits(&self) -> Vec<u32> {
+        self.pre.iter().map(|p| p.matrix_magnitude_bits()).collect()
+    }
+    /// Offline build durations.
+    pub fn offline_timing(&self) -> NativeOfflineTiming {
+        self.offline
     }
     /// Publish setup-bound c1 rows.
     pub fn published(&self) -> NativePublished {
@@ -851,16 +1101,23 @@ impl NativeServer {
         let deserialize = start.elapsed();
         let t = Instant::now();
         let mut intermediate = vec![0; p.cols];
-        if self.interleaved {
-            intermediate
+        match (&self.db, self.interleaved) {
+            (NativeDatabase::U16(db), true) => intermediate
                 .par_chunks_mut(16)
-                .zip(self.db.par_chunks(p.rows * 16))
-                .for_each(|(out, db)| prepared_query.multiply_interleaved(db, out));
-        } else {
-            intermediate
+                .zip(db.par_chunks(p.rows * 16))
+                .for_each(|(out, db)| prepared_query.multiply_interleaved(db, out)),
+            (NativeDatabase::U16(db), false) => intermediate
                 .par_iter_mut()
-                .zip(self.db.par_chunks_exact(p.rows))
-                .for_each(|(out, col)| *out = prepared_query.dot(col));
+                .zip(db.par_chunks_exact(p.rows))
+                .for_each(|(out, col)| *out = prepared_query.dot(col)),
+            (NativeDatabase::U8(db), true) => intermediate
+                .par_chunks_mut(16)
+                .zip(db.par_chunks(p.rows * 16))
+                .for_each(|(out, db)| prepared_query.multiply_interleaved_u8(db, out)),
+            (NativeDatabase::U8(db), false) => intermediate
+                .par_iter_mut()
+                .zip(db.par_chunks_exact(p.rows))
+                .for_each(|(out, col)| *out = prepared_query.dot_u8(col)),
         }
         let matrix_vector = t.elapsed();
         let t = Instant::now();
@@ -911,7 +1168,9 @@ fn decode(bytes: &[u8], n: usize, bits: usize) -> Result<Vec<u64>, ReinspiringEr
     if bytes.len() != packed_len(n, bits) {
         return Err(err("invalid payload length"));
     }
-    let words = contiguous_bytes_to_u64s(bytes, bits);
+    // Widths below 8 bits can unpack more than n words from the padding.
+    let mut words = contiguous_bytes_to_u64s(bytes, bits);
+    words.truncate(n);
     if encode(&words, bits) != bytes {
         return Err(err("noncanonical padding"));
     }
@@ -1184,6 +1443,58 @@ mod transport_tests {
         }
     }
     #[test]
+    fn recorded_p8_setup_ids() {
+        // Setup IDs of the 28-bit query, 10-bit response, 22-bit mask reports
+        // in bench-results/2026-10-09-p8-native/certificates, for both gadgets.
+        for (ell, gadget_bits, rows, cols, id) in [
+            (
+                2,
+                19,
+                28672,
+                65536,
+                "7c5b9c0fde5a1d9db2709baed9ff5994ab054e16fa60a902b00ba61d41485e9c",
+            ),
+            (
+                1,
+                27,
+                28672,
+                65536,
+                "61bea92cf99b31e73a0e80bdf6783a9f59088a6f6667949be2e13882a26a6606",
+            ),
+            (
+                2,
+                19,
+                65536,
+                32768,
+                "d479eff097af2c155becda48d2e145dbace0b74b0fe8ed5a407991677a250c95",
+            ),
+            (
+                1,
+                27,
+                65536,
+                32768,
+                "290c60438eb62f51e0412fb4d9fa15676a5bf35650392a2c202444e0f28c954f",
+            ),
+        ] {
+            let pack =
+                NativeParams::new(2048, 54, 8, gadget_bits, ell, SecretDistribution::Gaussian)
+                    .unwrap();
+            let profile = NativeProfile::new(pack, rows, cols)
+                .unwrap()
+                .with_two_mask_output()
+                .unwrap()
+                .with_published_mask_bits(22)
+                .unwrap()
+                .with_dithered_query_bits(28)
+                .unwrap()
+                .with_response_bits(10)
+                .unwrap();
+            let setup = NativePublicSetup::new(profile, [7; 32], [19; 32]);
+            let hex: String = setup.id.iter().map(|x| format!("{x:02x}")).collect();
+            assert_eq!(hex, id);
+        }
+    }
+    #[test]
     fn dithered_query_rounding_is_unbiased_floor_or_ceiling() {
         let q = 1u64 << 54;
         let mut rng = ChaCha20Rng::seed_from_u64(7);
@@ -1249,5 +1560,14 @@ mod transport_tests {
                 assert_eq!(round, words);
             }
         }
+    }
+    #[test]
+    fn decode_returns_exactly_n_words() {
+        // One 3-bit word in one byte leaves 5 padding bits. Without the
+        // truncation these unpacked as a second word, re-encoded identically
+        // and so passed the padding check.
+        assert_eq!(decode(&[0b0000_0101], 1, 3).unwrap(), vec![0b101]);
+        assert!(decode(&[0b0010_1101], 1, 3).is_err());
+        assert!(decode(&[0b1000_0101], 1, 3).is_err());
     }
 }

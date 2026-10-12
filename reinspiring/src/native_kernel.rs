@@ -9,6 +9,9 @@ pub struct PreparedU16Query {
     words: Vec<u64>,
     #[cfg(target_arch = "x86_64")]
     digits: Vec<Vec<i8>>,
+    /// Low-order digit vectors dropped because every row's digit was zero.
+    /// Kept digits are weighted by 2^(8*(skip+j)).
+    skip: usize,
     mask: u64,
 }
 impl PreparedU16Query {
@@ -20,28 +23,92 @@ impl PreparedU16Query {
             ));
         }
         #[cfg(target_arch = "x86_64")]
-        let mut digits = Vec::new();
-        #[cfg(target_arch = "x86_64")]
-        if std::is_x86_feature_detected!("avx512vnni")
-            && std::is_x86_feature_detected!("avx512bw")
-            && std::is_x86_feature_detected!("avx512dq")
-            && std::is_x86_feature_detected!("avx512f")
-        {
-            digits = vec![vec![0; words.len()]; (q.trailing_zeros() as usize).div_ceil(8)];
-            for (i, &x) in words.iter().enumerate() {
-                let mut x = x;
-                for digit in &mut digits {
-                    digit[i] = x as u8 as i8;
-                    x = (x + 128) >> 8;
-                }
-            }
-        }
+        let (digits, skip) = if Self::supports_interleaved() {
+            byte_digits(words, q)
+        } else {
+            (Vec::new(), 0)
+        };
+        #[cfg(not(target_arch = "x86_64"))]
+        let skip = 0;
         Ok(Self {
             words: words.to_vec(),
             #[cfg(target_arch = "x86_64")]
             digits,
+            skip,
             mask: q - 1,
         })
+    }
+    /// Test-only constructor that forces the portable kernels on any host.
+    #[cfg(test)]
+    fn without_vnni(words: &[u64], q: u64) -> Self {
+        let mut query = Self::new(words, q).unwrap();
+        #[cfg(target_arch = "x86_64")]
+        query.digits.clear();
+        query.skip = 0;
+        query
+    }
+    /// Number of all-zero low radix-256 digit planes skipped by the byte
+    /// kernels. A k-bit query lifted to q = 2^54 skips floor((54-k)/8) planes.
+    pub fn skipped_low_digits(&self) -> usize {
+        self.skip
+    }
+    /// Dot one equally sized 8-bit database column, including tails.
+    pub fn dot_u8(&self, column: &[u8]) -> u64 {
+        assert_eq!(column.len(), self.words.len());
+        dot_u8(column, &self.words) & self.mask
+    }
+    /// Offline conversion of whole 16-column bands of 8-bit entries into
+    /// byte tiles: each 4-row group stores 64 bytes, column c's four rows at
+    /// bytes 4c..4c+3. This is exactly the low plane of the u16 tile layout,
+    /// so 8-bit databases need one byte per element and one VNNI pass.
+    pub fn interleave_u8_columns(db: &mut [u8], rows: usize) {
+        assert!(rows > 0 && rows % 4 == 0 && db.len() % (rows * 16) == 0);
+        for band in db.chunks_exact_mut(rows * 16) {
+            let mut scratch = vec![0; band.len()];
+            for row in (0..rows).step_by(4) {
+                for col in 0..16 {
+                    for k in 0..4 {
+                        scratch[row * 16 + col * 4 + k] = band[col * rows + row + k];
+                    }
+                }
+            }
+            band.copy_from_slice(&scratch);
+        }
+    }
+    /// Multiply interleaved 16-column bands of 8-bit entries.
+    pub fn multiply_interleaved_u8(&self, db: &[u8], out: &mut [u64]) {
+        let rows = self.words.len();
+        assert!(rows > 0 && rows % 4 == 0 && out.len() % 16 == 0);
+        assert_eq!(db.len(), rows.checked_mul(out.len()).expect("matrix size"));
+        for (band, out) in db.chunks_exact(rows * 16).zip(out.chunks_exact_mut(16)) {
+            #[cfg(target_arch = "x86_64")]
+            if !self.digits.is_empty() {
+                // SAFETY: constructor checks SIMD features and digit lengths;
+                // shape checks above guarantee complete 4-row/16-column tiles.
+                unsafe {
+                    x86::interleaved_u8_vnni(
+                        band,
+                        &self.digits,
+                        out,
+                        self.mask,
+                        8 * self.skip as u32,
+                    );
+                }
+                continue;
+            }
+            out.fill(0);
+            for row in (0..rows).step_by(4) {
+                for (col, dst) in out.iter_mut().enumerate() {
+                    for k in 0..4 {
+                        let value = band[row * 16 + col * 4 + k];
+                        *dst = dst.wrapping_add((value as u64).wrapping_mul(self.words[row + k]));
+                    }
+                }
+            }
+            for x in out {
+                *x &= self.mask;
+            }
+        }
     }
     /// Dot one equally sized database column, including non-vector tails.
     pub fn dot(&self, column: &[u16]) -> u64 {
@@ -94,7 +161,7 @@ impl PreparedU16Query {
                 // SAFETY: constructor checks SIMD features and digit lengths;
                 // shape checks above guarantee complete 4-row/16-column tiles.
                 unsafe {
-                    x86::interleaved_vnni(band, &self.digits, out, self.mask);
+                    x86::interleaved_vnni(band, &self.digits, out, self.mask, 8 * self.skip as u32);
                 }
                 continue;
             }
@@ -121,21 +188,66 @@ impl PreparedU16Query {
         if !self.digits.is_empty() {
             // SAFETY: the checked constructor verifies CPU features and limb
             // lengths; private callers keep offset+column.len() within words.
+            let base = 8 * self.skip as u32;
             return unsafe {
                 match self.digits.len() {
-                    1 => x86::u16_dot_vnni::<1>(column, words, &self.digits, offset),
-                    2 => x86::u16_dot_vnni::<2>(column, words, &self.digits, offset),
-                    3 => x86::u16_dot_vnni::<3>(column, words, &self.digits, offset),
-                    4 => x86::u16_dot_vnni::<4>(column, words, &self.digits, offset),
-                    5 => x86::u16_dot_vnni::<5>(column, words, &self.digits, offset),
-                    6 => x86::u16_dot_vnni::<6>(column, words, &self.digits, offset),
-                    7 => x86::u16_dot_vnni::<7>(column, words, &self.digits, offset),
+                    1 => x86::u16_dot_vnni::<1>(column, words, &self.digits, offset, base),
+                    2 => x86::u16_dot_vnni::<2>(column, words, &self.digits, offset, base),
+                    3 => x86::u16_dot_vnni::<3>(column, words, &self.digits, offset, base),
+                    4 => x86::u16_dot_vnni::<4>(column, words, &self.digits, offset, base),
+                    5 => x86::u16_dot_vnni::<5>(column, words, &self.digits, offset, base),
+                    6 => x86::u16_dot_vnni::<6>(column, words, &self.digits, offset, base),
+                    7 => x86::u16_dot_vnni::<7>(column, words, &self.digits, offset, base),
                     _ => unreachable!("validated byte limb count"),
                 }
             } & self.mask;
         }
         dot_u16(column, words) & self.mask
     }
+}
+
+/// Signed radix-256 digits of canonical words modulo q = 2^k, least
+/// significant first, with all-zero low digit vectors removed. Returns the
+/// kept digits and the number skipped (at most L-1, so one digit remains).
+/// Exact: a removed vector contributes zero to every dot product, and the
+/// kept digits reconstruct each word as sum_j d_j 2^(8(skip+j)) mod 2^(8L).
+#[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
+fn byte_digits(words: &[u64], q: u64) -> (Vec<Vec<i8>>, usize) {
+    let limbs = (q.trailing_zeros() as usize).div_ceil(8);
+    let mut digits = vec![vec![0i8; words.len()]; limbs];
+    for (i, &x) in words.iter().enumerate() {
+        let mut x = x;
+        for digit in &mut digits {
+            digit[i] = x as u8 as i8;
+            x = (x + 128) >> 8;
+        }
+    }
+    let skip = digits
+        .iter()
+        .take(limbs - 1)
+        .take_while(|d| d.iter().all(|&x| x == 0))
+        .count();
+    digits.drain(..skip);
+    (digits, skip)
+}
+
+/// Runtime-dispatched u8-by-u64 dot product, including all tail elements.
+/// The result is the low 64 bits of the integer sum; callers reduce mod 2^k.
+pub fn dot_u8(a: &[u8], b: &[u64]) -> u64 {
+    assert_eq!(a.len(), b.len());
+    #[cfg(target_arch = "x86_64")]
+    if std::is_x86_feature_detected!("avx512f") && std::is_x86_feature_detected!("avx512dq") {
+        // SAFETY: features detected; equal slices and whole-vector loads.
+        return unsafe { x86::u8_dot_512(a, b) };
+    }
+    #[cfg(target_arch = "x86_64")]
+    if std::is_x86_feature_detected!("avx2") {
+        // SAFETY: feature detected, equal-length slices, kernel loads whole groups.
+        return unsafe { x86::u8_dot(a, b) };
+    }
+    a.iter().zip(b).fold(0u64, |s, (&a, &b)| {
+        s.wrapping_add((a as u64).wrapping_mul(b))
+    })
 }
 
 /// Runtime-dispatched u16-by-u64 dot product, including all tail elements.
@@ -342,11 +454,12 @@ mod x86 {
         digits: &[Vec<i8>],
         out: &mut [u64],
         mask: u64,
+        base: u32,
     ) {
         // Specialize limb count so LLVM keeps the accumulators in registers.
         macro_rules! call {
             ($n:expr) => {
-                unsafe { interleaved_inner::<$n>(db, digits, out, mask) }
+                unsafe { interleaved_inner::<$n>(db, digits, out, mask, base) }
             };
         }
         match digits.len() {
@@ -366,6 +479,7 @@ mod x86 {
         digits: &[Vec<i8>],
         out: &mut [u64],
         mask: u64,
+        base: u32,
     ) {
         out.fill(0);
         let rows = db.len() / 16;
@@ -400,11 +514,12 @@ mod x86 {
                     _mm512_storeu_si512(low_words.as_mut_ptr().cast(), low[j]);
                     _mm512_storeu_si512(high_words.as_mut_ptr().cast(), high[j]);
                 }
+                let shift = base + 8 * j as u32;
                 for col in 0..16 {
-                    out[col] = out[col].wrapping_add((low_words[col] as i64 as u64) << (8 * j));
+                    out[col] = out[col].wrapping_add((low_words[col] as i64 as u64) << shift);
                     if j + 1 < L {
                         out[col] =
-                            out[col].wrapping_add((high_words[col] as i64 as u64) << (8 * j + 8));
+                            out[col].wrapping_add((high_words[col] as i64 as u64) << (shift + 8));
                     }
                 }
             }
@@ -419,6 +534,7 @@ mod x86 {
         b: &[u64],
         digits: &[Vec<i8>],
         offset: usize,
+        base: u32,
     ) -> u64 {
         let end = a.len() / 64 * 64;
         let mut result = 0u64;
@@ -454,13 +570,133 @@ mod x86 {
                 let l = _mm512_reduce_add_epi32(low[j]) as i64 as u64;
                 let h = _mm512_reduce_add_epi32(high[j]) as i64 as u64;
                 result = result
-                    .wrapping_add(l.wrapping_shl((8 * j) as u32))
-                    .wrapping_add(h.wrapping_shl((8 * j + 8) as u32));
+                    .wrapping_add(l.wrapping_shl(base + (8 * j) as u32))
+                    .wrapping_add(h.wrapping_shl(base + (8 * j + 8) as u32));
             }
         }
         a[end..].iter().zip(&b[end..]).fold(result, |s, (&x, &y)| {
             s.wrapping_add((x as u64).wrapping_mul(y))
         })
+    }
+    #[target_feature(enable = "avx512f,avx512dq,avx512bw,avx512vnni")]
+    pub(super) unsafe fn interleaved_u8_vnni(
+        db: &[u8],
+        digits: &[Vec<i8>],
+        out: &mut [u64],
+        mask: u64,
+        base: u32,
+    ) {
+        macro_rules! call {
+            ($n:expr) => {
+                unsafe { interleaved_u8_inner::<$n>(db, digits, out, mask, base) }
+            };
+        }
+        match digits.len() {
+            1 => call!(1),
+            2 => call!(2),
+            3 => call!(3),
+            4 => call!(4),
+            5 => call!(5),
+            6 => call!(6),
+            7 => call!(7),
+            _ => unreachable!(),
+        }
+    }
+    /// One 64-byte tile per four rows: a single load and one dpbusd per
+    /// digit, with no high byte plane.
+    #[target_feature(enable = "avx512f,avx512dq,avx512bw,avx512vnni")]
+    unsafe fn interleaved_u8_inner<const L: usize>(
+        db: &[u8],
+        digits: &[Vec<i8>],
+        out: &mut [u64],
+        mask: u64,
+        base: u32,
+    ) {
+        out.fill(0);
+        let rows = db.len() / 16;
+        for start in (0..rows).step_by(65536) {
+            let end = (start + 65536).min(rows);
+            let mut acc = [_mm512_setzero_si512(); L];
+            for row in (start..end).step_by(4) {
+                // SAFETY: validated whole tiles and digit lengths; unaligned loads.
+                unsafe {
+                    let tile = _mm512_loadu_si512(db.as_ptr().add(row * 16).cast());
+                    for j in 0..L {
+                        let y = _mm512_set1_epi32(
+                            digits[j].as_ptr().add(row).cast::<i32>().read_unaligned(),
+                        );
+                        acc[j] = _mm512_dpbusd_epi32(acc[j], tile, y);
+                    }
+                }
+            }
+            // Each lane sums at most 65536*255*128 < 2^31 in magnitude.
+            for (j, acc) in acc.iter().enumerate() {
+                let mut words = [0i32; 16];
+                // SAFETY: the output array holds exactly one vector.
+                unsafe {
+                    _mm512_storeu_si512(words.as_mut_ptr().cast(), *acc);
+                }
+                let shift = base + 8 * j as u32;
+                for col in 0..16 {
+                    out[col] = out[col].wrapping_add((words[col] as i64 as u64) << shift);
+                }
+            }
+        }
+        for x in out {
+            *x &= mask;
+        }
+    }
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn u8_dot_512(a: &[u8], b: &[u64]) -> u64 {
+        let end = a.len() / 32 * 32;
+        let mut sums = [_mm512_setzero_si512(); 4];
+        for i in (0..end).step_by(32) {
+            for (j, sum) in sums.iter_mut().enumerate() {
+                // SAFETY: i+32<=both lengths; loads 8 bytes and 8 words, unaligned.
+                unsafe {
+                    let x = _mm512_cvtepu8_epi64(_mm_loadl_epi64(a.as_ptr().add(i + j * 8).cast()));
+                    let y = _mm512_loadu_si512(b.as_ptr().add(i + j * 8).cast());
+                    *sum = _mm512_add_epi64(*sum, _mm512_mullo_epi64(x, y));
+                }
+            }
+        }
+        let sum = _mm512_add_epi64(
+            _mm512_add_epi64(sums[0], sums[1]),
+            _mm512_add_epi64(sums[2], sums[3]),
+        );
+        let mut words = [0u64; 8];
+        // SAFETY: output holds exactly one vector.
+        unsafe {
+            _mm512_storeu_si512(words.as_mut_ptr().cast(), sum);
+        }
+        let tail = a[end..].iter().zip(&b[end..]).fold(0u64, |s, (&x, &y)| {
+            s.wrapping_add((x as u64).wrapping_mul(y))
+        });
+        words.into_iter().fold(tail, u64::wrapping_add)
+    }
+    #[target_feature(enable = "avx2")]
+    pub(super) unsafe fn u8_dot(a: &[u8], b: &[u64]) -> u64 {
+        let end = a.len() / 4 * 4;
+        let mut sum = _mm256_setzero_si256();
+        for i in (0..end).step_by(4) {
+            // SAFETY: four bytes and four u64 words remain in the slices.
+            unsafe {
+                let x = _mm256_cvtepu8_epi64(_mm_cvtsi32_si128(
+                    a.as_ptr().add(i).cast::<i32>().read_unaligned(),
+                ));
+                let y = _mm256_loadu_si256(b.as_ptr().add(i).cast());
+                sum = _mm256_add_epi64(sum, mul64(x, y));
+            }
+        }
+        let mut words = [0u64; 4];
+        // SAFETY: output contains exactly 32 writable bytes.
+        unsafe {
+            _mm256_storeu_si256(words.as_mut_ptr().cast(), sum);
+        }
+        let tail = a[end..].iter().zip(&b[end..]).fold(0u64, |s, (&a, &b)| {
+            s.wrapping_add((a as u64).wrapping_mul(b))
+        });
+        words.into_iter().fold(tail, u64::wrapping_add)
     }
     #[target_feature(enable = "avx512f,avx512dq")]
     pub(super) unsafe fn i32_dot_512(a: &[i32], b: &[u64]) -> u64 {
@@ -644,6 +880,182 @@ mod tests {
             }
         }
     }
+    fn scalar_dot<T: Copy + Into<u64>>(column: &[T], query: &[u64], q: u64) -> u64 {
+        column
+            .iter()
+            .zip(query)
+            .fold(0u64, |s, (&a, &b)| s.wrapping_add(a.into().wrapping_mul(b)))
+            & (q - 1)
+    }
+    #[test]
+    fn byte_digits_skip_zero_low_planes_and_reconstruct_exactly() {
+        let mut state = 99u64;
+        for bits in [8u32, 16, 54, 56] {
+            let q = 1u64 << bits;
+            let limbs = bits.div_ceil(8) as usize;
+            for shift in [0u32, 5, 8, 11, 16, 26, 27, 40, 55] {
+                for n in [0usize, 1, 7, 64, 65] {
+                    let words: Vec<u64> = (0..n)
+                        .map(|i| {
+                            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                            let x = if i % 4 == 0 { q - 1 } else { state };
+                            x.checked_shl(shift).unwrap_or(0) & (q - 1)
+                        })
+                        .collect();
+                    let (digits, skip) = byte_digits(&words, q);
+                    assert_eq!(digits.len() + skip, limbs);
+                    assert!(skip < limbs);
+                    if n > 0 && shift < bits {
+                        assert!(
+                            skip >= (shift as usize / 8).min(limbs - 1),
+                            "bits={bits} shift={shift}"
+                        );
+                    }
+                    for (i, &w) in words.iter().enumerate() {
+                        let rebuilt = digits.iter().enumerate().fold(0u64, |s, (j, d)| {
+                            s.wrapping_add((d[i] as i64 as u64).wrapping_shl(8 * (skip + j) as u32))
+                        }) & (q - 1);
+                        assert_eq!(rebuilt, w, "bits={bits} shift={shift} i={i}");
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn lifted_queries_match_scalar_on_dispatched_and_portable_paths() {
+        let mut state = 7u64;
+        for bits in [16u32, 54, 56] {
+            let q = 1u64 << bits;
+            for shift in [0u32, 5, 8, 16, 27] {
+                for rows in [4usize, 68, 2052] {
+                    let query: Vec<u64> = (0..rows)
+                        .map(|i| {
+                            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                            (if i % 5 == 0 { q - 1 } else { state } << shift) & (q - 1)
+                        })
+                        .collect();
+                    let cols = 32;
+                    let col16: Vec<u16> = (0..rows * cols)
+                        .map(|i| {
+                            if i % 3 == 0 {
+                                u16::MAX
+                            } else {
+                                (i as u16).wrapping_mul(173)
+                            }
+                        })
+                        .collect();
+                    let col8: Vec<u8> = col16.iter().map(|&x| x as u8).collect();
+                    let expected16: Vec<_> = col16
+                        .chunks_exact(rows)
+                        .map(|c| scalar_dot(c, &query, q))
+                        .collect();
+                    let expected8: Vec<_> = col8
+                        .chunks_exact(rows)
+                        .map(|c| scalar_dot(c, &query, q))
+                        .collect();
+                    let mut tiles16 = col16.clone();
+                    PreparedU16Query::interleave_columns(&mut tiles16, rows);
+                    let mut tiles8 = col8.clone();
+                    PreparedU16Query::interleave_u8_columns(&mut tiles8, rows);
+                    for prepared in [
+                        PreparedU16Query::new(&query, q).unwrap(),
+                        PreparedU16Query::without_vnni(&query, q),
+                    ] {
+                        let columns16: Vec<_> =
+                            col16.chunks_exact(rows).map(|c| prepared.dot(c)).collect();
+                        assert_eq!(
+                            columns16, expected16,
+                            "bits={bits} shift={shift} rows={rows}"
+                        );
+                        let columns8: Vec<_> = col8
+                            .chunks_exact(rows)
+                            .map(|c| prepared.dot_u8(c))
+                            .collect();
+                        assert_eq!(columns8, expected8);
+                        let mut out = vec![0; cols];
+                        prepared.multiply_interleaved(&tiles16, &mut out);
+                        assert_eq!(out, expected16, "u16 tiles bits={bits} shift={shift}");
+                        prepared.multiply_interleaved_u8(&tiles8, &mut out);
+                        assert_eq!(out, expected8, "u8 tiles bits={bits} shift={shift}");
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn u8_tiles_match_scalar_across_accumulator_windows() {
+        for bits in [8, 16, 54, 56] {
+            let q = 1u64 << bits;
+            for shift in [0u32, 27] {
+                for rows in [4, 68, 2052, 65540] {
+                    let cols = 32;
+                    let query: Vec<_> = (0..rows)
+                        .map(|i| {
+                            ([q - 1, 0x80808080808080 & (q - 1), 0, q / 2][i % 4] << shift)
+                                & (q - 1)
+                        })
+                        .collect();
+                    let db: Vec<u8> = (0..rows * cols)
+                        .map(|i| {
+                            if i % 3 == 0 {
+                                u8::MAX
+                            } else {
+                                (i as u8).wrapping_mul(173)
+                            }
+                        })
+                        .collect();
+                    let expected: Vec<_> = db
+                        .chunks_exact(rows)
+                        .map(|c| scalar_dot(c, &query, q))
+                        .collect();
+                    let mut tiles = db.clone();
+                    PreparedU16Query::interleave_u8_columns(&mut tiles, rows);
+                    for prepared in [
+                        PreparedU16Query::new(&query, q).unwrap(),
+                        PreparedU16Query::without_vnni(&query, q),
+                    ] {
+                        let mut out = vec![0; cols];
+                        prepared.multiply_interleaved_u8(&tiles, &mut out);
+                        assert_eq!(out, expected, "bits={bits} shift={shift} rows={rows}");
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn u8_tiles_equal_the_u16_low_plane() {
+        let rows = 68;
+        let db16: Vec<u16> = (0..rows * 32).map(|i| (i * 37 % 256) as u16).collect();
+        let mut tiles16 = db16.clone();
+        PreparedU16Query::interleave_columns(&mut tiles16, rows);
+        let mut tiles8: Vec<u8> = db16.iter().map(|&x| x as u8).collect();
+        PreparedU16Query::interleave_u8_columns(&mut tiles8, rows);
+        for (group, chunk) in tiles16.chunks_exact(64).enumerate() {
+            let low: Vec<u8> = chunk[..32].iter().flat_map(|w| w.to_le_bytes()).collect();
+            assert_eq!(low, tiles8[group * 64..(group + 1) * 64]);
+            assert!(chunk[32..].iter().all(|&w| w == 0));
+        }
+    }
+    #[test]
+    fn interleaved_u16_forced_portable_matches_scalar() {
+        let q = 1u64 << 54;
+        let rows = 2052;
+        let query: Vec<_> = (0..rows)
+            .map(|i| [q - 1, 0x80808080808080 & (q - 1), 0, q / 2][i % 4])
+            .collect();
+        let db: Vec<u16> = (0..rows * 32)
+            .map(|i| (i as u16).wrapping_mul(40503))
+            .collect();
+        let expected: Vec<_> = db
+            .chunks_exact(rows)
+            .map(|c| scalar_dot(c, &query, q))
+            .collect();
+        let mut tiles = db.clone();
+        PreparedU16Query::interleave_columns(&mut tiles, rows);
+        let mut out = vec![0; 32];
+        PreparedU16Query::without_vnni(&query, q).multiply_interleaved(&tiles, &mut out);
+        assert_eq!(out, expected);
+    }
     #[test]
     fn packed_widths_match_scalar_at_signed_bounds_and_vector_tails() {
         fn check<const BITS: usize, const ROWS: usize, const GROUPS: usize>() {
@@ -716,12 +1128,26 @@ mod tests {
                 s.wrapping_add((a as u64).wrapping_mul(b))
             });
             assert_eq!(dot_u16(&c, &b), expected);
+            let e: Vec<u8> = (0..n).map(|i| u8::MAX.wrapping_sub(i as u8)).collect();
+            let expected8 = e.iter().zip(&b).fold(0u64, |s, (&a, &b)| {
+                s.wrapping_add((a as u64).wrapping_mul(b))
+            });
+            assert_eq!(dot_u8(&e, &b), expected8);
             #[cfg(target_arch = "x86_64")]
             if std::is_x86_feature_detected!("avx2") {
                 // SAFETY: features checked; test vectors have matching lengths.
                 unsafe {
                     assert_eq!(x86::i32_dot(&a, &b), scalar_i32(&a, &b));
                     assert_eq!(x86::u16_dot(&c, &b), expected);
+                    assert_eq!(x86::u8_dot(&e, &b), expected8);
+                }
+            }
+            #[cfg(target_arch = "x86_64")]
+            if std::is_x86_feature_detected!("avx512f") && std::is_x86_feature_detected!("avx512dq")
+            {
+                // SAFETY: features checked; test vectors have matching lengths.
+                unsafe {
+                    assert_eq!(x86::u8_dot_512(&e, &b), expected8);
                 }
             }
         }

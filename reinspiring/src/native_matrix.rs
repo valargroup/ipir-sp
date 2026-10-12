@@ -13,6 +13,38 @@ pub(crate) enum Words {
     Wide(crate::prepared_native::Storage<i64>),
 }
 
+/// Signed word width chosen for a compiled matrix. Selection depends on the
+/// actual entry bound and on host SIMD support (packed widths need AVX-512 VBMI).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum NativeMatrixStorage {
+    /// Signed 27-bit entries, bit-packed.
+    Packed27,
+    /// Signed 28-bit entries, bit-packed.
+    Packed28,
+    /// Signed 32-bit words.
+    I32,
+    /// Signed 64-bit words.
+    I64,
+}
+impl NativeMatrixStorage {
+    /// Stable lowercase label for reports.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Packed27 => "packed27",
+            Self::Packed28 => "packed28",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+        }
+    }
+}
+
+/// Smallest w such that every value lies in [-2^(w-1), 2^(w-1)).
+fn signed_width(min: i64, max: i64) -> u32 {
+    let width = |v: i64| 65 - (if v < 0 { !v } else { v }).leading_zeros();
+    width(min).max(width(max))
+}
+
 /// Validated row-major matrix with private dimensions and canonical storage.
 pub struct NativeMatrix {
     pub(crate) rows: usize,
@@ -140,6 +172,49 @@ impl NativeMatrix {
             q,
             words,
         })
+    }
+    /// Storage width selected for this matrix.
+    pub fn storage(&self) -> NativeMatrixStorage {
+        match &self.words {
+            Words::Packed { bits: 27, .. } => NativeMatrixStorage::Packed27,
+            Words::Packed { .. } => NativeMatrixStorage::Packed28,
+            Words::Narrow(_) => NativeMatrixStorage::I32,
+            Words::Wide(_) => NativeMatrixStorage::I64,
+        }
+    }
+    /// Smallest signed width holding every centered entry. Diagnostic only:
+    /// scans the retained words once.
+    pub fn magnitude_bits(&self) -> u32 {
+        let fold = |(lo, hi): (i64, i64), v: i64| (lo.min(v), hi.max(v));
+        let merge = |a: (i64, i64), b: (i64, i64)| (a.0.min(b.0), a.1.max(b.1));
+        let (lo, hi) = match &self.words {
+            Words::Packed { bits, data } => {
+                let n = self.rows * self.cols;
+                (0..n)
+                    .into_par_iter()
+                    .fold(
+                        || (0i64, 0i64),
+                        |acc, i| {
+                            let v = if *bits == 27 {
+                                crate::native_kernel::read_packed::<27>(data, i)
+                            } else {
+                                crate::native_kernel::read_packed::<28>(data, i)
+                            };
+                            fold(acc, v as i64)
+                        },
+                    )
+                    .reduce(|| (0, 0), merge)
+            }
+            Words::Narrow(x) => x
+                .par_chunks(65536)
+                .map(|part| part.iter().fold((0, 0), |acc, &v| fold(acc, v as i64)))
+                .reduce(|| (0, 0), merge),
+            Words::Wide(x) => x
+                .par_chunks(65536)
+                .map(|part| part.iter().fold((0, 0), |acc, &v| fold(acc, v)))
+                .reduce(|| (0, 0), merge),
+        };
+        signed_width(lo, hi)
     }
     /// Bytes retained for coefficient words (excluding the small object header).
     pub fn storage_bytes(&self) -> usize {
@@ -328,6 +403,7 @@ mod tests {
                 (1 << 27) + 1,
                 1 << 31,
                 (1 << 31) + 1,
+                1 << 33,
             ] {
                 let mut blocks = vec![];
                 for cols in [3, 5, 8] {
@@ -360,6 +436,17 @@ mod tests {
                     })
                     .collect();
                 assert_eq!(m.multiply(&y).unwrap(), sums);
+                assert_eq!(m.magnitude_bits(), signed_width(-bound, bound - 1));
+                let expected_storage = if bound > (1 << 31) {
+                    NativeMatrixStorage::I64
+                } else if bound > (1 << 27) || !crate::native_kernel::supports_packed() {
+                    NativeMatrixStorage::I32
+                } else if bound <= (1 << 26) {
+                    NativeMatrixStorage::Packed27
+                } else {
+                    NativeMatrixStorage::Packed28
+                };
+                assert_eq!(m.storage(), expected_storage, "rows={rows} bound={bound}");
                 if bound > (1 << 27) {
                     assert!(!matches!(m.words, Words::Packed { .. }));
                 } else if crate::native_kernel::supports_packed() {
@@ -369,6 +456,17 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn signed_width_is_tight_at_both_signs() {
+        assert_eq!(signed_width(0, 0), 1);
+        assert_eq!(signed_width(-1, 0), 1);
+        assert_eq!(signed_width(0, 1), 2);
+        assert_eq!(signed_width(-(1 << 26), (1 << 26) - 1), 27);
+        assert_eq!(signed_width(-(1 << 26) - 1, 0), 28);
+        assert_eq!(signed_width(0, 1 << 26), 28);
+        assert_eq!(signed_width(i64::MIN, i64::MAX), 64);
     }
 
     #[test]

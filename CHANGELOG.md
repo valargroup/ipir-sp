@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+- Experimental 8-bit native profile (opt-in, `native-reinspiring`). Two-mask
+  output at p = 2^8 with the two-digit (19, 2) or one-digit (27, 1) gadget
+  accepts dithered queries down to 28 bits, published masks down to 22 bits
+  and responses down to 10 bits (screens cover 16..=32-bit masks); every
+  combination at or above those floors passed the width screen on the
+  recorded fixture for both gadgets. The certificates are data-dependent:
+  with every entry at 255 the 28-bit query bound falls below 2^-128 for the
+  one-digit gadget at 28,672 rows and for both gadgets at 65,536 rows, so
+  each snapshot needs its own certificate. The narrowed p = 2^16 floors
+  (43-bit queries, 27 / 28-bit masks) now apply only to the (19, 2) gadget
+  they were certified for. Every other pair, including one-mask output at
+  p = 2^8, other plaintext widths and other gadgets at p = 2^16, accepts only
+  the default transport (49-bit queries, 54 / 64-bit masks, default
+  response): the one-digit and wide-digit gadgets at p = 2^16 certify 2^0 on
+  a full-height block even at the defaults. Every existing setup ID, wire layout and recorded
+  certificate is unchanged. `NativeProfile::with_response_bits` narrows
+  two-mask responses only for the certified p = 2^8 gadgets (10 to 14 bits,
+  q = 2^54); elsewhere it accepts only the default, which keeps setup IDs.
+- Response, query and mask decoding returns exactly the expected word count
+  and rejects nonzero padding at every width.
+  The size guard counts storage bytes: p <= 2^8 shapes may hold 2^31 entries
+  with 8-bit storage, and the u16 builders keep the 2^30 limit.
+- 8-bit database storage: `NativeServer::build_u8_with_concurrency` /
+  `build_u8_analyzed` store one byte per entry (half the database memory) and
+  scan it with a new AVX-512 VNNI byte-tile kernel (portable fallback), with
+  responses identical to u16 storage. The byte kernels skip all-zero low query
+  digits, so 27-28-bit queries scan with 4 radix-256 digits instead of 7.
+- One-digit `K_g` gadgets: `NativeParams` accepts digit widths and dropped bits
+  up to 27 (`MAX_GADGET_BITS`), e.g. one base-2^27 digit at q = 2^54, which
+  halves the packing-key upload. Its compiled matrices need about 35 bits per
+  entry and are stored as i64, so it does not reduce server packing memory.
+  `NativeParams::gadget_bits`, `NativeServer::matrix_storage`,
+  `matrix_magnitude_bits`, `database_bytes` and `offline_timing` report what
+  was built.
+- Two-mask analysis screens caller-chosen published-mask precisions
+  (`NativePreprocessed::build_two_mask_analyzed_with_screens`; 16..=32 at
+  p = 2^8). `native_noise` takes `--p-bits --ell --gadget-bits --response-bits
+  --storage`. `certify_native.py` certifies two-mask reports at p = 2^8 with
+  any gadget and response width (legacy certificates byte-identical), now
+  also accepts two-mask p = 2^16 reports with 17..=21-bit responses or a
+  non-(2, 19) gadget under a `2^(53-response_bits)` budget, and adds
+  `--screens` (mask/response screens, width frontier, and a bound whose
+  query-transport term is data-independent). Evidence:
+  `bench-results/2026-10-09-p8-native/certificates/`.
 - Guard the mask derivations without changing them. `inspiring` exposes the
   fixed `K_g`/`K_h` mask coefficients (`reference_mask_coeffs`), and
   `ipir_sp::server::verify_query_masks_distinct_from_key_masks` rejects a

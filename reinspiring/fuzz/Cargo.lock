@@ -334,6 +334,7 @@ version = "0.1.0-rc.2"
 dependencies = [
  "bytemuck",
  "memmap2",
+ "rand 0.8.8",
  "rand_chacha",
  "rayon",
  "thiserror 1.0.69",
@@ -342,7 +343,7 @@ dependencies = [
 
 [[package]]
 name = "ipir-sp"
-version = "0.1.0-rc.5"
+version = "0.1.0-rc.6"
 dependencies = [
  "clap",
  "env_logger",
@@ -359,6 +360,7 @@ dependencies = [
  "sha2",
  "simplepir-kernel",
  "valar-spiral-rs",
+ "zeroize",
 ]
 
 [[package]]
