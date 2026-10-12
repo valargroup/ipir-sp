@@ -9,7 +9,7 @@ repository = "https://github.com/valargroup/ipir-sp"
 
 [dependencies]
 inspiring = { path = "../inspiring", version = "=0.1.0-rc.3" }
-reinspiring = { path = "../reinspiring", version = "=0.1.3" }
+reinspiring = { path = "../reinspiring", version = "=0.1.3-rc.1" }
 simplepir-kernel = { path = "../simplepir-kernel", version = "=0.1.0-rc.4" }
 spiral-rs = { workspace = true }
 # Operating-system entropy for client seeds only. Public CRS expansion goes
