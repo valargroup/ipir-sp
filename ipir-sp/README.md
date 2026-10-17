@@ -77,8 +77,8 @@ let (query, keys, seed) = client.generate_fresh_query_simplepir(&setup, 0);
 Feature-gated demo binaries mirror YPIR's raw `POST /query` transport:
 
 ```bash
-cargo run -p ipir-sp --features http_server --bin server -- 16384 131072
-cargo run -p ipir-sp --features http_client --bin client -- 0 16384 131072
+cargo run -p ipir-sp --features cli,http_server --bin server -- 16384 131072
+cargo run -p ipir-sp --features cli,http_client --bin client -- 0 16384 131072
 ```
 
 Use the same `--setup-seed` on both commands so the client query matches the
