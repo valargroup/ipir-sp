@@ -17,8 +17,7 @@ spiral-rs = { workspace = true }
 rand = { version = "0.9", default-features = false, features = ["os_rng"] }
 rand_chacha = "0.3.1"
 log = "0.4.20"
-env_logger = "0.11.1"
-clap = { version = "4.5.0", features = ["derive"] }
+clap = { version = "4.5.0", features = ["derive"], optional = true }
 fastrand = "2.0.0"
 rayon = "1"
 serde = { version = "1.0.160", features = ["derive"] }
@@ -31,6 +30,8 @@ reqwest = { version = "0.12", features = ["blocking"], optional = true }
 
 [features]
 default = []
+# Argument parsing belongs to the demonstration binaries, not the library.
+cli = ["dep:clap"]
 cuda = ["simplepir-kernel/cuda"]
 experimental-key-reuse = []
 experimental-params = []
@@ -73,3 +74,11 @@ required-features = ["native-reinspiring"]
 [[example]]
 name = "native_compare"
 required-features = ["native-reinspiring"]
+
+[[bin]]
+name = "client"
+required-features = ["cli", "http_client"]
+
+[[bin]]
+name = "server"
+required-features = ["cli", "http_server"]
