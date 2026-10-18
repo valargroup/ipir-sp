@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/inspiring-crate.yml"
       - "reinspiring/**"
+      - "ipir-native-client/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "inspiring/Cargo.toml"
@@ -35,6 +36,7 @@ on:
     paths:
       - ".github/workflows/inspiring-crate.yml"
       - "reinspiring/**"
+      - "ipir-native-client/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "inspiring/Cargo.toml"
@@ -94,24 +96,24 @@ jobs:
             ${{ runner.os }}-cargo-rust-crates-
 
       - name: cargo fmt --check
-        run: cargo fmt -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel -p nullifier-pir -- --check
+        run: cargo fmt -p ipir-native-client -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel -p nullifier-pir -- --check
 
       - name: cargo doc
         # Build docs to catch broken intra-doc links early. `--no-deps` so we
         # don't try to docgen spiral-rs.
-        run: cargo doc -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --no-deps --all-features
+        run: cargo doc -p ipir-native-client -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --no-deps --all-features
         env:
           RUSTDOCFLAGS: "-D warnings"
 
       - name: cargo clippy
-        run: cargo clippy -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --all-targets --all-features -- -D warnings
+        run: cargo clippy -p ipir-native-client -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --all-targets --all-features -- -D warnings
 
       - name: cargo clippy nullifier-pir
         # Default features only: `ypir-artifact` pulls an external YPIR checkout.
         run: cargo clippy -p nullifier-pir --all-targets -- -D warnings
 
       - name: cargo check
-        run: cargo check -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --all-targets --all-features
+        run: cargo check -p ipir-native-client -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --all-targets --all-features
 
   tests:
     name: Tests and benches
@@ -153,7 +155,7 @@ jobs:
             ${{ runner.os }}-cargo-rust-crates-tests-
 
       - name: cargo test
-        run: cargo test -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --all-features --no-fail-fast
+        run: cargo test -p ipir-native-client -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --all-features --no-fail-fast
 
       - name: cargo test nullifier-pir
         run: cargo test -p nullifier-pir --no-fail-fast
