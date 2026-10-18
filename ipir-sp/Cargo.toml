@@ -8,6 +8,7 @@ description = "IPIR-SP glue crate using InspiRING.Pack as the ring-packing primi
 repository = "https://github.com/valargroup/ipir-sp"
 
 [dependencies]
+ipir-native-client = { path = "../ipir-native-client", version = "=0.1.0-rc.1" }
 inspiring = { path = "../inspiring", version = "=0.1.0-rc.3" }
 reinspiring = { path = "../reinspiring", version = "=0.1.3-rc.1" }
 simplepir-kernel = { path = "../simplepir-kernel", version = "=0.1.0-rc.4" }

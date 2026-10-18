@@ -1,0 +1,1148 @@
+//! Experimental native ReinspiRING integration with the IPIR-SP first dimension.
+//!
+//! Distinct versioned transport; never accepted as an existing production profile.
+//! Setup identifiers prevent accidental mixing, not malicious-server forgery.
+#![doc = include_str!("../README.md")]
+#![deny(rust_2018_idioms)]
+#![forbid(unsafe_code)]
+
+pub mod bits;
+pub mod wire;
+
+use rand::TryRngCore;
+use rand_chacha::{
+    rand_core::{RngCore, SeedableRng},
+    ChaCha20Rng,
+};
+use reinspiring::native::*;
+pub use reinspiring::{
+    native::{NativeParams, NativeSecret, NativeSetup, SecretDistribution},
+    ReinspiringError,
+};
+use sha2::{Digest, Sha256};
+use wire::*;
+
+/// Smallest transport precisions accepted for a profile and output mode.
+/// Floors are pinned only to recorded evidence, per (plaintext, gadget) pair.
+///
+/// p = 2^16 with the (19, 2) gadget: the values certified (query) or screened
+/// (masks) on the recorded 28,672-row fixture, 43-bit dithered queries,
+/// 27-bit two-mask and 28-bit one-mask published masks. No narrower two-mask
+/// response was regenerated and certified there (the 17-bit screen gives
+/// 2^-28), so only the default p_bits+6 response is admitted.
+///
+/// p = 2^8 with the two-digit (19, 2) or one-digit (27, 1) gadget, two-mask
+/// output only: 28-bit dithered queries, 22-bit masks and 10-bit responses.
+/// Every combination at or above all three passed the width screen on the
+/// recorded 28,672 x 65,536 fixture for both gadgets
+/// (`certify_native.py --screens` on bench-results/2026-10-09-p8-native/
+/// certificates/screen-noise-*.json, `width_frontier`), and
+/// 28/10/22 was regenerated and certified for both gadgets at 28,672 and
+/// 65,536 rows.
+/// Those certificates are data-dependent in the query term. With every
+/// database entry at p - 1 the 28-bit query bound drops to 2^-126 (one-digit)
+/// at 28,672 rows and to 2^-82 / 2^-69 (two- / one-digit) at 65,536 rows, so
+/// a database heavy in 0xFF entries can fall short of 2^-128 at the floors;
+/// 29-bit queries clear 2^-128 for any database on both fixtures. Narrower
+/// widths certify only in some combinations and stay reachable through
+/// analysis screens alone.
+///
+/// Every other pair, including one-mask output at p = 2^8, has no recorded
+/// certificate at any narrowed width, so it accepts only the default
+/// transport: 49-bit queries (dithering at 49 keeps the wire), lossless 54-bit
+/// or exact 64-bit masks and the default response. Wider digits and the
+/// one-digit gadget at p = 2^16 certify 2^0 on a full-height block even at the
+/// default widths, so these pairs are arithmetic limits, not approved
+/// profiles. Every served snapshot still needs its own certificate.
+struct TransportFloors {
+    two_mask_dithered_query: usize,
+    one_mask_dithered_query: usize,
+    /// Smallest rounded mask width, or None when only 54 and 64 are accepted.
+    two_mask_mask_bits: Option<usize>,
+    one_mask_mask_bits: Option<usize>,
+    two_mask_response_bits: usize,
+}
+fn floors(pack: &NativeParams) -> TransportFloors {
+    let gadget = (pack.p().trailing_zeros(), pack.gadget_bits(), pack.ell());
+    let default_response = default_response_bits(pack);
+    match gadget {
+        (16, 19, 2) => TransportFloors {
+            two_mask_dithered_query: 43,
+            one_mask_dithered_query: 43,
+            two_mask_mask_bits: Some(27),
+            one_mask_mask_bits: Some(28),
+            two_mask_response_bits: default_response,
+        },
+        (8, 19, 2) | (8, 27, 1) => TransportFloors {
+            two_mask_dithered_query: 28,
+            one_mask_dithered_query: 49,
+            two_mask_mask_bits: Some(22),
+            one_mask_mask_bits: None,
+            two_mask_response_bits: 10,
+        },
+        _ => TransportFloors {
+            two_mask_dithered_query: 49,
+            one_mask_dithered_query: 49,
+            two_mask_mask_bits: None,
+            one_mask_mask_bits: None,
+            two_mask_response_bits: default_response,
+        },
+    }
+}
+/// Whether `bits` is an accepted published-mask width under `floor`: exact
+/// 64-bit, lossless 54-bit, or a rounded width between the floor and 32.
+fn mask_width_allowed(bits: usize, floor: Option<usize>) -> bool {
+    bits == 64 || bits == 54 || floor.is_some_and(|f| (f..=32).contains(&bits))
+}
+/// Default response-body width, p_bits+6 (capped at log2 q).
+fn default_response_bits(pack: &NativeParams) -> usize {
+    (pack.p().trailing_zeros() as usize + 6).min(pack.q().trailing_zeros() as usize)
+}
+
+/// Validated profile and database shape. All fields are immutable.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeProfile {
+    pack: NativeParams,
+    rows: usize,
+    cols: usize,
+    query_bits: usize,
+    response_bits: usize,
+    kh_bits: usize,
+    two_mask: bool,
+    published_mask_bits: usize,
+    dithered_query: bool,
+}
+impl NativeProfile {
+    /// Offline screen range for the validated plaintext and gadget family.
+    pub fn public_mask_screens(&self) -> std::ops::RangeInclusive<u32> {
+        match (
+            self.pack.p().trailing_zeros(),
+            self.pack.gadget_bits(),
+            self.pack.ell(),
+        ) {
+            (8, 19, 2) | (8, 27, 1) => 16..=32,
+            _ => DEFAULT_TWO_MASK_SCREENS,
+        }
+    }
+
+    /// Database dimensions must be nonzero multiples of d, with bounded size.
+    /// Gaussian secrets are required by the integrated client; ternary remains
+    /// confined to the standalone packing research configuration.
+    pub fn new(pack: NativeParams, rows: usize, cols: usize) -> Result<Self, ReinspiringError> {
+        if rows == 0
+            || cols == 0
+            || rows % pack.d() != 0
+            || cols % pack.d() != 0
+            || rows
+                .checked_mul(cols)
+                .filter(|&n| n <= if pack.p() <= 256 { 1 << 31 } else { 1 << 30 })
+                .is_none()
+            || pack.sampler() != SecretDistribution::Gaussian
+            || pack.p() > 65536
+        {
+            return Err(err("invalid native IPIR profile or database shape"));
+        }
+        let query_bits = 49.min(pack.q().trailing_zeros() as usize);
+        let response_bits = default_response_bits(&pack);
+        Ok(Self {
+            kh_bits: pack.q().trailing_zeros() as usize,
+            pack,
+            rows,
+            cols,
+            query_bits,
+            response_bits,
+            two_mask: false,
+            published_mask_bits: 64,
+            dithered_query: false,
+        })
+    }
+    /// Experimental, lossy final-key transport. No correctness approval is implied.
+    /// Full precision preserves the original RNQ1 profile and setup bytes.
+    pub fn with_kh_bits(mut self, bits: usize) -> Result<Self, ReinspiringError> {
+        let full = self.pack.q().trailing_zeros() as usize;
+        if self.two_mask && bits != full {
+            return Err(err("two-mask mode has no K_h precision"));
+        }
+        if bits != full && !(40..full).contains(&bits) {
+            return Err(err("Kh precision must be between 40 and log2(q)"));
+        }
+        self.kh_bits = bits;
+        Ok(self)
+    }
+    /// Transmitted bits per final-key ciphertext coefficient.
+    pub fn kh_bits(&self) -> usize {
+        self.kh_bits
+    }
+    /// Experimental one-key output decoded under two public masks. Call this
+    /// before the transport knobs: for profiles with recorded certificates,
+    /// two-mask output unlocks the narrower query, mask and response floors.
+    pub fn with_two_mask_output(mut self) -> Result<Self, ReinspiringError> {
+        if self.kh_bits != self.pack.q().trailing_zeros() as usize {
+            return Err(err("two-mask mode has no K_h precision"));
+        }
+        let floor = floors(&self.pack).two_mask_mask_bits;
+        if !mask_width_allowed(self.published_mask_bits, floor) {
+            return Err(err(
+                "two-mask mode requires a certified-range or lossless mask precision",
+            ));
+        }
+        self.two_mask = true;
+        Ok(self)
+    }
+    /// Experimental rounded public-mask transport, down to the profile's floor
+    /// and up to 32 bits. The floor is 27 two-mask / 28 one-mask at p = 2^16
+    /// with the (19, 2) gadget and 22 two-mask for the certified p = 2^8
+    /// gadgets; every other profile accepts no rounded width. 54 is lossless
+    /// bit-packing; 64 selects the legacy exact u64 encoding. Requires
+    /// q = 2^54 and a snapshot certificate.
+    pub fn with_published_mask_bits(mut self, bits: usize) -> Result<Self, ReinspiringError> {
+        let floors = floors(&self.pack);
+        let floor = if self.two_mask {
+            floors.two_mask_mask_bits
+        } else {
+            floors.one_mask_mask_bits
+        };
+        if bits != 64 && (self.pack.q() != 1u64 << 54 || !mask_width_allowed(bits, floor)) {
+            return Err(err(
+                "rounded public masks require native q54 and 54 or a certified-range precision",
+            ));
+        }
+        self.published_mask_bits = bits;
+        Ok(self)
+    }
+    /// Bits transmitted per public mask coefficient (64 is exact legacy encoding).
+    pub fn published_mask_bits(&self) -> usize {
+        self.published_mask_bits
+    }
+    /// Whether the response is decoded under two public masks.
+    pub fn is_two_mask(&self) -> bool {
+        self.two_mask
+    }
+    /// Experimental dithered query transport at up to the legacy 49 bits.
+    /// Each coefficient rounds up with probability equal to its dropped
+    /// fraction, drawn from the request RNG, so rounding errors are
+    /// independent and zero-mean given the query. Requires a snapshot
+    /// certificate; 49-bit nearest rounding remains the default. Dithering
+    /// at 49 bits keeps the request length and tightens the certificate.
+    /// The 43-bit floor at p = 2^16 with the (19, 2) gadget was certified on
+    /// the recorded 28,672-row fixture only; larger tables can need more (a
+    /// 65,536-row two-mask screen needs 44). Two-mask output with a certified
+    /// p = 2^8 gadget goes down to 28 bits; every other profile, including
+    /// one-mask output at p = 2^8, accepts only 49.
+    pub fn with_dithered_query_bits(mut self, bits: usize) -> Result<Self, ReinspiringError> {
+        // The floor is the smallest precision certified on the recorded
+        // full-size snapshot for this plaintext width and output mode;
+        // other snapshots need their own certificate.
+        let floors = floors(&self.pack);
+        let floor = if self.two_mask {
+            floors.two_mask_dithered_query
+        } else {
+            floors.one_mask_dithered_query
+        };
+        if self.pack.q() != 1u64 << 54 || !(floor..=49).contains(&bits) {
+            return Err(err(
+                "dithered queries require native q54 and a certified-range precision",
+            ));
+        }
+        self.query_bits = bits;
+        self.dithered_query = true;
+        Ok(self)
+    }
+    /// Bits transmitted per query coefficient.
+    pub fn query_bits(&self) -> usize {
+        self.query_bits
+    }
+    /// Experimental two-mask response-body precision between the profile's
+    /// floor and the default p_bits+6 bits. Only two-mask output with the
+    /// certified p = 2^8 gadgets (19, 2) and (27, 1) has a narrower floor
+    /// (10 bits); every other profile, and one-mask output, accepts only the
+    /// default. Each choice
+    /// needs a snapshot certificate. Requires q = 2^54 unless the width is the
+    /// default. The width is already part of the setup hash, so the default
+    /// keeps the existing setup identifiers.
+    pub fn with_response_bits(mut self, bits: usize) -> Result<Self, ReinspiringError> {
+        let default = default_response_bits(&self.pack);
+        let floor = if self.two_mask {
+            floors(&self.pack).two_mask_response_bits
+        } else {
+            default
+        };
+        if !(floor..=default).contains(&bits) || (bits != default && self.pack.q() != 1u64 << 54) {
+            return Err(err(
+                "response precision must be between the certified floor and p_bits+6",
+            ));
+        }
+        self.response_bits = bits;
+        Ok(self)
+    }
+    /// Bits transmitted per response body coefficient.
+    pub fn response_bits(&self) -> usize {
+        self.response_bits
+    }
+    /// Whether query coefficients use dithered rather than nearest rounding.
+    pub fn is_dithered_query(&self) -> bool {
+        self.dithered_query
+    }
+    /// Query encoding selected by the validated profile.
+    pub fn request_magic(&self) -> &'static [u8; 4] {
+        if self.two_mask {
+            b"RNQ3"
+        } else if self.kh_bits == self.pack.q().trailing_zeros() as usize {
+            b"RNQ1"
+        } else {
+            b"RNQ2"
+        }
+    }
+    /// Packing profile.
+    pub fn packing(&self) -> &NativeParams {
+        &self.pack
+    }
+    /// Number of database rows.
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+    /// Coefficients in one retrieved row.
+    pub fn cols(&self) -> usize {
+        self.cols
+    }
+}
+
+/// Seed-derived query masks and packing setup. The client expands these itself.
+pub struct NativePublicSetup {
+    profile: NativeProfile,
+    id: [u8; 32],
+    polys: Vec<Vec<u64>>,
+    packing: NativeSetup,
+}
+impl NativePublicSetup {
+    /// Deterministic packing setup bound to this public setup's identity.
+    pub fn packing_setup(&self) -> &NativeSetup {
+        &self.packing
+    }
+
+    /// Domain-separated expansion bound to profile, database shape and snapshot ID.
+    /// Snapshot IDs identify data versions but do not authenticate their contents.
+    pub fn new(profile: NativeProfile, seed: [u8; 32], snapshot: [u8; 32]) -> Self {
+        let mut h = Sha256::new();
+        h.update(b"ipir-sp/native/v1/setup");
+        h.update(profile.pack.encoding());
+        if profile.request_magic() == b"RNQ2" {
+            h.update(b"/kh-transport-v2/");
+            h.update((profile.kh_bits as u64).to_le_bytes());
+        }
+        if profile.two_mask {
+            h.update(b"/two-mask-one-key-v1/");
+        }
+        if profile.published_mask_bits != 64 {
+            h.update(b"/rounded-public-masks-v1/");
+            h.update((profile.published_mask_bits as u64).to_le_bytes());
+        }
+        if profile.dithered_query {
+            h.update(b"/dithered-query-v1/");
+        }
+        for n in [
+            profile.rows,
+            profile.cols,
+            profile.query_bits,
+            profile.response_bits,
+        ] {
+            h.update((n as u64).to_le_bytes());
+        }
+        h.update(seed);
+        h.update(snapshot);
+        let id: [u8; 32] = h.finalize().into();
+        let mut rng = ChaCha20Rng::from_seed(id);
+        let polys = (0..profile.rows / profile.pack.d())
+            .map(|_| {
+                (0..profile.pack.d())
+                    .map(|_| rng.next_u64() & (profile.pack.q() - 1))
+                    .collect()
+            })
+            .collect();
+        let packing = NativeSetup::new(profile.pack.clone(), id);
+        Self {
+            profile,
+            id,
+            polys,
+            packing,
+        }
+    }
+    /// Public first-dimension masks for distributed hint construction.
+    pub fn query_masks(&self) -> &[Vec<u64>] {
+        &self.polys
+    }
+    /// Profile and dimensions.
+    pub fn profile(&self) -> &NativeProfile {
+        &self.profile
+    }
+    /// Public setup identifier.
+    pub fn id(&self) -> [u8; 32] {
+        self.id
+    }
+}
+
+/// Per-request client state; consumes fresh OS entropy and retains the secret locally.
+pub struct NativeRequest {
+    secret: NativeSecret,
+    profile: NativeProfile,
+    setup_id: [u8; 32],
+    query_id: [u8; 32],
+    bytes: Vec<u8>,
+    decoding: Option<([u8; 32], NativeDecodingState)>,
+}
+impl NativeRequest {
+    /// Generate fresh query/key randomness. Target selection is branch-free.
+    pub fn generate(setup: &NativePublicSetup, target: usize) -> Result<Self, ReinspiringError> {
+        let mut seed = [0; 32];
+        rand::rngs::OsRng
+            .try_fill_bytes(&mut seed)
+            .map_err(|_| err("OS entropy unavailable"))?;
+        Self::generate_with_rng(setup, target, &mut ChaCha20Rng::from_seed(seed))
+    }
+    /// Deterministic RNG entry point for reproducible tests and benchmarks.
+    /// Production callers should use generate; seeds must never be public/reused.
+    pub fn generate_with_rng(
+        setup: &NativePublicSetup,
+        target: usize,
+        rng: &mut ChaCha20Rng,
+    ) -> Result<Self, ReinspiringError> {
+        let p = &setup.profile;
+        if target >= p.rows {
+            return Err(err("target out of range"));
+        }
+        let secret = NativeSecret::sample(&p.pack, rng);
+        let keys = if p.two_mask {
+            NativeKeys::generate_one_key(&setup.packing, &secret, rng)?
+        } else {
+            NativeKeys::generate(&setup.packing, &secret, rng)?
+        };
+        let query = secret.encrypt_selection(&setup.polys, target, rng)?;
+        let mut bytes = p.request_magic().to_vec();
+        bytes.extend(setup.id);
+        let words = keys.words();
+        let half = p.pack.ell() * p.pack.d();
+        if p.two_mask {
+            bytes.extend(encode(
+                &keys.kg_words(),
+                p.pack.q().trailing_zeros() as usize,
+            ));
+        } else if p.request_magic() == b"RNQ1" {
+            bytes.extend(encode(&words, p.kh_bits));
+        } else {
+            bytes.extend(encode(&words[..half], p.pack.q().trailing_zeros() as usize));
+            bytes.extend(encode(
+                &down(&words[half..], p.pack.q(), p.kh_bits),
+                p.kh_bits,
+            ));
+        }
+        let query = if p.dithered_query {
+            down_dithered(&query, p.pack.q(), p.query_bits, rng)
+        } else {
+            down(&query, p.pack.q(), p.query_bits)
+        };
+        bytes.extend(encode(&query, p.query_bits));
+        let query_id = Sha256::digest(&bytes).into();
+        Ok(Self {
+            secret,
+            profile: p.clone(),
+            setup_id: setup.id,
+            query_id,
+            bytes,
+            decoding: None,
+        })
+    }
+    /// Canonical versioned request bytes.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    /// Decode a response using the public c1 rows for this snapshot.
+    pub fn decode(
+        &self,
+        published: &NativePublished,
+        response: &[u8],
+    ) -> Result<Vec<u64>, ReinspiringError> {
+        self.decode_inner(published, response, None).map(|x| x.0)
+    }
+    /// Precompute request-local mask products before sending the query.
+    /// This is online client work and must be included in generation timings.
+    pub fn prepare_decode(
+        &mut self,
+        published: &NativePreparedPublished,
+    ) -> Result<(), ReinspiringError> {
+        if published.setup_id != self.setup_id || published.profile != self.profile {
+            return Err(err("prepared setup/profile mismatch"));
+        }
+        self.decoding = Some((
+            published.mask_digest,
+            published.decoder.prepare_request(&self.secret)?,
+        ));
+        Ok(())
+    }
+    /// Decode with cached public transforms bound to this snapshot and profile.
+    pub fn decode_prepared(
+        &self,
+        published: &NativePreparedPublished,
+        response: &[u8],
+    ) -> Result<Vec<u64>, ReinspiringError> {
+        let p = &self.profile;
+        if published.setup_id != self.setup_id
+            || published.profile != *p
+            || response.len() != 68 + packed_len(p.cols, p.response_bits)
+            || &response[..4] != if p.two_mask { b"RNR2" } else { b"RNR1" }
+            || response[4..36] != self.setup_id
+            || response[36..68] != self.query_id
+        {
+            return Err(err("prepared response/setup/request binding mismatch"));
+        }
+        let bodies = up(
+            &decode(&response[68..], p.cols, p.response_bits)?,
+            p.pack.q(),
+            p.response_bits,
+        );
+        if let Some((digest, state)) = &self.decoding {
+            if *digest != published.mask_digest {
+                return Err(err("prepared mask digest mismatch"));
+            }
+            state.decrypt(&bodies)
+        } else {
+            published.decoder.decrypt(&self.secret, &bodies)
+        }
+    }
+
+    /// Decode and measure true phase error against the known expected row.
+    pub fn decode_with_error(
+        &self,
+        published: &NativePublished,
+        response: &[u8],
+        expected: &[u64],
+    ) -> Result<(Vec<u64>, u64), ReinspiringError> {
+        if expected.len() != self.profile.cols
+            || expected.iter().any(|&x| x >= self.profile.pack.p())
+        {
+            return Err(err("invalid expected row"));
+        }
+        self.decode_inner(published, response, Some(expected))
+    }
+    fn decode_inner(
+        &self,
+        published: &NativePublished,
+        response: &[u8],
+        expected: Option<&[u64]>,
+    ) -> Result<(Vec<u64>, u64), ReinspiringError> {
+        let p = &self.profile;
+        let d = p.pack.d();
+        if published.setup_id != self.setup_id
+            || published.masks.len() != p.cols / d
+            || published.other_masks.is_some() != p.two_mask
+            || published
+                .other_masks
+                .as_ref()
+                .is_some_and(|x| x.len() != p.cols / d)
+            || response.len() != 68 + packed_len(p.cols, p.response_bits)
+            || &response[..4] != if p.two_mask { b"RNR2" } else { b"RNR1" }
+            || response[4..36] != self.setup_id
+            || response[36..68] != self.query_id
+        {
+            return Err(err("response/setup/request binding mismatch"));
+        }
+        let b = up(
+            &decode(&response[68..], p.cols, p.response_bits)?,
+            p.pack.q(),
+            p.response_bits,
+        );
+        let mut out = Vec::with_capacity(p.cols);
+        let mut error = 0;
+        for (i, block) in b.chunks_exact(d).enumerate() {
+            if let Some(others) = &published.other_masks {
+                let ct = NativeTwoMaskCiphertext::from_rows(
+                    &p.pack,
+                    published.masks[i].clone(),
+                    others[i].clone(),
+                    block.to_vec(),
+                )?;
+                out.extend(self.secret.decrypt_two_mask(&ct)?);
+                if let Some(expected) = expected {
+                    error = error.max(
+                        self.secret
+                            .phase_error_two_mask(&ct, &expected[i * d..(i + 1) * d])?,
+                    );
+                }
+            } else {
+                let ct = NativeCiphertext::from_rows(
+                    &p.pack,
+                    published.masks[i].clone(),
+                    block.to_vec(),
+                )?;
+                out.extend(self.secret.decrypt(&ct)?);
+                if let Some(expected) = expected {
+                    error = error.max(
+                        self.secret
+                            .phase_error(&ct, &expected[i * d..(i + 1) * d])?,
+                    );
+                }
+            }
+        }
+        Ok((out, error))
+    }
+}
+
+/// Cached public decoding transforms bound to an immutable setup and mode.
+pub struct NativePreparedPublished {
+    setup_id: [u8; 32],
+    profile: NativeProfile,
+    decoder: NativeDecoder,
+    mask_digest: [u8; 32],
+}
+impl NativePreparedPublished {
+    /// Retained transformed coefficient bytes; excludes context tables.
+    pub fn coefficient_bytes(&self) -> usize {
+        self.decoder.coefficient_bytes()
+    }
+}
+
+/// Public masks associated with exactly one setup/snapshot.
+pub struct NativePublished {
+    setup_id: [u8; 32],
+    masks: Vec<Vec<u64>>,
+    other_masks: Option<Vec<Vec<u64>>>,
+    mask_bits: usize,
+    q: u64,
+}
+impl NativePublished {
+    /// Bind canonical evaluator masks to a validated setup and apply its publication width.
+    ///
+    /// Rejects incorrect block shapes, output modes and coefficients outside the ring.
+    /// The returned encoding is the same one the client validates with `from_bytes`.
+    pub fn from_masks(
+        setup: &NativePublicSetup,
+        masks: Vec<Vec<u64>>,
+        other_masks: Option<Vec<Vec<u64>>>,
+    ) -> Result<Self, ReinspiringError> {
+        let profile = &setup.profile;
+        let valid = |blocks: &[Vec<u64>]| {
+            blocks.len() == profile.cols / profile.pack.d()
+                && blocks.iter().all(|block| {
+                    block.len() == profile.pack.d()
+                        && block
+                            .iter()
+                            .all(|&coefficient| coefficient < profile.pack.q())
+                })
+        };
+        if !valid(&masks)
+            || other_masks.is_some() != profile.two_mask
+            || other_masks.as_ref().is_some_and(|blocks| !valid(blocks))
+        {
+            return Err(err("published mask shape or coefficient mismatch"));
+        }
+        let round = |blocks: Vec<Vec<u64>>| {
+            if profile.published_mask_bits == 64 {
+                blocks
+            } else {
+                blocks
+                    .iter()
+                    .map(|mask| {
+                        up(
+                            &down(mask, profile.pack.q(), profile.published_mask_bits),
+                            profile.pack.q(),
+                            profile.published_mask_bits,
+                        )
+                    })
+                    .collect()
+            }
+        };
+        Ok(Self {
+            setup_id: setup.id,
+            mask_bits: profile.published_mask_bits,
+            q: profile.pack.q(),
+            masks: round(masks),
+            other_masks: other_masks.map(round),
+        })
+    }
+
+    /// Cache public transforms once per snapshot, with explicit setup validation.
+    pub fn prepare(
+        &self,
+        setup: &NativePublicSetup,
+    ) -> Result<NativePreparedPublished, ReinspiringError> {
+        let p = &setup.profile;
+        if self.setup_id != setup.id
+            || self.masks.len() != p.cols / p.pack.d()
+            || self.other_masks.is_some() != p.two_mask
+            || self.mask_bits != p.published_mask_bits
+            || self.q != p.pack.q()
+        {
+            return Err(err("published setup mismatch"));
+        }
+        Ok(NativePreparedPublished {
+            setup_id: self.setup_id,
+            profile: p.clone(),
+            mask_digest: Sha256::digest(self.to_bytes()).into(),
+            decoder: NativeDecoder::new(&p.pack, &self.masks, self.other_masks.as_deref())?,
+        })
+    }
+
+    /// Canonical profile-selected published state. Count snapshot bytes separately.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        if self.mask_bits != 64 {
+            let mut out = b"RNP3".to_vec();
+            out.extend(self.setup_id);
+            let words: Vec<_> = self
+                .masks
+                .iter()
+                .flatten()
+                .chain(self.other_masks.iter().flatten().flatten())
+                .copied()
+                .collect();
+            out.extend(encode(
+                &down(&words, self.q, self.mask_bits),
+                self.mask_bits,
+            ));
+            return out;
+        }
+        let mut out = if self.other_masks.is_some() {
+            b"RNP2".to_vec()
+        } else {
+            b"RNP1".to_vec()
+        };
+        out.extend(self.setup_id);
+        for &x in self.masks.iter().flatten() {
+            out.extend(x.to_le_bytes());
+        }
+        if let Some(others) = &self.other_masks {
+            for &x in others.iter().flatten() {
+                out.extend(x.to_le_bytes());
+            }
+        }
+        out
+    }
+    /// Bounded parser using a locally expanded setup as the source of dimensions.
+    pub fn from_bytes(setup: &NativePublicSetup, bytes: &[u8]) -> Result<Self, ReinspiringError> {
+        let p = &setup.profile;
+        let count = p.cols * (1 + usize::from(p.two_mask));
+        let length = if p.published_mask_bits == 64 {
+            count * 8
+        } else {
+            packed_len(count, p.published_mask_bits)
+        };
+        let magic = if p.published_mask_bits != 64 {
+            b"RNP3"
+        } else if p.two_mask {
+            b"RNP2"
+        } else {
+            b"RNP1"
+        };
+        if bytes.len() != 36 + length || &bytes[..4] != magic || bytes[4..36] != setup.id {
+            return Err(err("published mask mismatch"));
+        }
+        let words: Vec<_> = if p.published_mask_bits == 64 {
+            bytes[36..]
+                .chunks_exact(8)
+                .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
+                .collect()
+        } else {
+            up(
+                &decode(&bytes[36..], count, p.published_mask_bits)?,
+                p.pack.q(),
+                p.published_mask_bits,
+            )
+        };
+        if words.iter().any(|&x| x >= p.pack.q()) {
+            return Err(err("noncanonical published mask"));
+        }
+        let (first, second) = words.split_at(p.cols);
+        Ok(Self {
+            setup_id: setup.id,
+            mask_bits: p.published_mask_bits,
+            q: p.pack.q(),
+            masks: first.chunks_exact(p.pack.d()).map(|x| x.to_vec()).collect(),
+            other_masks: if p.two_mask {
+                Some(
+                    second
+                        .chunks_exact(p.pack.d())
+                        .map(|x| x.to_vec())
+                        .collect(),
+                )
+            } else {
+                None
+            },
+        })
+    }
+}
+
+fn err(s: &str) -> ReinspiringError {
+    ReinspiringError::InvalidParams(s.into())
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+    #[test]
+    fn full_precision_preserves_legacy_setup_and_unsplit_key_encoding() {
+        // Low degree/modulus makes each key half non-byte-aligned, so this
+        // catches accidentally adding separate padding to legacy RNQ1 keys.
+        let pack = NativeParams::new(2, 17, 1, 9, 2, SecretDistribution::Gaussian).unwrap();
+        let profile = NativeProfile::new(pack, 2, 2)
+            .unwrap()
+            .with_kh_bits(17)
+            .unwrap();
+        let setup = NativePublicSetup::new(profile, [7; 32], [19; 32]);
+        let p = &setup.profile;
+        let mut old_hash = Sha256::new();
+        old_hash.update(b"ipir-sp/native/v1/setup");
+        old_hash.update(p.pack.encoding());
+        for n in [p.rows, p.cols, p.query_bits, p.response_bits] {
+            old_hash.update((n as u64).to_le_bytes());
+        }
+        old_hash.update([7; 32]);
+        old_hash.update([19; 32]);
+        let old_id: [u8; 32] = old_hash.finalize().into();
+        assert_eq!(setup.id, old_id);
+        let mut rng = ChaCha20Rng::seed_from_u64(42);
+        let secret = NativeSecret::sample(&p.pack, &mut rng);
+        let keys = NativeKeys::generate(&setup.packing, &secret, &mut rng).unwrap();
+        let query = secret.encrypt_selection(&setup.polys, 1, &mut rng).unwrap();
+        let mut expected = b"RNQ1".to_vec();
+        expected.extend(old_id);
+        expected.extend(encode(&keys.words(), 17));
+        expected.extend(encode(
+            &down(&query, p.pack.q(), p.query_bits),
+            p.query_bits,
+        ));
+        let actual =
+            NativeRequest::generate_with_rng(&setup, 1, &mut ChaCha20Rng::seed_from_u64(42))
+                .unwrap();
+        assert_eq!(actual.bytes(), expected);
+        assert_eq!(expected.len(), 58);
+    }
+    /// Rebuild request bytes by hand from the RNG order and wire layout:
+    /// secret, keys, query, then (when `dithered`) one coin per query row.
+    fn rebuild_request(
+        setup: &NativePublicSetup,
+        target: usize,
+        seed: u64,
+        dithered: bool,
+    ) -> Vec<u8> {
+        let p = &setup.profile;
+        let (q, full) = (p.pack.q(), p.pack.q().trailing_zeros() as usize);
+        let mut rng = ChaCha20Rng::seed_from_u64(seed);
+        let secret = NativeSecret::sample(&p.pack, &mut rng);
+        let mut bytes = Vec::new();
+        if p.two_mask {
+            let keys = NativeKeys::generate_one_key(&setup.packing, &secret, &mut rng).unwrap();
+            bytes.extend(b"RNQ3");
+            bytes.extend(setup.id);
+            bytes.extend(encode(&keys.kg_words(), full));
+        } else if p.kh_bits == full {
+            let keys = NativeKeys::generate(&setup.packing, &secret, &mut rng).unwrap();
+            bytes.extend(b"RNQ1");
+            bytes.extend(setup.id);
+            bytes.extend(encode(&keys.words(), full));
+        } else {
+            let keys = NativeKeys::generate(&setup.packing, &secret, &mut rng).unwrap();
+            let (words, half) = (keys.words(), p.pack.ell() * p.pack.d());
+            bytes.extend(b"RNQ2");
+            bytes.extend(setup.id);
+            bytes.extend(encode(&words[..half], full));
+            bytes.extend(encode(&down(&words[half..], q, p.kh_bits), p.kh_bits));
+        }
+        let query = secret
+            .encrypt_selection(&setup.polys, target, &mut rng)
+            .unwrap();
+        let body = if dithered {
+            down_dithered(&query, q, p.query_bits, &mut rng)
+        } else {
+            down(&query, q, p.query_bits)
+        };
+        bytes.extend(encode(&body, p.query_bits));
+        bytes
+    }
+    #[test]
+    fn dithered_profiles_dispatch_to_dithered_rounding() {
+        let pack = NativeParams::new(8, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+        let base = NativeProfile::new(pack, 32, 16).unwrap();
+        let modes = [
+            base.clone(),
+            base.clone().with_kh_bits(47).unwrap(),
+            base.clone()
+                .with_two_mask_output()
+                .unwrap()
+                .with_published_mask_bits(29)
+                .unwrap(),
+        ];
+        for mode in &modes {
+            // The hand rebuild reproduces the nearest dispatch, so it is a
+            // faithful model of generate_with_rng for the cases below.
+            let setup = NativePublicSetup::new(mode.clone(), [7; 32], [19; 32]);
+            let actual =
+                NativeRequest::generate_with_rng(&setup, 5, &mut ChaCha20Rng::seed_from_u64(42))
+                    .unwrap();
+            assert_eq!(actual.bytes(), rebuild_request(&setup, 5, 42, false));
+            for bits in [49, 43] {
+                let p = mode.clone().with_dithered_query_bits(bits).unwrap();
+                let setup = NativePublicSetup::new(p, [7; 32], [19; 32]);
+                for (target, seed) in [(0, 42), (21, 43)] {
+                    let actual = NativeRequest::generate_with_rng(
+                        &setup,
+                        target,
+                        &mut ChaCha20Rng::seed_from_u64(seed),
+                    )
+                    .unwrap();
+                    let dithered = rebuild_request(&setup, target, seed, true);
+                    assert_eq!(actual.bytes(), dithered);
+                    // Nearest rounding of the same query differs only in the
+                    // body, so this fails if dispatch ever skips the coins.
+                    let nearest = rebuild_request(&setup, target, seed, false);
+                    let header = dithered.len() - packed_len(32, bits);
+                    assert_eq!(nearest.len(), dithered.len());
+                    assert_eq!(nearest[..header], dithered[..header]);
+                    assert_ne!(nearest, dithered);
+                }
+            }
+        }
+    }
+    #[test]
+    fn dithered_setup_id_known_answers() {
+        let pack = NativeParams::new(8, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+        let base = NativeProfile::new(pack.clone(), 16, 24).unwrap();
+        // Mode tags hashed before the dithered tag, in setup order.
+        let cases = [
+            (base.clone(), Vec::new()),
+            (
+                base.clone().with_kh_bits(47).unwrap(),
+                [b"/kh-transport-v2/".as_slice(), &47u64.to_le_bytes()].concat(),
+            ),
+            (
+                base.clone()
+                    .with_two_mask_output()
+                    .unwrap()
+                    .with_published_mask_bits(29)
+                    .unwrap(),
+                [
+                    b"/two-mask-one-key-v1/".as_slice(),
+                    b"/rounded-public-masks-v1/",
+                    &29u64.to_le_bytes(),
+                ]
+                .concat(),
+            ),
+        ];
+        for (mode, tags) in cases {
+            let nearest = NativePublicSetup::new(mode.clone(), [7; 32], [19; 32]);
+            for bits in [43, 49] {
+                let p = mode.clone().with_dithered_query_bits(bits).unwrap();
+                let setup = NativePublicSetup::new(p, [7; 32], [19; 32]);
+                let mut h = Sha256::new();
+                h.update(b"ipir-sp/native/v1/setup");
+                h.update(pack.encoding());
+                h.update(&tags);
+                h.update(b"/dithered-query-v1/");
+                for n in [16u64, 24, bits as u64, 22] {
+                    h.update(n.to_le_bytes());
+                }
+                h.update([7; 32]);
+                h.update([19; 32]);
+                let id: [u8; 32] = h.finalize().into();
+                assert_eq!(setup.id, id);
+                assert_ne!(setup.id, nearest.id);
+            }
+        }
+    }
+    #[test]
+    fn recorded_full_size_setup_ids() {
+        // Setup IDs of bench-results/2026-10-09-dithered-query/noise-*.json.
+        let pack = NativeParams::new(2048, 54, 16, 19, 2, SecretDistribution::Gaussian).unwrap();
+        let one = NativeProfile::new(pack, 28672, 32768).unwrap();
+        let two = one
+            .clone()
+            .with_two_mask_output()
+            .unwrap()
+            .with_published_mask_bits(29)
+            .unwrap();
+        for (mode, bits, id) in [
+            (
+                &one,
+                None,
+                "5e4eaa75bcf3f162e5e12d9d09127ce658e9ac346c051839b6ee62106f379b48",
+            ),
+            (
+                &one,
+                Some(43),
+                "8111376fc9283b2fc4a0a19652ceaf3827ba23a4fe1b6b4e5091634e78ef6565",
+            ),
+            (
+                &one,
+                Some(44),
+                "7674eb4044d25468443dc4afb687ddca036b71970ab2b1b454f65eea19db2fc9",
+            ),
+            (
+                &two,
+                None,
+                "ab5b44513d72cbfc5eff42fec5f176bf7c4d5b6a5a45f50f7c3226ae4f26cb01",
+            ),
+            (
+                &two,
+                Some(43),
+                "3c3059d5d5c4252d8c0e20c5727a6848eb2f7c2a5b9d99149da8e5e6448c99f4",
+            ),
+            (
+                &two,
+                Some(44),
+                "1ff07e69124f147a7149707cd19c0d870c3bb0b282519c618e71e57b65863e90",
+            ),
+        ] {
+            let p = match bits {
+                Some(bits) => mode.clone().with_dithered_query_bits(bits).unwrap(),
+                None => mode.clone(),
+            };
+            let setup = NativePublicSetup::new(p, [7; 32], [19; 32]);
+            let hex: String = setup.id.iter().map(|x| format!("{x:02x}")).collect();
+            assert_eq!(hex, id);
+        }
+    }
+    #[test]
+    fn recorded_p8_setup_ids() {
+        // Setup IDs of the 28-bit query, 10-bit response, 22-bit mask reports
+        // in bench-results/2026-10-09-p8-native/certificates, for both gadgets.
+        for (ell, gadget_bits, rows, cols, id) in [
+            (
+                2,
+                19,
+                28672,
+                65536,
+                "7c5b9c0fde5a1d9db2709baed9ff5994ab054e16fa60a902b00ba61d41485e9c",
+            ),
+            (
+                1,
+                27,
+                28672,
+                65536,
+                "61bea92cf99b31e73a0e80bdf6783a9f59088a6f6667949be2e13882a26a6606",
+            ),
+            (
+                2,
+                19,
+                65536,
+                32768,
+                "d479eff097af2c155becda48d2e145dbace0b74b0fe8ed5a407991677a250c95",
+            ),
+            (
+                1,
+                27,
+                65536,
+                32768,
+                "290c60438eb62f51e0412fb4d9fa15676a5bf35650392a2c202444e0f28c954f",
+            ),
+        ] {
+            let pack =
+                NativeParams::new(2048, 54, 8, gadget_bits, ell, SecretDistribution::Gaussian)
+                    .unwrap();
+            let profile = NativeProfile::new(pack, rows, cols)
+                .unwrap()
+                .with_two_mask_output()
+                .unwrap()
+                .with_published_mask_bits(22)
+                .unwrap()
+                .with_dithered_query_bits(28)
+                .unwrap()
+                .with_response_bits(10)
+                .unwrap();
+            let setup = NativePublicSetup::new(profile, [7; 32], [19; 32]);
+            let hex: String = setup.id.iter().map(|x| format!("{x:02x}")).collect();
+            assert_eq!(hex, id);
+        }
+    }
+    #[test]
+    fn dithered_query_rounding_is_unbiased_floor_or_ceiling() {
+        let q = 1u64 << 54;
+        let mut rng = ChaCha20Rng::seed_from_u64(7);
+        for bits in [43, 48] {
+            let shift = 54 - bits;
+            let unit = 1u64 << shift;
+            let mask = (1u64 << bits) - 1;
+            // Exact multiples never move, whatever the coins.
+            let exact = [0, unit, q - unit];
+            assert_eq!(
+                down_dithered(&exact, q, bits, &mut rng),
+                exact.iter().map(|&x| x >> shift).collect::<Vec<_>>()
+            );
+            for x in [1, unit / 4, unit / 2, unit - 1, q - 1, q - unit / 3] {
+                let trials = 1 << 16;
+                let floor = x >> shift;
+                let ups = down_dithered(&vec![x; trials], q, bits, &mut rng)
+                    .into_iter()
+                    .filter(|&y| {
+                        // Only floor or ceiling; the ceiling of q-1 wraps to 0.
+                        assert!(y == floor || y == (floor + 1) & mask);
+                        y != floor
+                    })
+                    .count();
+                // Round-up frequency must match the dropped fraction (zero mean
+                // error); 6 binomial standard deviations at most p=1/2.
+                let expected = trials as f64 * (x & (unit - 1)) as f64 / unit as f64;
+                let sd = (trials as f64 / 4.0).sqrt();
+                assert!(
+                    (ups as f64 - expected).abs() <= 6.0 * sd,
+                    "bits={bits} x={x}: {ups} round-ups, expected {expected}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn key_and_public_mask_rounding_known_answers_and_modular_bound() {
+        let q = 1u64 << 54;
+        for bits in (27..=32).chain(40..=54) {
+            let unit = 1u64 << (54 - bits);
+            let radius = if bits == 54 { 0 } else { unit / 2 };
+            let words = [
+                0,
+                radius.saturating_sub(1),
+                radius,
+                unit - 1,
+                q - 1,
+                q - radius,
+            ];
+            let words: Vec<_> = words.into_iter().map(|x| x % q).collect();
+            let round = up(
+                &decode(&encode(&down(&words, q, bits), bits), words.len(), bits).unwrap(),
+                q,
+                bits,
+            );
+            for (&a, &b) in words.iter().zip(&round) {
+                let error = a.wrapping_sub(b) & (q - 1);
+                assert!(error.min(q - error) <= radius);
+            }
+            if bits < 54 {
+                assert_eq!(round, vec![0, 0, unit, unit, 0, 0]);
+            } else {
+                assert_eq!(round, words);
+            }
+        }
+    }
+    #[test]
+    fn decode_returns_exactly_n_words() {
+        // One 3-bit word in one byte leaves 5 padding bits. Without the
+        // truncation these unpacked as a second word, re-encoded identically
+        // and so passed the padding check.
+        assert_eq!(decode(&[0b0000_0101], 1, 3).unwrap(), vec![0b101]);
+        assert!(decode(&[0b0010_1101], 1, 3).is_err());
+        assert!(decode(&[0b1000_0101], 1, 3).is_err());
+    }
+}
+
+#[cfg(test)]
+mod published_mask_tests {
+    use super::*;
+
+    #[test]
+    fn evaluator_masks_must_match_the_validated_setup() {
+        let params = NativeParams::new(2, 17, 1, 9, 2, SecretDistribution::Gaussian).unwrap();
+        let profile = NativeProfile::new(params, 2, 2).unwrap();
+        let setup = NativePublicSetup::new(profile, [7; 32], [19; 32]);
+        assert!(NativePublished::from_masks(&setup, vec![vec![0, 1]], None).is_ok());
+        assert!(NativePublished::from_masks(&setup, vec![], None).is_err());
+        assert!(NativePublished::from_masks(&setup, vec![vec![0]], None).is_err());
+        assert!(NativePublished::from_masks(&setup, vec![vec![0, 1 << 17]], None).is_err());
+        assert!(
+            NativePublished::from_masks(&setup, vec![vec![0, 1]], Some(vec![vec![0, 1]])).is_err()
+        );
+    }
+}

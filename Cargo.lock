@@ -1220,6 +1220,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ipir-native-client"
+version = "0.1.0-rc.1"
+dependencies = [
+ "rand 0.9.4",
+ "rand_chacha 0.3.1",
+ "reinspiring",
+ "sha2",
+]
+
+[[package]]
 name = "ipir-sp"
 version = "0.1.0-rc.7"
 dependencies = [
@@ -1228,6 +1238,7 @@ dependencies = [
  "criterion",
  "fastrand",
  "inspiring",
+ "ipir-native-client",
  "log",
  "rand 0.9.4",
  "rand_chacha 0.3.1",
