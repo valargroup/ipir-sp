@@ -1,5 +1,18 @@
 # Changelog
 
+## ipir-native-client 0.1.0-rc.1 — 2026-10-19
+
+- First release of the native PIR client extracted from `ipir-sp`: profiles,
+  deterministic public setup, query generation, published-mask parsing and
+  response decoding without the IPIR database evaluator or SimplePIR kernel.
+- Existing applications keep the `ipir-sp::native` re-exports. Profile identities,
+  setup derivation, query and response bytes, entropy sources and security
+  parameters are unchanged by the extraction.
+- ReinspiRING, InspiRING, Spiral and Rayon remain transitive dependencies; this
+  release establishes the client/evaluator boundary, not a complete arithmetic
+  library split.
+- Include the MIT and Apache license texts in the published client package.
+
 ## 0.1.0-rc.7 — 2026-10-12
 
 - Experimental 8-bit native profile (opt-in, `native-reinspiring`). Two-mask
