@@ -113,7 +113,7 @@ jobs:
         run: cargo clippy -p nullifier-pir --all-targets -- -D warnings
 
       - name: cargo check
-        run: cargo check -p ipir-native-client -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --all-targets --all-features
+        run: cargo check --locked -p ipir-native-client -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --all-targets --all-features
 
   tests:
     name: Tests and benches
@@ -155,13 +155,13 @@ jobs:
             ${{ runner.os }}-cargo-rust-crates-tests-
 
       - name: cargo test
-        run: cargo test -p ipir-native-client -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --all-features --no-fail-fast
+        run: cargo test --locked -p ipir-native-client -p inspiring -p reinspiring -p ipir-sp -p simplepir-kernel --all-features --no-fail-fast
 
       - name: cargo test nullifier-pir
-        run: cargo test -p nullifier-pir --no-fail-fast
+        run: cargo test --locked -p nullifier-pir --no-fail-fast
 
       - name: Native degree-2048 correctness
-        run: cargo test -p reinspiring --release --test native_flow native_paper_degree_roundtrip -- --ignored
+        run: cargo test --locked -p reinspiring --release --test native_flow native_paper_degree_roundtrip -- --ignored
 
       - name: cargo bench inspiring --no-run
         run: cargo bench -p inspiring --bench pack --no-run
