@@ -1,5 +1,19 @@
 # Changelog
 
+## ipir-sp 0.1.0-rc.8 — 2026-10-30
+
+This release candidate includes the native-client extraction and CLI dependency
+cleanup already merged on `main` since the published rc.7 package.
+
+- Ordinary library consumers no longer pull in `clap` or `env_logger`.
+- The demonstration binaries require `cli` alongside their HTTP feature.
+- Native profiles, setup material, query generation, and response decoding live
+  in the published `ipir-native-client` 0.1.0-rc.1 crate. Existing IPIR native
+  entry points forward to that implementation.
+
+PIR parameter identities, wire encodings, and cryptographic dependency versions
+are unchanged by the release preparation.
+
 ## ipir-native-client 0.1.0-rc.1 — 2026-10-19
 
 - First release of the native PIR client extracted from `ipir-sp`: profiles,
