@@ -1254,13 +1254,12 @@ dependencies = [
 
 [[package]]
 name = "ipir-sp"
-version = "0.1.0-rc.6"
+version = "0.1.0-rc.6.1"
 dependencies = [
  "actix-cors",
  "actix-web",
  "clap",
  "criterion",
- "env_logger",
  "fastrand",
  "inspiring",
  "log",
