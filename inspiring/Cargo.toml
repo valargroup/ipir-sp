@@ -30,7 +30,7 @@ rand = "0.8.5"
 # Discrete-Gaussian sampling, NTT, polynomial arithmetic, and ChaCha20 RNG all
 # come from spiral-rs; we do not need a separate crypto stack.
 
-thiserror = "1.0"
+thiserror = "2"
 memmap2 = "0.9"
 bytemuck = "1"
 
