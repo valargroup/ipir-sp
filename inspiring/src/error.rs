@@ -40,3 +40,38 @@ pub enum InspiringError {
     #[error("internal invariant: {0}")]
     Internal(&'static str),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::InspiringError;
+    use std::error::Error;
+
+    fn assert_error_traits<T: Error + Send + Sync + Unpin + 'static>() {}
+
+    #[test]
+    fn display_and_source_are_stable() {
+        assert_error_traits::<InspiringError>();
+        let cases = [
+            (
+                InspiringError::InvalidParams("ring".into()),
+                "invalid parameter set: ring",
+            ),
+            (
+                InspiringError::LweShape("dimension".into()),
+                "LWE shape mismatch: dimension",
+            ),
+            (
+                InspiringError::PreprocessMismatch("cache".into()),
+                "preprocessing/parameter mismatch: cache",
+            ),
+            (
+                InspiringError::Internal("invariant"),
+                "internal invariant: invariant",
+            ),
+        ];
+        for (error, expected) in cases {
+            assert_eq!(error.to_string(), expected);
+            assert!(error.source().is_none());
+        }
+    }
+}
