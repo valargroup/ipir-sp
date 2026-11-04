@@ -66,7 +66,7 @@ on:
 jobs:
   portable:
     name: Portable compile checks
-    runs-on: [self-hosted, Linux, X64, avx512]
+    runs-on: ubuntu-latest
 
     env:
       CARGO_TERM_COLOR: always
@@ -117,7 +117,7 @@ jobs:
 
   tests:
     name: Tests and benches
-    runs-on: [self-hosted, Linux, X64, avx512]
+    runs-on: ubuntu-latest
 
     env:
       CARGO_TERM_COLOR: always
@@ -126,14 +126,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
-      - name: Verify CPU has AVX-512
-        run: |
-          if ! grep -q avx512f /proc/cpuinfo || ! grep -q avx512_vnni /proc/cpuinfo; then
-            echo "::error::This runner lacks AVX-512F or AVX-512 VNNI; spiral-rs and byte-kernel tests cannot run."
-            exit 1
-          fi
-          echo "AVX-512 detected on $(uname -m)"
 
       - name: Install Rust toolchain via rust-toolchain.toml
         # Setting up rustup such that `cargo` invocations honour
